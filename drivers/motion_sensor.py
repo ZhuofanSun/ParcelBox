@@ -123,7 +123,7 @@ class MotionSensor:
 
 
 if __name__ == "__main__":
-    TEST_PIN = 4
+    TEST_PIN = 20
 
     sensor = MotionSensor(TEST_PIN)
     try:
