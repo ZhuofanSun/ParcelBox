@@ -87,7 +87,7 @@ class Buzzer:
 
 
 if __name__ == "__main__":
-    TEST_PIN = 21
+    TEST_PIN = 12
 
     buzzer = Buzzer(TEST_PIN)
     try:
