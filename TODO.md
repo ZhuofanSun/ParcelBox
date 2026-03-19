@@ -397,7 +397,7 @@ iot_locker/
 
 ### Phase 1: Stabilize Drivers
 
-- [ ] 把所有驱动都整理成统一风格：
+- [x] 把所有驱动都整理成统一风格：
   - [x] `button.py`
   - [x] `buzzer.py`
   - [x] `camera.py`
@@ -411,10 +411,10 @@ iot_locker/
 - [x] 补统一的 `scripts/hardware_smoke_test.py` 作为回归入口。
 
 检查点
-- [ ] 每个驱动都能单独跑起来。
-- [ ] 每个驱动至少完成一次真机 smoke test。
-- [ ] 驱动层不包含业务判断、数据库写入、HTTP 逻辑。
-- [ ] 新增驱动或改动驱动后，不会影响别的驱动测试。
+- [x] 每个驱动都能单独跑起来。
+- [x] 每个驱动至少完成一次真机 smoke test。
+- [x] 驱动层不包含业务判断、数据库写入、HTTP 逻辑。
+- [x] 新增驱动或改动驱动后，不会影响别的驱动测试。
 
 ### Phase 2: Camera, Vision, And Mount Control
 
