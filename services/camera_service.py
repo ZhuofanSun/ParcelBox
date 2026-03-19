@@ -85,15 +85,18 @@ class CameraService:
         with self._lock:
             return self._camera.capture_detection_frame()
 
-    def get_stream_frame_jpeg(self, quality: int = 85) -> bytes:
+    def get_stream_frame_jpeg(self, quality: int | None = None) -> bytes:
         """
         Get one JPEG-encoded frame from the main stream.
 
         Args:
-            quality: JPEG quality from 0 to 100.
+            quality: JPEG quality from 0 to 100. None uses config.web.jpeg_quality.
         """
         if cv2 is None:
             raise RuntimeError("OpenCV is required for JPEG encoding. Install python3-opencv.")
+
+        if quality is None:
+            quality = config.web.jpeg_quality
 
         if not 0 <= quality <= 100:
             raise ValueError("quality must be between 0 and 100")

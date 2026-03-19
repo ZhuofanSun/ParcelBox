@@ -206,6 +206,7 @@
     const ctx = overlay.getContext("2d");
 
     let latestPayload = null;
+    let boxesIntervalMs = 1000;
 
     function resizeOverlay() {
       const rect = streamImage.getBoundingClientRect();
@@ -252,11 +253,12 @@
       const response = await fetch("/api/stream/meta");
       const data = await response.json();
       streamMetaPre.textContent = JSON.stringify(data, null, 2);
+      boxesIntervalMs = Math.max(1000 / Math.max(data.boxes_fps || 1, 1), 100);
     }
 
     async function pollBoxes() {
       try {
-        const response = await fetch("/api/vision/boxes");
+        const response = await fetch("/api/vision/boxes", { cache: "no-store" });
         latestPayload = await response.json();
         boxesJsonPre.textContent = JSON.stringify(latestPayload, null, 2);
         modeBadge.textContent = latestPayload.mode;
@@ -266,13 +268,17 @@
       }
     }
 
+    async function startBoxesLoop() {
+      while (true) {
+        await pollBoxes();
+        await new Promise((resolve) => setTimeout(resolve, boxesIntervalMs));
+      }
+    }
+
     window.addEventListener("resize", resizeOverlay);
     streamImage.addEventListener("load", resizeOverlay);
 
-    loadStreamMeta();
-    pollBoxes();
-    setInterval(pollBoxes, 100);
-    setInterval(drawOverlay, 100);
+    loadStreamMeta().then(startBoxesLoop);
   </script>
 </body>
 </html>

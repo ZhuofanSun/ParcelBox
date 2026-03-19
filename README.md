@@ -132,7 +132,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 ## Current Frontend Direction
 
 - Show a continuous live video stream
-- Keep frontend display at `1920x1080`
+- Current demo keeps frontend display at `1280x720` for smoother delivery on Raspberry Pi
 - Draw detection boxes on the frontend using backend-provided box data
 - Provide manual snapshot capture
 - Provide card management, device testing, alarm, and log viewing
@@ -153,10 +153,11 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `/api/stream.mjpg` provides the MJPEG stream
 - `/api/vision/boxes` currently returns fake backend boxes for overlay validation
 - `/api/stream/meta` returns stream and detection sizes
+- Current demo defaults: `720p`, `15 fps` stream, `5 fps` boxes polling, JPEG quality `70`
 
 ## Vision Baseline
 
-- Use a `1920x1080` stream for frontend display
+- Current demo uses a `1280x720` stream for frontend display
 - Use a separate `640x480` inference resolution for vision tasks
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough

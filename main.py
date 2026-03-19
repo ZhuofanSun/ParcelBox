@@ -42,6 +42,7 @@ def serve() -> None:
         host=config.web.host,
         port=config.web.port,
         reload=False,
+        access_log=config.web.access_log,
     )
 
 
