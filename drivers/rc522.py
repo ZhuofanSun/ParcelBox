@@ -520,6 +520,11 @@ if __name__ == "__main__":
         print("UID:", uid)
 
         sector_data = reader.read_sector(1)
+        # 这个项目使用：Mifare Classic 1k -> 13.56MHz 高频 RFID == IC卡
+        # 16 sector, 4 blocks/sector, 16B/block -> 16*4*16=1024B
+        # sector 0 block 0 是制造商数据，通常不建议修改
+        # 每个 sector 的最后一个 block (block 3+4n) 是扇区控制块，包含访问权限和AB密钥数据，通常不建议修改
+        # 这个项目读写都使用A密钥，使用默认的 0xFF FF FF FF FF FF授权
         for block_addr, data in sector_data.items():
             print(f"Block {block_addr}: {data}")  # 读取第 1 扇区的所有数据块
 

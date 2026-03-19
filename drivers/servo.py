@@ -212,6 +212,7 @@ if __name__ == "__main__":
         servo.move_to(45, 2, 0.02)  # 平滑移动到 45 度
         time.sleep(1)
         servo.move_to(135, 2, 0.02)  # 平滑移动到 135 度
+        servo.center()
 
     finally:
         servo.cleanup()
