@@ -21,14 +21,19 @@ from drivers.servo import Servo
 from drivers.ultrasonic_sensor import UltrasonicSensor
 
 
-def smoke_button() -> None:
+def smoke_button(duration: float | None = None) -> None:
     button = Button(config.gpio.button_pin)
     try:
-        print("Watching button state. Press Ctrl+C to stop.")
+        if duration is None:
+            print("Watching button state. Press Ctrl+C to stop.")
+        else:
+            print(f"Watching button state for {duration:.0f} seconds...")
+
+        deadline = None if duration is None else time.time() + duration
         last_state = button.is_pressed
         print("Pressed" if last_state else "Released")
 
-        while True:
+        while deadline is None or time.time() < deadline:
             current_state = button.is_pressed
             if current_state != last_state:
                 print("Pressed" if current_state else "Released")
@@ -83,14 +88,20 @@ def smoke_rgb() -> None:
         led.cleanup()
 
 
-def smoke_ultrasonic() -> None:
+def smoke_ultrasonic(duration: float | None = None) -> None:
     sensor = UltrasonicSensor(
         config.gpio.ultrasonic_trigger_pin,
         config.gpio.ultrasonic_echo_pin,
     )
     try:
-        print("Printing ultrasonic distance. Press Ctrl+C to stop.")
-        while True:
+        if duration is None:
+            print("Printing ultrasonic distance. Press Ctrl+C to stop.")
+        else:
+            print(f"Printing ultrasonic distance for {duration:.0f} seconds...")
+
+        deadline = None if duration is None else time.time() + duration
+
+        while deadline is None or time.time() < deadline:
             distance = sensor.measure_distance_cm(
                 samples=config.ultrasonic.sample_count,
                 sample_interval=config.ultrasonic.sample_interval,
@@ -137,21 +148,58 @@ def smoke_camera() -> None:
         camera.cleanup()
 
 
-def smoke_rc522() -> None:
+def smoke_rc522(timeout: float | None = None) -> None:
     reader = RC522Reader(pin_rst=config.gpio.rc522_rst_pin)
     try:
-        print("Waiting for RFID card...")
-        uid = reader.read_uid_hex()
-        print("UID:", uid)
+        if timeout is None:
+            print("Waiting for RFID card...")
+        else:
+            print(f"Waiting for RFID card for up to {timeout:.0f} seconds...")
+
+        uid = reader.read_uid_hex(timeout=timeout)
+        if uid is None:
+            print("No RFID card detected")
+        else:
+            print("UID:", uid)
     finally:
         reader.cleanup()
+
+
+def run_step(name: str, func) -> None:
+    print(f"\n=== {name} ===")
+    func()
+
+
+def smoke_all() -> None:
+    print("Running all hardware smoke tests...")
+    print("Button and RC522 are time-limited in this mode.")
+
+    run_step("Buzzer", smoke_buzzer)
+    run_step("RGB LED", smoke_rgb)
+    run_step("Door Servo", lambda: smoke_servo(config.gpio.door_servo_pin, "door servo"))
+    run_step(
+        "Camera Pan Servo",
+        lambda: smoke_servo(config.gpio.camera_pan_servo_pin, "camera pan servo"),
+    )
+    run_step(
+        "Camera Tilt Servo",
+        lambda: smoke_servo(config.gpio.camera_tilt_servo_pin, "camera tilt servo"),
+    )
+    run_step("Ultrasonic Sensor", lambda: smoke_ultrasonic(8))
+    run_step("Camera", smoke_camera)
+    run_step("RC522", lambda: smoke_rc522(10))
+    run_step("Button", lambda: smoke_button(8))
+    print("\nAll hardware smoke tests finished.")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run hardware smoke tests.")
     parser.add_argument(
         "device",
+        nargs="?",
+        default="all",
         choices=[
+            "all",
             "button",
             "buzzer",
             "door-servo",
@@ -166,6 +214,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if args.device == "all":  # 有定时打断，不传参数默认跑 all
+        smoke_all()
+        return
     if args.device == "button":
         smoke_button()
         return

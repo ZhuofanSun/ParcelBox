@@ -21,9 +21,9 @@ class Servo:
         self,
         pin: int,
         min_angle: float = 0,
-        max_angle: float = 160,
+        max_angle: float = 180,
         min_pulse_width: float = 0.5,
-        max_pulse_width: float = 2.0,
+        max_pulse_width: float = 2.5,
         frequency: int = 50,
         gpio_module=None,
     ) -> None:
@@ -254,11 +254,11 @@ if __name__ == "__main__":
         time.sleep(1)
         servo.center()  # 转到中间位置
         time.sleep(1)
-        servo.move_max()  # 转到最大角度
+        servo.move_max(settle_time=1.0, release=False)  # 转到最大角度
         time.sleep(1)
         servo.move_to(45, 2, 0.02)  # 平滑移动到 45 度
         time.sleep(1)
-        servo.move_to(135, 2, 0.02)  # 平滑移动到 135 度
+        servo.move_to(180, 2, 0.02)  # 平滑移动到 135 度
         time.sleep(1)
         servo.sweep(45, 120, 2, 0.02)  # 低风险扫一段角度
         servo.center()
