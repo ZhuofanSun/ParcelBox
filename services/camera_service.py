@@ -18,7 +18,7 @@ class CameraService:
     """High-level camera service for streaming and snapshots."""
 
     def __init__(self, camera: CsiCamera | None = None) -> None:
-        self._camera = camera or CsiCamera(config.camera.camera_index)
+        self._camera = camera
         self._lock = threading.Lock()
         self._started = False
 
@@ -37,6 +37,9 @@ class CameraService:
         with self._lock:
             if self._started:
                 return
+
+            if self._camera is None:
+                self._camera = CsiCamera(config.camera.camera_index)
 
             self._camera.configure_video(
                 stream_size=config.camera.stream_size,
@@ -70,11 +73,15 @@ class CameraService:
 
     def get_stream_frame(self):
         """Get one frame from the main stream."""
+        if self._camera is None:
+            raise RuntimeError("Camera service is not started")
         with self._lock:
             return self._camera.capture_stream_frame()
 
     def get_detection_frame(self):
         """Get one frame from the low-resolution detection stream."""
+        if self._camera is None:
+            raise RuntimeError("Camera service is not started")
         with self._lock:
             return self._camera.capture_detection_frame()
 
@@ -107,5 +114,7 @@ class CameraService:
         """Save one full-resolution snapshot to disk."""
         output_path = Path(path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        if self._camera is None:
+            raise RuntimeError("Camera service is not started")
         with self._lock:
             self._camera.capture_file(str(output_path))
