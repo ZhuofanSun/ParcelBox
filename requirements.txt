@@ -1,3 +1,5 @@
 RPi.GPIO
 spidev
 pi-rc522
+fastapi
+uvicorn

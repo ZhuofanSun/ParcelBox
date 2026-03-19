@@ -73,6 +73,16 @@ class StorageConfig:
 
 
 @dataclass
+class WebConfig:
+    """Web runtime configuration."""
+
+    host: str = "0.0.0.0"
+    port: int = 8000
+    stream_fps: int = 10
+    boxes_fps: int = 10
+
+
+@dataclass
 class AppConfig:
     """Top-level application configuration."""
 
@@ -81,6 +91,7 @@ class AppConfig:
     camera_mount: CameraMountConfig = field(default_factory=CameraMountConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
+    web: WebConfig = field(default_factory=WebConfig)
 
 
 config = AppConfig()

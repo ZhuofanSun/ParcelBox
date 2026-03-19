@@ -77,6 +77,16 @@ The `--system-site-packages` flag is important so the virtual environment can se
 /home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python scripts/hardware_smoke_test.py camera
 ```
 
+- Example Phase 2 demo command on the Pi:
+
+```bash
+/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python main.py
+```
+
+Then open:
+
+- [http://raspberrypi.local:8000](http://raspberrypi.local:8000)
+
 ## Configuration Baseline
 
 A centralized config template now exists in [config.py](/Users/sunzhuofan/IOT-project/config.py).
@@ -136,6 +146,14 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
   - saturation
 - Persist video settings and restore them on next startup
 
+## Current Phase 2 Demo
+
+- `main.py` starts a minimal FastAPI app
+- `frontend/index.html` shows the live stream and draws boxes on a canvas overlay
+- `/api/stream.mjpg` provides the MJPEG stream
+- `/api/vision/boxes` currently returns fake backend boxes for overlay validation
+- `/api/stream/meta` returns stream and detection sizes
+
 ## Vision Baseline
 
 - Use a `1920x1080` stream for frontend display
@@ -189,6 +207,7 @@ Camera device orchestration.
 - camera parameter changes
 - parameter persistence
 - raw snapshot capture
+- JPEG encoding for MJPEG output
 
 ### `services/vision_service.py`
 
@@ -199,6 +218,10 @@ Vision understanding only.
 - tracking target state
 - clear-frame scoring
 - output boxes and tracking data
+
+Current implementation note:
+
+- Phase 2 currently uses a fake moving box so the frontend overlay pipeline can be validated before a real detector is added
 
 ### `services/camera_mount_service.py`
 
