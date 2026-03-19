@@ -1,3 +1,10 @@
+"""Ultrasonic distance sensor driver.
+
+Notes:
+- Many common modules output a 5V echo signal. Use voltage division before the Pi GPIO.
+- This driver is blocking and should be called from a worker or service layer.
+"""
+
 import time
 
 try:
@@ -90,12 +97,17 @@ class UltrasonicSensor:
         pulse_end = time.perf_counter()
         return pulse_end - pulse_start
 
-    def measure_distance_cm(self, samples: int = 3, sample_interval: float = 0.05, timeout: float = 0.03):
+    def measure_distances(
+        self,
+        samples: int = 3,
+        sample_interval: float = 0.05,
+        timeout: float = 0.03,
+    ) -> list[float]:
         """
-        Measure distance in centimeters.
+        Collect one or more distance samples in centimeters.
 
         Args:
-            samples: Number of samples to collect. The median value is returned.
+            samples: Number of samples to collect.
             sample_interval: Delay between samples, in seconds.
             timeout: Maximum wait time for each echo pulse.
         """
@@ -115,22 +127,57 @@ class UltrasonicSensor:
             if index < samples - 1:
                 time.sleep(sample_interval)
 
+        return distances
+
+    def measure_distance_cm(
+        self,
+        samples: int = 3,
+        sample_interval: float = 0.05,
+        timeout: float = 0.03,
+        method: str = "average",
+    ):
+        """
+        Measure distance in centimeters.
+
+        Args:
+            samples: Number of samples to collect.
+            sample_interval: Delay between samples, in seconds.
+            timeout: Maximum wait time for each echo pulse.
+            method: Aggregation method, supports "average", "median", or "min".
+        """
+        distances = self.measure_distances(samples, sample_interval, timeout)
+
         if not distances:
             return None
 
-        distances.sort()
-        return distances[len(distances) // 2]
+        method = method.lower()
+        if method == "average":
+            return sum(distances) / len(distances)
+        if method == "median":
+            distances.sort()
+            return distances[len(distances) // 2]
+        if method == "min":
+            return min(distances)
 
-    def measure_distance_m(self, samples: int = 3, sample_interval: float = 0.05, timeout: float = 0.03):
+        raise ValueError('method must be "average", "median", or "min"')
+
+    def measure_distance_m(
+        self,
+        samples: int = 3,
+        sample_interval: float = 0.05,
+        timeout: float = 0.03,
+        method: str = "average",
+    ):
         """
         Measure distance in meters.
 
         Args:
-            samples: Number of samples to collect. The median value is returned.
+            samples: Number of samples to collect.
             sample_interval: Delay between samples, in seconds.
             timeout: Maximum wait time for each echo pulse.
+            method: Aggregation method, supports "average", "median", or "min".
         """
-        distance_cm = self.measure_distance_cm(samples, sample_interval, timeout)
+        distance_cm = self.measure_distance_cm(samples, sample_interval, timeout, method)
         if distance_cm is None:
             return None
 
@@ -155,11 +202,11 @@ if __name__ == "__main__":
     try:
         print("Measuring distance...")
         while True:
-            distance_cm = sensor.measure_distance_cm()
+            distance_cm = sensor.measure_distance_cm(samples=5, method="average")
             if distance_cm is None:
                 print("No echo")
             else:
-                print(f"Distance: {distance_cm:.2f} cm")  # 持续打印测到的厘米距离
+                print(f"Distance: {distance_cm:.2f} cm")  # 持续打印平均距离
             time.sleep(0.3)
     finally:
         sensor.cleanup()

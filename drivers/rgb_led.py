@@ -1,3 +1,10 @@
+"""RGB LED driver.
+
+Notes:
+- This driver controls the three LED channels directly and does not know project states.
+- For common-anode LEDs, PWM is inverted automatically.
+"""
+
 import time
 
 try:
@@ -91,7 +98,7 @@ class RgbLed:
 
         self._current_rgb = (red, green, blue)
 
-    def  set_color(self, color: str) -> None:
+    def set_color(self, color: str) -> None:
         """
         Set the LED using a simple color name.
 
@@ -114,6 +121,35 @@ class RgbLed:
             raise ValueError(f"Unsupported color: {color}")
 
         self.set_rgb(*color_map[color])
+
+    def blink(
+        self,
+        color: str,
+        on_time: float = 0.3,
+        off_time: float = 0.3,
+        repeat: int = 3,
+    ) -> None:
+        """
+        Blink the LED with a named color.
+
+        Args:
+            color: One of the supported color names.
+            on_time: Time in seconds to keep the LED on.
+            off_time: Time in seconds to keep the LED off between blinks.
+            repeat: Number of blink cycles.
+        """
+        if on_time < 0 or off_time < 0:
+            raise ValueError("on_time and off_time must be >= 0")
+        if repeat < 1:
+            raise ValueError("repeat must be >= 1")
+
+        for index in range(repeat):
+            self.set_color(color)
+            time.sleep(on_time)
+            self.off()
+
+            if index < repeat - 1:
+                time.sleep(off_time)
 
     def off(self) -> None:
         """Turn the LED off."""
@@ -151,6 +187,7 @@ if __name__ == "__main__":
         time.sleep(1)  # 白灯亮 1 秒
         led.set_rgb(255, 100, 0)
         time.sleep(1)  # 橙色亮 1 秒
+        led.blink("cyan", 0.2, 0.2, 3)  # 青色闪三次
         led.off()
     finally:
         led.cleanup()

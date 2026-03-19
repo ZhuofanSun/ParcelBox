@@ -1,3 +1,11 @@
+"""Standard servo driver.
+
+Notes:
+- Raspberry Pi software PWM is good enough for basic control but can still jitter.
+- Calibrate angle range and pulse range on the real servo before using the end points.
+- Use an external 5V supply for the servo and keep grounds shared with the Pi.
+"""
+
 import time
 
 try:
@@ -187,6 +195,45 @@ class Servo:
         if release:
             self.release()
 
+    def move_by(self, delta: float, settle_time: float = 0.2, release: bool = True) -> float:
+        """
+        Move the servo by a relative angle delta.
+
+        Args:
+            delta: Relative angle to add to the current angle.
+            settle_time: Time in seconds to wait after the move.
+            release: If True, stop PWM after the move to reduce jitter.
+        """
+        if self._current_angle is None:
+            current = (self.min_angle + self.max_angle) / 2
+        else:
+            current = self._current_angle
+
+        target = current + delta
+        self.set_angle(target, settle_time, release)
+        return target
+
+    def sweep(
+        self,
+        start_angle: float,
+        end_angle: float,
+        step: float = 2,
+        delay: float = 0.02,
+        release: bool = True,
+    ) -> None:
+        """
+        Sweep the servo from one angle to another.
+
+        Args:
+            start_angle: Sweep start angle.
+            end_angle: Sweep end angle.
+            step: Angle step used for each small move.
+            delay: Delay in seconds between steps.
+            release: If True, stop PWM after the sweep to reduce jitter.
+        """
+        self.set_angle(start_angle, 0.2, False)
+        self.move_to(end_angle, step, delay, release)
+
     def cleanup(self) -> None:
         """Stop PWM and release the GPIO pin."""
         self.release()
@@ -212,6 +259,8 @@ if __name__ == "__main__":
         servo.move_to(45, 2, 0.02)  # 平滑移动到 45 度
         time.sleep(1)
         servo.move_to(135, 2, 0.02)  # 平滑移动到 135 度
+        time.sleep(1)
+        servo.sweep(45, 120, 2, 0.02)  # 低风险扫一段角度
         servo.center()
 
     finally:

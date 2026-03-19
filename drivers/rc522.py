@@ -1,3 +1,11 @@
+"""RC522 RFID driver.
+
+Notes:
+- SPI must be enabled on the Raspberry Pi before this driver can work.
+- The default key is the shipping key for unencrypted MIFARE Classic sectors.
+- Keep card naming, permissions, and enrollment workflow in the service layer.
+"""
+
 import time
 
 try:
@@ -170,6 +178,48 @@ class RC522Reader:
 
         return blocks
 
+    def _read_uid_once(self):
+        error, uid = self._reader.anticoll()
+        if error:
+            return None
+        return uid
+
+    def _select_card(self, uid: list[int]) -> None:
+        if self._reader.select_tag(uid):
+            raise RuntimeError("Failed to select card")
+
+    def _authenticate(self, uid: list[int], block_addr: int, key, auth_mode: str) -> None:
+        normalized_key = self._normalize_key(key)
+        normalized_auth_mode = self._get_auth_mode(auth_mode)
+
+        if self._reader.card_auth(normalized_auth_mode, block_addr, normalized_key, uid):
+            raise RuntimeError(f"Authentication failed for block {block_addr}")
+
+    def _read_block_selected(
+        self,
+        uid: list[int],
+        block_addr: int,
+        key=None,
+        auth_mode: str = "A",
+    ) -> list[int]:
+        self._authenticate(uid, block_addr, key, auth_mode)
+        error, data = self._reader.read(block_addr)
+        if error:
+            raise RuntimeError(f"Failed to read block {block_addr}")
+        return data
+
+    def _write_block_selected(
+        self,
+        uid: list[int],
+        block_addr: int,
+        data,
+        key=None,
+        auth_mode: str = "A",
+    ) -> None:
+        block_data = self._normalize_block_data(data)
+        self._authenticate(uid, block_addr, key, auth_mode)
+        self._reader.write(block_addr, block_data)
+
     def wait_for_card(self, timeout: float = None, poll_interval: float = 0.1) -> bool:
         """
         Wait until a card is detected.
@@ -206,11 +256,7 @@ class RC522Reader:
         if not self.wait_for_card(timeout, poll_interval):
             return None
 
-        error, uid = self._reader.anticoll()
-        if error:
-            return None
-
-        return uid
+        return self._read_uid_once()
 
     def read_uid_hex(self, timeout: float = None, poll_interval: float = 0.1) -> str | None:
         """
@@ -266,21 +312,10 @@ class RC522Reader:
         if uid is None:
             raise RuntimeError("No card detected")
 
-        key = self._normalize_key(key)
-        auth_mode = self._get_auth_mode(auth_mode)
-
-        if self._reader.select_tag(uid):
-            raise RuntimeError("Failed to select card")
+        self._select_card(uid)
 
         try:
-            if self._reader.card_auth(auth_mode, block_addr, key, uid):
-                raise RuntimeError(f"Authentication failed for block {block_addr}")
-
-            error, data = self._reader.read(block_addr)
-            if error:
-                raise RuntimeError(f"Failed to read block {block_addr}")
-
-            return data
+            return self._read_block_selected(uid, block_addr, key, auth_mode)
         finally:
             self._reader.stop_crypto()
 
@@ -318,18 +353,10 @@ class RC522Reader:
         if uid is None:
             raise RuntimeError("No card detected")
 
-        key = self._normalize_key(key)
-        auth_mode = self._get_auth_mode(auth_mode)
-        block_data = self._normalize_block_data(data)
-
-        if self._reader.select_tag(uid):
-            raise RuntimeError("Failed to select card")
+        self._select_card(uid)
 
         try:
-            if self._reader.card_auth(auth_mode, block_addr, key, uid):
-                raise RuntimeError(f"Authentication failed for block {block_addr}")
-
-            self._reader.write(block_addr, block_data)
+            self._write_block_selected(uid, block_addr, data, key, auth_mode)
         finally:
             self._reader.stop_crypto()
 
@@ -353,18 +380,19 @@ class RC522Reader:
             timeout: Maximum wait time in seconds. None means wait forever.
             poll_interval: Delay between checks, in seconds.
         """
+        uid = self.read_uid(timeout, poll_interval)
+        if uid is None:
+            raise RuntimeError("No card detected")
+
+        self._select_card(uid)
         result = {}
 
-        for block_addr in self._sector_blocks(sector, include_trailer):
-            result[block_addr] = self.read_block(
-                block_addr,
-                key=key,
-                auth_mode=auth_mode,
-                timeout=timeout,
-                poll_interval=poll_interval,
-            )
-
-        return result
+        try:
+            for block_addr in self._sector_blocks(sector, include_trailer):
+                result[block_addr] = self._read_block_selected(uid, block_addr, key, auth_mode)
+            return result
+        finally:
+            self._reader.stop_crypto()
 
     def read_sector_block(
         self,
@@ -447,21 +475,20 @@ class RC522Reader:
             timeout: Maximum wait time in seconds. None means wait forever.
             poll_interval: Delay between checks, in seconds.
         """
+        uid = self.read_uid(timeout, poll_interval)
+        if uid is None:
+            raise RuntimeError("No card detected")
+
+        self._select_card(uid)
         blocks = self._next_writable_blocks(start_block, block_count)
         data = []
 
-        for block_addr in blocks:
-            data.extend(
-                self.read_block(
-                    block_addr,
-                    key=key,
-                    auth_mode=auth_mode,
-                    timeout=timeout,
-                    poll_interval=poll_interval,
-                )
-            )
-
-        return bytes(data).rstrip(b"\x00").decode("utf-8", errors="ignore")
+        try:
+            for block_addr in blocks:
+                data.extend(self._read_block_selected(uid, block_addr, key, auth_mode))
+            return bytes(data).rstrip(b"\x00").decode("utf-8", errors="ignore")
+        finally:
+            self._reader.stop_crypto()
 
     def write_text(
         self,
@@ -483,25 +510,25 @@ class RC522Reader:
             timeout: Maximum wait time in seconds. None means wait forever.
             poll_interval: Delay between checks, in seconds.
         """
+        uid = self.read_uid(timeout, poll_interval)
+        if uid is None:
+            raise RuntimeError("No card detected")
+
         raw_data = text.encode("utf-8")
         if len(raw_data) == 0:
             raw_data = b"\x00"
 
         block_count = (len(raw_data) + 15) // 16
         blocks = self._next_writable_blocks(start_block, block_count)
+        self._select_card(uid)
 
-        for index, block_addr in enumerate(blocks):
-            chunk = raw_data[index * 16:(index + 1) * 16]
-            self.write_block(
-                block_addr,
-                chunk,
-                key=key,
-                auth_mode=auth_mode,
-                timeout=timeout,
-                poll_interval=poll_interval,
-            )
-
-        return blocks
+        try:
+            for index, block_addr in enumerate(blocks):
+                chunk = raw_data[index * 16:(index + 1) * 16]
+                self._write_block_selected(uid, block_addr, chunk, key, auth_mode)
+            return blocks
+        finally:
+            self._reader.stop_crypto()
 
     def cleanup(self) -> None:
         """Release GPIO resources used by the RC522 reader."""
@@ -518,20 +545,5 @@ if __name__ == "__main__":
         print("Hold a card near the RC522...")
         uid = reader.read_uid_hex()
         print("UID:", uid)
-
-        sector_data = reader.read_sector(1)
-        # 这个项目使用：Mifare Classic 1k -> 13.56MHz 高频 RFID == IC卡
-        # 16 sector, 4 blocks/sector, 16B/block -> 16*4*16=1024B
-        # sector 0 block 0 是制造商数据，通常不建议修改
-        # 每个 sector 的最后一个 block (block 3+4n) 是扇区控制块，包含访问权限和AB密钥数据，通常不建议修改
-        # 这个项目读写都使用A密钥，使用默认的 0xFF FF FF FF FF FF授权
-        for block_addr, data in sector_data.items():
-            print(f"Block {block_addr}: {data}")  # 读取第 1 扇区的所有数据块
-
-        text = reader.read_text(4, 2)
-        print("Text:", text)  # 从 block 4 开始读取两个数据块里的文本
-
-        # reader.write_text("hello rc522", 4)  # 从 block 4 开始写入文本
-        # reader.write_sector_block(1, 1, "demo data")  # 向 sector 1 的 block 1 写入 16 字节内的数据
     finally:
         reader.cleanup()

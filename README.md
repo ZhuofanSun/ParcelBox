@@ -24,9 +24,105 @@ The project simulates a parcel locker workflow with:
 - `Buzzer`: local and remote alarm output
 - `RGB LED`: status indicator
 
+## Wiring Sources
+
+Current wiring references in the repo:
+
+- [wire.pdf](/Users/sunzhuofan/IOT-project/wire.pdf)
+- [wire_schem.pdf](/Users/sunzhuofan/IOT-project/wire_schem.pdf)
+- [wire.fzz](/Users/sunzhuofan/IOT-project/wire.fzz)
+
+These, together with [config.py](/Users/sunzhuofan/IOT-project/config.py), are the current baseline wiring sources.
+
+## Environment Baseline
+
+- Platform: Raspberry Pi
+- Language: Python
+- Python version: `3.11.2`
+- Camera stack: CSI camera with `Picamera2`
+- GPIO library: `RPi.GPIO`
+- RFID stack: `pi-rc522` + `spidev`
+
+## Dependency Strategy
+
+Use `apt` for Raspberry Pi system packages that integrate with the camera stack:
+
+```bash
+sudo apt update
+sudo apt install -y python3-picamera2
+```
+
+Install OpenCV on the Raspberry Pi when you start the vision pipeline:
+
+```bash
+sudo apt install -y python3-opencv
+```
+
+Use `pip` / `requirements.txt` for project-level Python packages:
+
+```bash
+python3 -m venv .venv --system-site-packages
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+The `--system-site-packages` flag is important so the virtual environment can see `python3-picamera2` installed by `apt`.
+
+## Raspberry Pi Runtime
+
+- Current Raspberry Pi Python environment: `/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python`
+- Example smoke test command on the Pi:
+
+```bash
+/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python scripts/hardware_smoke_test.py camera
+```
+
+## Configuration Baseline
+
+A centralized config template now exists in [config.py](/Users/sunzhuofan/IOT-project/config.py).
+
+It already includes placeholders for:
+
+- GPIO pin assignments
+- camera defaults
+- camera mount home angles
+- ultrasonic thresholds
+- storage path / database URL
+
+Known baseline values have been filled in `config.py`. GPIO assignments are now present there and should be treated as the current baseline until hardware verification says otherwise.
+
+Current storage baseline:
+
+- Local SQLite database via `sqlite:///iot_locker.db`
+- Snapshot directory at `data/snapshots`
+
+## Hardware Inputs Still Needed
+
+These still need direct hardware confirmation or measurement:
+
+- ultrasonic empty / occupied threshold calibration
+- camera mount home angle calibration
+
+## GPIO Baseline
+
+Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py), matching the current `wire*` files:
+
+- `RC522 RST`: `GPIO25`
+- `Door servo`: `GPIO18`
+- `Camera pan servo`: `GPIO24`
+- `Camera tilt servo`: `GPIO23`
+- `Button`: `GPIO27`
+- `Buzzer`: `GPIO12`
+- `RGB LED Red`: `GPIO13`
+- `RGB LED Green`: `GPIO19`
+- `RGB LED Blue`: `GPIO26`
+- `Ultrasonic trigger`: `GPIO16`
+- `Ultrasonic echo`: `GPIO20`
+
 ## Current Frontend Direction
 
 - Show a continuous live video stream
+- Keep frontend display at `1920x1080`
 - Draw detection boxes on the frontend using backend-provided box data
 - Provide manual snapshot capture
 - Provide card management, device testing, alarm, and log viewing
@@ -39,6 +135,14 @@ The project simulates a parcel locker workflow with:
   - sharpness
   - saturation
 - Persist video settings and restore them on next startup
+
+## Vision Baseline
+
+- Use a `1920x1080` stream for frontend display
+- Use a separate `640x480` inference resolution for vision tasks
+- Use person detection at longer distance
+- Only switch to face detection when the target is near enough
+- Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
 
 ## Module Boundaries
 
@@ -242,3 +346,5 @@ iot_locker/
 - Prefer installing `python3-picamera2` with `apt` on Raspberry Pi
 - RC522 depends on SPI and the `pi-rc522` stack
 - If the ultrasonic sensor uses a `5V` echo pin, add voltage division before connecting to Raspberry Pi GPIO
+- `config.py` is the current baseline config entry for Phase 0
+- `scripts/hardware_smoke_test.py` is the shared entry point for Phase 1 device checks

@@ -1,3 +1,10 @@
+"""Active buzzer driver.
+
+Notes:
+- This driver assumes the buzzer is switched by a GPIO-controlled transistor stage.
+- Timing is blocking. Put longer alarm patterns in the service layer if needed.
+"""
+
 import time
 
 try:
@@ -76,6 +83,30 @@ class Buzzer:
             if index < repeat - 1:
                 time.sleep(interval)
 
+    def beep_pattern(self, pattern: list[float], interval: float = 0.1) -> None:
+        """
+        Play a simple blocking beep pattern.
+
+        Args:
+            pattern: List of beep durations in seconds.
+            interval: Delay between each beep, in seconds.
+        """
+        if not pattern:
+            raise ValueError("pattern must not be empty")
+        if interval < 0:
+            raise ValueError("interval must be >= 0")
+
+        for index, duration in enumerate(pattern):
+            if duration < 0:
+                raise ValueError("pattern durations must be >= 0")
+
+            self.on()
+            time.sleep(duration)
+            self.off()
+
+            if index < len(pattern) - 1:
+                time.sleep(interval)
+
     def cleanup(self) -> None:
         """Turn the buzzer off and release the GPIO pin."""
         self.off()
@@ -95,9 +126,6 @@ if __name__ == "__main__":
         time.sleep(0.5)
         buzzer.beep(0.1, 3, 0.1)  # 响0.1秒，间隔 0.1，重复三次
         time.sleep(0.5)
-        buzzer.beep(0.8, 10, 0.5)  # 响1秒，间隔 0.5，重复十次
+        buzzer.beep_pattern([0.1, 0.1, 0.3], 0.1)  # 一个短短长的简单模式
     finally:
         buzzer.cleanup()
-
-
-

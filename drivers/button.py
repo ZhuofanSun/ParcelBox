@@ -1,3 +1,10 @@
+"""Button driver.
+
+Notes:
+- This driver uses polling-based reads.
+- Keep debounce, long-press, and business actions in the service layer.
+"""
+
 import time
 
 try:
@@ -65,6 +72,30 @@ class Button:
         value = self.read()
         return value == self._gpio.LOW if self.active_low else value == self._gpio.HIGH
 
+    def wait_for_release(self, timeout: float = None, poll_interval: float = 0.01) -> bool:
+        """
+        Wait until the button is released.
+
+        Args:
+            timeout: Maximum wait time in seconds. None means wait forever.
+            poll_interval: Delay between checks, in seconds.
+        """
+        if timeout is not None and timeout < 0:
+            raise ValueError("timeout must be >= 0 or None")
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be > 0")
+
+        start_time = time.time()
+
+        while True:
+            if not self.is_pressed:
+                return True
+
+            if timeout is not None and time.time() - start_time >= timeout:
+                return False
+
+            time.sleep(poll_interval)
+
     def wait_for_press(self, timeout: float = None, poll_interval: float = 0.01) -> bool:
         """
         Wait until the button is pressed.
@@ -107,6 +138,8 @@ if __name__ == "__main__":
         while True:
             if button.wait_for_press(0.1):
                 print("Button pressed")
-                time.sleep(0.3)  # 简单防抖，避免按住时连续触发
+                button.wait_for_release()
+                print("Button released")
+                time.sleep(0.05)  # 简单防抖，避免抖动导致重复打印
     finally:
         button.cleanup()
