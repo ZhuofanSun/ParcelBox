@@ -16,7 +16,7 @@ rsync \
   -az \
   --delete \
   --human-readable \
-  --info=progress2 \
+  --progress \
   --exclude ".git/" \
   --exclude ".idea/" \
   --exclude ".venv/" \
