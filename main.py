@@ -38,10 +38,11 @@ app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 def serve() -> None:
     """Run the local web server."""
     uvicorn.run(
-        "main:app",
+        app,
         host=config.web.host,
         port=config.web.port,
         reload=False,
+        access_log=config.web.access_log,
     )
 
 

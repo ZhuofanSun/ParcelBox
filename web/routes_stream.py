@@ -37,6 +37,7 @@ def build_stream_router(
                 },
                 "stream_fps": config.web.stream_fps,
                 "boxes_fps": config.web.boxes_fps,
+                "jpeg_quality": config.web.jpeg_quality,
             }
         )
 
