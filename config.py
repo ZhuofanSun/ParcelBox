@@ -32,7 +32,7 @@ class CameraConfig:
     pixel_format: str = "RGB888"
     buffer_count: int = 4
 
-    default_fps: int = 15
+    default_fps: int = 30
     default_brightness: float = 0.0
     default_sharpness: float = 1.0
     default_saturation: float = 1.0
@@ -78,7 +78,7 @@ class WebConfig:
 
     host: str = "0.0.0.0"
     port: int = 8000
-    stream_fps: int = 15
+    stream_fps: int = 30
     boxes_fps: int = 5
     jpeg_quality: int = 70
     access_log: bool = False

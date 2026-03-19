@@ -153,7 +153,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `/api/stream.mjpg` provides the MJPEG stream
 - `/api/vision/boxes` currently returns fake backend boxes for overlay validation
 - `/api/stream/meta` returns stream and detection sizes
-- Current demo defaults: `720p`, `15 fps` stream, `5 fps` boxes polling, JPEG quality `70`
+- Current demo defaults: `720p`, `30 fps` stream, `5 fps` boxes polling, JPEG quality `70`
 
 ## Vision Baseline
 

@@ -102,10 +102,9 @@ class CameraService:
             raise ValueError("quality must be between 0 and 100")
 
         frame = self.get_stream_frame()
-        bgr_frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         ok, encoded = cv2.imencode(
             ".jpg",
-            bgr_frame,
+            frame,
             [int(cv2.IMWRITE_JPEG_QUALITY), quality],
         )
         if not ok:
