@@ -148,8 +148,8 @@ class UltrasonicSensor:
 
 
 if __name__ == "__main__":
-    TEST_TRIGGER_PIN = 23
-    TEST_ECHO_PIN = 24
+    TEST_TRIGGER_PIN = 16
+    TEST_ECHO_PIN = 20
 
     sensor = UltrasonicSensor(TEST_TRIGGER_PIN, TEST_ECHO_PIN)
     try:
