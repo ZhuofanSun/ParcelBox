@@ -4,3 +4,4 @@ pi-rc522
 fastapi
 uvicorn
 websockets
+mediapipe

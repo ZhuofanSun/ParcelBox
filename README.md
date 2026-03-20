@@ -76,6 +76,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+The current Phase 2 detection service also depends on `mediapipe` from
+`requirements.txt`.
+
 ## Raspberry Pi Runtime
 
 - Current Raspberry Pi Python environment: `/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python`
@@ -160,7 +163,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `main.py` starts a minimal FastAPI app
 - `frontend/index.html` shows the live stream and draws boxes on a canvas overlay
 - `/api/stream.mjpg` provides the MJPEG stream
-- `/ws/vision` now pushes fake backend boxes over WebSocket for overlay validation
+- `/ws/vision` now pushes vision results over WebSocket
 - `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream and detection sizes
 - Current demo defaults: `720p`, `30 fps` stream, `5 fps` detection loop, JPEG quality `70`
@@ -169,6 +172,9 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `CameraService` now recreates the camera cleanly after stop / start
 - `VisionService` now runs on its own background detection thread and only keeps the
   latest payload instead of queueing stale boxes
+- `VisionService` now contains a MediaPipe-based person / face detection pipeline
+- If MediaPipe is missing or model files are not present yet, the websocket payload will
+  return an error state instead of fake boxes
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
 
@@ -176,9 +182,20 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 
 - Current demo uses a `1280x720` stream for frontend display
 - Use a separate `640x480` inference resolution for vision tasks
+- Current detection backend is `MediaPipe Tasks`
+- Current config supports `person`, `face`, and `auto` mode
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
+
+## Vision Models
+
+Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py):
+
+- `models/person_detector.tflite`
+- `models/face_detector.task`
+
+See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md) for the expected file names.
 
 ## Camera Orientation
 

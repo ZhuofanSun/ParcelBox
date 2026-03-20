@@ -162,7 +162,7 @@
       <h1>ParcelBox Phase 2 Demo</h1>
       <p>
         This page validates the Phase 2 baseline: live camera stream, backend vision websocket,
-        and frontend overlay rendering. The current box is fake output from the backend.
+        and frontend overlay rendering. Vision results are pushed by the backend detection service.
       </p>
     </section>
 
@@ -292,7 +292,7 @@
         const payload = JSON.parse(event.data);
         latestPayload = payload;
         boxesJsonPre.textContent = JSON.stringify(latestPayload, null, 2);
-        modeBadge.textContent = latestPayload.mode;
+        modeBadge.textContent = latestPayload.active_mode || latestPayload.mode;
         drawOverlay();
       });
 

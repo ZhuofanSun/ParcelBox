@@ -16,7 +16,7 @@ from web.routes_stream import build_stream_router
 
 
 camera_service = CameraService()
-vision_service = VisionService()
+vision_service = VisionService(camera_service)
 
 
 @asynccontextmanager

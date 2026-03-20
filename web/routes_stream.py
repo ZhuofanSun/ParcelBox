@@ -38,6 +38,7 @@ def build_stream_router(
                 },
                 "stream_fps": config.web.stream_fps,
                 "detection_fps": config.vision.detection_fps,
+                "vision_mode": config.vision.mode,
                 "jpeg_quality": config.web.jpeg_quality,
                 "vision_transport": "websocket",
                 "vision_ws_path": "/ws/vision",

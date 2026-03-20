@@ -82,7 +82,14 @@ class StorageConfig:
 class VisionConfig:
     """Vision runtime configuration."""
 
-    detection_fps: int = 5
+    mode: str = "person"
+    detection_fps: int = 10
+    person_model_path: str = "models/person_detector.tflite"
+    face_model_path: str = "models/face_detector.task"
+    person_score_threshold: float = 0.4
+    face_score_threshold: float = 0.5
+    person_max_results: int = 3
+    face_near_trigger_ratio: float = 0.28
 
 
 @dataclass

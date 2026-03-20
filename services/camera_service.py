@@ -150,6 +150,13 @@ class CameraService:
         with self._lock:
             return self._camera.capture_detection_frame()
 
+    def get_detection_frame_bgr(self):
+        """Get one BGR frame from the low-resolution detection stream."""
+        if self._camera is None:
+            raise RuntimeError("Camera service is not started")
+        with self._lock:
+            return self._camera.capture_detection_frame_bgr()
+
     def get_stream_frame_jpeg(self, quality: int | None = None) -> bytes:
         """
         Get one JPEG-encoded frame from the main stream.
