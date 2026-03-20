@@ -68,6 +68,17 @@ pip install -r requirements.txt
 
 The `--system-site-packages` flag is important so the virtual environment can see `python3-picamera2` installed by `apt`.
 
+The current Phase 2 websocket vision channel also depends on the `websockets` package
+from `requirements.txt`. If the virtual environment was created earlier, rerun:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+The current repository uses an OpenCV-based vision baseline because it works on the
+Raspberry Pi environment without adding another heavy Python wheel.
+
 ## Raspberry Pi Runtime
 
 - Current Raspberry Pi Python environment: `/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python`
@@ -95,6 +106,7 @@ It already includes placeholders for:
 
 - GPIO pin assignments
 - camera defaults
+- camera orientation defaults (`hflip` / `vflip`)
 - camera mount home angles
 - ultrasonic thresholds
 - storage path / database URL
@@ -151,17 +163,71 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `main.py` starts a minimal FastAPI app
 - `frontend/index.html` shows the live stream and draws boxes on a canvas overlay
 - `/api/stream.mjpg` provides the MJPEG stream
-- `/api/vision/boxes` currently returns fake backend boxes for overlay validation
+- `/ws/vision` now pushes vision results over WebSocket
+- `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream and detection sizes
-- Current demo defaults: `720p`, `30 fps` stream, `5 fps` boxes polling, JPEG quality `70`
+- Current demo defaults: `720p`, `30 fps` stream, `5 fps` detection loop, JPEG quality `70`
+- The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
+  re-capturing and re-encoding per viewer
+- `CameraService` now recreates the camera cleanly after stop / start
+- `VisionService` now runs on its own background detection thread and only keeps the
+  latest payload instead of queueing stale boxes
+- `VisionService` now uses a pluggable backend and currently defaults to an OpenCV-based
+  person / face detection baseline
+- Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
+  with `config.camera.hflip` and `config.camera.vflip`
 
 ## Vision Baseline
 
 - Current demo uses a `1280x720` stream for frontend display
 - Use a separate `640x480` inference resolution for vision tasks
+- Current detection backend is `OpenCV`
+- Current config supports `person`, `face`, and `auto` mode
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
+
+## Vision Models
+
+Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py):
+
+- `models/person_detector.tflite`
+- `models/face_detector.task`
+- `models/yolo26n.pt`
+
+The current OpenCV backend does not need these files yet. They are reserved for future
+`tflite` or `yolo` backends. See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
+
+## Future Detection Backends
+
+The current codebase keeps the vision service and detector backend separate. This makes
+it easier to replace the baseline OpenCV detector with a stronger backend later.
+
+Practical next-step options:
+
+- add a `tflite` backend once a Pi-friendly model and postprocessing path are chosen
+- add a `yolo` backend, such as `yolo26n`, without rewriting the websocket protocol or
+  the main `VisionService`
+
+## Camera Orientation
+
+Camera flip is now handled in the camera pipeline instead of frontend CSS. The same
+orientation therefore applies to:
+
+- frontend live stream
+- detection frames
+- saved snapshots
+
+Current config switches:
+
+- `config.camera.hflip`
+- `config.camera.vflip`
+
+Typical use:
+
+- left / right mirrored image: `hflip=True`
+- upside-down image: `vflip=True`
+- 180-degree rotation: both `True`
 
 ## Module Boundaries
 
@@ -209,6 +275,7 @@ Camera device orchestration.
 - parameter persistence
 - raw snapshot capture
 - JPEG encoding for MJPEG output
+- shared cached JPEG frame for multiple viewers
 
 ### `services/vision_service.py`
 
@@ -223,6 +290,7 @@ Vision understanding only.
 Current implementation note:
 
 - Phase 2 currently uses a fake moving box so the frontend overlay pipeline can be validated before a real detector is added
+- Fake box coordinates now read the current configured stream size each time, so later stream-size changes will not require a process restart
 
 ### `services/camera_mount_service.py`
 

@@ -161,8 +161,8 @@
     <section class="hero">
       <h1>ParcelBox Phase 2 Demo</h1>
       <p>
-        This page validates the Phase 2 baseline: live camera stream, backend boxes endpoint,
-        and frontend overlay rendering. The current box is fake output from the backend.
+        This page validates the Phase 2 baseline: live camera stream, backend vision websocket,
+        and frontend overlay rendering. Vision results are pushed by the backend detection service.
       </p>
     </section>
 
@@ -206,7 +206,9 @@
     const ctx = overlay.getContext("2d");
 
     let latestPayload = null;
-    let boxesIntervalMs = 1000;
+    let streamMeta = null;
+    let visionSocket = null;
+    let reconnectTimer = null;
 
     function resizeOverlay() {
       const rect = streamImage.getBoundingClientRect();
@@ -251,34 +253,63 @@
 
     async function loadStreamMeta() {
       const response = await fetch("/api/stream/meta");
-      const data = await response.json();
-      streamMetaPre.textContent = JSON.stringify(data, null, 2);
-      boxesIntervalMs = Math.max(1000 / Math.max(data.boxes_fps || 1, 1), 100);
+      streamMeta = await response.json();
+      streamMetaPre.textContent = JSON.stringify(streamMeta, null, 2);
     }
 
-    async function pollBoxes() {
-      try {
-        const response = await fetch("/api/vision/boxes", { cache: "no-store" });
-        latestPayload = await response.json();
+    function buildVisionWebSocketUrl() {
+      const path = streamMeta?.vision_ws_path || "/ws/vision";
+      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+      return `${protocol}://${window.location.host}${path}`;
+    }
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        connectVisionSocket();
+      }, 1000);
+    }
+
+    function connectVisionSocket() {
+      if (!streamMeta) return;
+
+      if (visionSocket) {
+        visionSocket.close();
+        visionSocket = null;
+      }
+
+      modeBadge.textContent = "Connecting";
+      boxesJsonPre.textContent = "Connecting to vision websocket...";
+
+      visionSocket = new WebSocket(buildVisionWebSocketUrl());
+
+      visionSocket.addEventListener("open", () => {
+        modeBadge.textContent = "Connected";
+      });
+
+      visionSocket.addEventListener("message", (event) => {
+        const payload = JSON.parse(event.data);
+        latestPayload = payload;
         boxesJsonPre.textContent = JSON.stringify(latestPayload, null, 2);
-        modeBadge.textContent = latestPayload.mode;
+        modeBadge.textContent = latestPayload.active_mode || latestPayload.mode;
         drawOverlay();
-      } catch (error) {
-        boxesJsonPre.textContent = `Failed to load boxes: ${error}`;
-      }
-    }
+      });
 
-    async function startBoxesLoop() {
-      while (true) {
-        await pollBoxes();
-        await new Promise((resolve) => setTimeout(resolve, boxesIntervalMs));
-      }
+      visionSocket.addEventListener("close", () => {
+        modeBadge.textContent = "Disconnected";
+        scheduleReconnect();
+      });
+
+      visionSocket.addEventListener("error", () => {
+        modeBadge.textContent = "Socket Error";
+      });
     }
 
     window.addEventListener("resize", resizeOverlay);
     streamImage.addEventListener("load", resizeOverlay);
 
-    loadStreamMeta().then(startBoxesLoop);
+    loadStreamMeta().then(connectVisionSocket);
   </script>
 </body>
 </html>

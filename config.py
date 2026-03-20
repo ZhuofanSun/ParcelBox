@@ -32,6 +32,12 @@ class CameraConfig:
     pixel_format: str = "RGB888"
     buffer_count: int = 4
 
+    # 镜头接线放上面
+    # 和镜头同朝向时：hflip == vflip == True
+    # 面向镜头时：hflip = False, vflip = True
+    hflip: bool = False
+    vflip: bool = True
+
     default_fps: int = 30
     default_brightness: float = 0.0
     default_sharpness: float = 1.0
@@ -73,13 +79,38 @@ class StorageConfig:
 
 
 @dataclass
+class VisionConfig:
+    """Vision runtime configuration."""
+
+    backend: str = "opencv"
+    mode: str = "person"
+    detection_fps: int = 5
+
+    # Reserved for future TFLite / YOLO backends.
+    person_model_path: str = "models/person_detector.tflite"
+    face_model_path: str = "models/face_detector.task"
+    yolo_model_path: str = "models/yolo26n.pt"
+
+    person_score_threshold: float = 0.4
+    face_score_threshold: float = 0.5
+    person_max_results: int = 3
+    face_near_trigger_ratio: float = 0.28
+
+    opencv_person_stride: int = 8
+    opencv_person_padding: int = 8
+    opencv_person_scale: float = 1.05
+    opencv_face_scale_factor: float = 1.1
+    opencv_face_min_neighbors: int = 5
+    opencv_face_min_size: int = 40
+
+
+@dataclass
 class WebConfig:
     """Web runtime configuration."""
 
     host: str = "0.0.0.0"
     port: int = 8000
     stream_fps: int = 30
-    boxes_fps: int = 5
     jpeg_quality: int = 70
     access_log: bool = False
 
@@ -93,6 +124,7 @@ class AppConfig:
     camera_mount: CameraMountConfig = field(default_factory=CameraMountConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
     web: WebConfig = field(default_factory=WebConfig)
 
 

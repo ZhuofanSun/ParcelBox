@@ -16,15 +16,17 @@ from web.routes_stream import build_stream_router
 
 
 camera_service = CameraService()
-vision_service = VisionService()
+vision_service = VisionService(camera_service)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     camera_service.start()
+    vision_service.start()
     try:
         yield
     finally:
+        vision_service.stop()
         camera_service.stop()
 
 
