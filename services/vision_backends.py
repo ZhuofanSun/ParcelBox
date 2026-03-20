@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 try:
     import cv2
@@ -21,20 +22,16 @@ class OpenCvVisionBackend:
         if cv2 is None:
             raise RuntimeError("OpenCV is not available. Install python3-opencv first.")
 
-        self._hog = cv2.HOGDescriptor()
-        self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-
-        cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-        self._face_cascade = cv2.CascadeClassifier(cascade_path)
-        if self._face_cascade.empty():
-            raise RuntimeError(f"Failed to load OpenCV face cascade: {cascade_path}")
+        self._hog = None
+        self._face_cascade = None
 
     def detect_person(self, frame_bgr) -> list[dict]:
         """Run baseline person detection on a BGR frame."""
+        hog = self._ensure_hog()
         stride = config.vision.opencv_person_stride
         padding = config.vision.opencv_person_padding
 
-        rects, weights = self._hog.detectMultiScale(
+        rects, weights = hog.detectMultiScale(
             frame_bgr,
             winStride=(stride, stride),
             padding=(padding, padding),
@@ -64,10 +61,11 @@ class OpenCvVisionBackend:
 
     def detect_face(self, frame_bgr) -> list[dict]:
         """Run baseline face detection on a BGR frame."""
+        face_cascade = self._ensure_face_cascade()
         gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
         min_size = config.vision.opencv_face_min_size
 
-        rects = self._face_cascade.detectMultiScale(
+        rects = face_cascade.detectMultiScale(
             gray,
             scaleFactor=config.vision.opencv_face_scale_factor,
             minNeighbors=config.vision.opencv_face_min_neighbors,
@@ -96,7 +94,58 @@ class OpenCvVisionBackend:
 
     def close(self) -> None:
         """Release backend resources."""
+        self._hog = None
+        self._face_cascade = None
         return
+
+    def _ensure_hog(self):
+        if self._hog is not None:
+            return self._hog
+
+        if not hasattr(cv2, "HOGDescriptor"):
+            raise RuntimeError("OpenCV build does not provide HOGDescriptor.")
+        if not hasattr(cv2, "HOGDescriptor_getDefaultPeopleDetector"):
+            raise RuntimeError("OpenCV build does not provide the default people detector.")
+
+        hog = cv2.HOGDescriptor()
+        hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
+        self._hog = hog
+        return self._hog
+
+    def _ensure_face_cascade(self):
+        if self._face_cascade is not None:
+            return self._face_cascade
+
+        cascade_path = self._resolve_face_cascade_path()
+        if cascade_path is None:
+            raise RuntimeError("Could not find haarcascade_frontalface_default.xml on this system.")
+
+        face_cascade = cv2.CascadeClassifier(str(cascade_path))
+        if face_cascade.empty():
+            raise RuntimeError(f"Failed to load OpenCV face cascade: {cascade_path}")
+
+        self._face_cascade = face_cascade
+        return self._face_cascade
+
+    def _resolve_face_cascade_path(self) -> Path | None:
+        candidate_paths = []
+
+        if hasattr(cv2, "data") and hasattr(cv2.data, "haarcascades"):
+            candidate_paths.append(Path(cv2.data.haarcascades) / "haarcascade_frontalface_default.xml")
+
+        candidate_paths.extend(
+            [
+                Path("/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"),
+                Path("/usr/share/opencv/haarcascades/haarcascade_frontalface_default.xml"),
+                Path("/usr/local/share/opencv4/haarcascades/haarcascade_frontalface_default.xml"),
+            ]
+        )
+
+        for path in candidate_paths:
+            if path.is_file():
+                return path
+
+        return None
 
     def _sort_boxes(self, boxes: list[dict]) -> list[dict]:
         boxes.sort(
