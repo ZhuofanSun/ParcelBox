@@ -22,7 +22,7 @@
 ### 环境与配置基线
 
 - [x] 摄像头 Python 栈按 `Picamera2` 记录。
-- [x] 视觉识别首版按 `MediaPipe Tasks` 记录。
+- [x] 视觉识别当前基线按 `OpenCV` 记录。
 - [x] 摄像头系统依赖走 `apt install python3-picamera2`。
 - [x] 项目 Python 依赖当前走 `requirements.txt`。
 - [x] 已建立统一配置入口：`config.py`。
@@ -447,12 +447,15 @@ iot_locker/
 - [x] 把前端改成订阅后端视觉结果，而不是轮询拉取。
 - [x] 视觉结果推送只保留最新状态，不堆积过期框数据。
 - [ ] 实现人体检测 / 人脸检测两种模式。
-  - [ ] 首版方案按 `MediaPipe Tasks` 实现。
-  - [ ] 人体检测首版使用 `Object Detector`，只保留 `person` 类别。
-  - [ ] 人脸检测首版使用 `Face Detector`。
-  - [ ] 首版统一使用 `VIDEO` 模式，而不是 `LIVE_STREAM` 模式。
-  - [ ] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
-  - [ ] 需要在仓库里约定本地模型文件路径，并通过 `config.py` 配置。
+  - [x] 当前先按 `OpenCV` baseline 实现，保证树莓派环境可直接推进。
+  - [x] 当前先把 `VisionService` 和具体检测 backend 拆开，方便后续替换。
+  - [x] 人体检测当前 baseline 使用 OpenCV HOG people detector。
+  - [x] 人脸检测当前 baseline 使用 OpenCV Haar cascade。
+  - [x] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
+  - [x] 已在仓库里预留未来 `tflite` / `yolo` 模型文件路径，并通过 `config.py` 配置。
+  - [ ] 后续可选升级路径：
+    - [ ] `tflite` backend
+    - [ ] `yolo26n` backend
 - [ ] 实现摄像头云台两个舵机的待机角度、归位、追踪控制。
 - [ ] 实现“目标丢失 / 离远后回到待机位”。
 - [ ] 做首版开门后扫描找人脸逻辑。

@@ -82,14 +82,26 @@ class StorageConfig:
 class VisionConfig:
     """Vision runtime configuration."""
 
+    backend: str = "opencv"
     mode: str = "person"
     detection_fps: int = 10
+
+    # Reserved for future TFLite / YOLO backends.
     person_model_path: str = "models/person_detector.tflite"
     face_model_path: str = "models/face_detector.task"
+    yolo_model_path: str = "models/yolo26n.pt"
+
     person_score_threshold: float = 0.4
     face_score_threshold: float = 0.5
     person_max_results: int = 3
     face_near_trigger_ratio: float = 0.28
+
+    opencv_person_stride: int = 8
+    opencv_person_padding: int = 8
+    opencv_person_scale: float = 1.05
+    opencv_face_scale_factor: float = 1.1
+    opencv_face_min_neighbors: int = 5
+    opencv_face_min_size: int = 40
 
 
 @dataclass

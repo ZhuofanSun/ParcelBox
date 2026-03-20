@@ -76,8 +76,8 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The current Phase 2 detection service also depends on `mediapipe` from
-`requirements.txt`.
+The current repository uses an OpenCV-based vision baseline because it works on the
+Raspberry Pi environment without adding another heavy Python wheel.
 
 ## Raspberry Pi Runtime
 
@@ -172,9 +172,8 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `CameraService` now recreates the camera cleanly after stop / start
 - `VisionService` now runs on its own background detection thread and only keeps the
   latest payload instead of queueing stale boxes
-- `VisionService` now contains a MediaPipe-based person / face detection pipeline
-- If MediaPipe is missing or model files are not present yet, the websocket payload will
-  return an error state instead of fake boxes
+- `VisionService` now uses a pluggable backend and currently defaults to an OpenCV-based
+  person / face detection baseline
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
 
@@ -182,7 +181,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 
 - Current demo uses a `1280x720` stream for frontend display
 - Use a separate `640x480` inference resolution for vision tasks
-- Current detection backend is `MediaPipe Tasks`
+- Current detection backend is `OpenCV`
 - Current config supports `person`, `face`, and `auto` mode
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
@@ -194,8 +193,21 @@ Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-pr
 
 - `models/person_detector.tflite`
 - `models/face_detector.task`
+- `models/yolo26n.pt`
 
-See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md) for the expected file names.
+The current OpenCV backend does not need these files yet. They are reserved for future
+`tflite` or `yolo` backends. See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
+
+## Future Detection Backends
+
+The current codebase keeps the vision service and detector backend separate. This makes
+it easier to replace the baseline OpenCV detector with a stronger backend later.
+
+Practical next-step options:
+
+- add a `tflite` backend once a Pi-friendly model and postprocessing path are chosen
+- add a `yolo` backend, such as `yolo26n`, without rewriting the websocket protocol or
+  the main `VisionService`
 
 ## Camera Orientation
 

@@ -1,23 +1,13 @@
-"""Phase 2 vision service backed by MediaPipe Tasks."""
+"""Phase 2 vision service with a pluggable backend."""
 
 from __future__ import annotations
 
 import threading
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-try:
-    import cv2
-except ImportError:  # pragma: no cover - optional dependency
-    cv2 = None
-
-try:
-    import mediapipe as mp
-except ImportError:  # pragma: no cover - optional dependency
-    mp = None
-
 from config import config
+from services.vision_backends import build_vision_backend
 
 if TYPE_CHECKING:
     from services.camera_service import CameraService
@@ -34,8 +24,7 @@ class VisionService:
         self._latest_payload: dict | None = None
         self._latest_version = 0
         self._started = False
-        self._person_detector = None
-        self._face_detector = None
+        self._backend = None
 
     def start(self) -> None:
         """Start the background detection loop."""
@@ -60,7 +49,7 @@ class VisionService:
             self._worker_thread.join(timeout=2)
             self._worker_thread = None
 
-        self._close_detectors()
+        self._close_backend()
 
         with self._frame_condition:
             self._started = False
@@ -139,24 +128,24 @@ class VisionService:
             )
 
         try:
-            self._ensure_detectors(configured_mode)
-            mp_image = self._build_mp_image(frame_bgr)
-            timestamp_ms = int(time.monotonic_ns() / 1_000_000)
+            backend = self._ensure_backend()
 
             if configured_mode == "person":
-                boxes = self._detect_person_boxes(mp_image, timestamp_ms)
+                boxes = backend.detect_person(frame_bgr)
                 active_mode = "person"
             elif configured_mode == "face":
-                boxes = self._detect_face_boxes(mp_image, timestamp_ms)
+                boxes = backend.detect_face(frame_bgr)
                 active_mode = "face"
             else:
-                boxes, active_mode = self._detect_auto_boxes(mp_image, timestamp_ms)
+                boxes, active_mode = self._detect_auto_boxes(backend, frame_bgr)
 
+            mapped_boxes = self._map_detection_boxes_to_stream(boxes)
             latency_ms = (time.perf_counter() - started_at) * 1000
+
             return self._build_payload(
                 configured_mode=configured_mode,
                 active_mode=active_mode,
-                boxes=boxes,
+                boxes=mapped_boxes,
                 status="ok",
                 error=None,
                 latency_ms=latency_ms,
@@ -170,120 +159,58 @@ class VisionService:
                 latency_ms=(time.perf_counter() - started_at) * 1000,
             )
 
+    def _ensure_backend(self):
+        if self._backend is None:
+            self._backend = build_vision_backend()
+        return self._backend
+
     def _normalized_mode(self) -> str:
         mode = config.vision.mode.lower().strip()
         if mode not in {"person", "face", "auto"}:
             return "person"
         return mode
 
-    def _ensure_detectors(self, configured_mode: str) -> None:
-        if cv2 is None:
-            raise RuntimeError("OpenCV is not available. Install python3-opencv first.")
-        if mp is None:
-            raise RuntimeError("MediaPipe is not available. Run 'pip install -r requirements.txt'.")
-
-        if configured_mode in {"person", "auto"} and self._person_detector is None:
-            self._person_detector = self._create_person_detector()
-
-        if configured_mode in {"face", "auto"} and self._face_detector is None:
-            self._face_detector = self._create_face_detector()
-
-    def _create_person_detector(self):
-        model_path = self._resolve_model_path(config.vision.person_model_path)
-        if not model_path.is_file():
-            raise RuntimeError(f"Person detector model not found: {model_path}")
-
-        base_options = mp.tasks.BaseOptions(model_asset_path=str(model_path))
-        options = mp.tasks.vision.ObjectDetectorOptions(
-            base_options=base_options,
-            running_mode=mp.tasks.vision.RunningMode.VIDEO,
-            max_results=config.vision.person_max_results,
-            score_threshold=config.vision.person_score_threshold,
-            category_allowlist=["person"],
-        )
-        return mp.tasks.vision.ObjectDetector.create_from_options(options)
-
-    def _create_face_detector(self):
-        model_path = self._resolve_model_path(config.vision.face_model_path)
-        if not model_path.is_file():
-            raise RuntimeError(f"Face detector model not found: {model_path}")
-
-        base_options = mp.tasks.BaseOptions(model_asset_path=str(model_path))
-        options = mp.tasks.vision.FaceDetectorOptions(
-            base_options=base_options,
-            running_mode=mp.tasks.vision.RunningMode.VIDEO,
-            min_detection_confidence=config.vision.face_score_threshold,
-        )
-        return mp.tasks.vision.FaceDetector.create_from_options(options)
-
-    def _resolve_model_path(self, path: str) -> Path:
-        model_path = Path(path)
-        if not model_path.is_absolute():
-            model_path = Path(__file__).resolve().parent.parent / model_path
-        return model_path
-
-    def _build_mp_image(self, frame_bgr):
-        rgb_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        return mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-
-    def _detect_person_boxes(self, mp_image, timestamp_ms: int) -> list[dict]:
-        result = self._person_detector.detect_for_video(mp_image, timestamp_ms)
-        return self._convert_detections_to_boxes(
-            result.detections,
-            default_label="person",
-        )
-
-    def _detect_face_boxes(self, mp_image, timestamp_ms: int) -> list[dict]:
-        result = self._face_detector.detect_for_video(mp_image, timestamp_ms)
-        return self._convert_detections_to_boxes(
-            result.detections,
-            default_label="face",
-        )
-
-    def _detect_auto_boxes(self, mp_image, timestamp_ms: int) -> tuple[list[dict], str]:
-        person_boxes = self._detect_person_boxes(mp_image, timestamp_ms)
+    def _detect_auto_boxes(self, backend, frame_bgr) -> tuple[list[dict], str]:
+        person_boxes = backend.detect_person(frame_bgr)
         if not self._is_person_near(person_boxes):
             return person_boxes, "person"
 
-        face_boxes = self._detect_face_boxes(mp_image, timestamp_ms)
+        face_boxes = backend.detect_face(frame_bgr)
         if face_boxes:
             return face_boxes, "face"
 
         return person_boxes, "person"
 
-    def _convert_detections_to_boxes(self, detections, default_label: str) -> list[dict]:
+    def _is_person_near(self, detection_boxes: list[dict]) -> bool:
+        if not detection_boxes:
+            return False
+
+        detection_height = config.camera.detection_size[1]
+        largest_box = detection_boxes[0]
+        height_ratio = (largest_box["y2"] - largest_box["y1"]) / max(detection_height, 1)
+        return height_ratio >= config.vision.face_near_trigger_ratio
+
+    def _map_detection_boxes_to_stream(self, detection_boxes: list[dict]) -> list[dict]:
         detection_width, detection_height = config.camera.detection_size
         stream_width, stream_height = config.camera.stream_size
 
-        boxes = []
-        for index, detection in enumerate(detections):
-            bounding_box = detection.bounding_box
-            categories = list(getattr(detection, "categories", []))
-            best_category = categories[0] if categories else None
-            label = default_label
-            score = 0.0
-
-            if best_category is not None:
-                score = float(getattr(best_category, "score", 0.0))
-                category_name = getattr(best_category, "category_name", None)
-                if category_name:
-                    label = category_name
-
-            x1 = int(round(bounding_box.origin_x * stream_width / detection_width))
-            y1 = int(round(bounding_box.origin_y * stream_height / detection_height))
-            x2 = int(round((bounding_box.origin_x + bounding_box.width) * stream_width / detection_width))
-            y2 = int(round((bounding_box.origin_y + bounding_box.height) * stream_height / detection_height))
+        stream_boxes = []
+        for box in detection_boxes:
+            x1 = int(round(box["x1"] * stream_width / detection_width))
+            y1 = int(round(box["y1"] * stream_height / detection_height))
+            x2 = int(round(box["x2"] * stream_width / detection_width))
+            y2 = int(round(box["y2"] * stream_height / detection_height))
 
             x1 = max(0, min(stream_width - 1, x1))
             y1 = max(0, min(stream_height - 1, y1))
             x2 = max(x1 + 1, min(stream_width, x2))
             y2 = max(y1 + 1, min(stream_height, y2))
 
-            boxes.append(
+            stream_boxes.append(
                 {
-                    "id": f"{default_label}-{index + 1}",
-                    "label": label,
-                    "score": score,
+                    "id": box["id"],
+                    "label": box["label"],
+                    "score": box["score"],
                     "x1": x1,
                     "y1": y1,
                     "x2": x2,
@@ -291,17 +218,11 @@ class VisionService:
                 }
             )
 
-        boxes.sort(key=lambda box: (box["x2"] - box["x1"]) * (box["y2"] - box["y1"]), reverse=True)
-        return boxes
-
-    def _is_person_near(self, boxes: list[dict]) -> bool:
-        if not boxes:
-            return False
-
-        stream_height = config.camera.stream_size[1]
-        largest_box = boxes[0]
-        height_ratio = (largest_box["y2"] - largest_box["y1"]) / max(stream_height, 1)
-        return height_ratio >= config.vision.face_near_trigger_ratio
+        stream_boxes.sort(
+            key=lambda box: (box["x2"] - box["x1"]) * (box["y2"] - box["y1"]),
+            reverse=True,
+        )
+        return stream_boxes
 
     def _build_payload(
         self,
@@ -319,7 +240,7 @@ class VisionService:
             "mode": configured_mode,
             "active_mode": active_mode,
             "status": status,
-            "backend": "mediapipe",
+            "backend": config.vision.backend,
             "frame_size": {
                 "width": stream_width,
                 "height": stream_height,
@@ -367,9 +288,7 @@ class VisionService:
             "center_y": round(center_y, 1),
         }
 
-    def _close_detectors(self) -> None:
-        for detector_name in ("_person_detector", "_face_detector"):
-            detector = getattr(self, detector_name)
-            if detector is not None and hasattr(detector, "close"):
-                detector.close()
-            setattr(self, detector_name, None)
+    def _close_backend(self) -> None:
+        if self._backend is not None and hasattr(self._backend, "close"):
+            self._backend.close()
+        self._backend = None
