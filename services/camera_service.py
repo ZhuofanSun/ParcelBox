@@ -55,6 +55,8 @@ class CameraService:
                 detection_format="YUV420",
                 buffer_count=config.camera.buffer_count,
                 controls=self._build_controls(),
+                hflip=config.camera.hflip,
+                vflip=config.camera.vflip,
             )
             self._camera.start()
             self._camera.warmup(2)

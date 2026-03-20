@@ -31,6 +31,8 @@ class CameraConfig:
     detection_size: tuple[int, int] = (640, 480)
     pixel_format: str = "RGB888"
     buffer_count: int = 4
+    hflip: bool = False
+    vflip: bool = False
 
     default_fps: int = 30
     default_brightness: float = 0.0

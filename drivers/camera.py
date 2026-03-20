@@ -20,6 +20,11 @@ try:
 except ImportError:  # pragma: no cover - only hit when Picamera2 is not installed
     Picamera2 = None
 
+try:
+    from libcamera import Transform
+except ImportError:  # pragma: no cover - only hit when libcamera bindings are not installed
+    Transform = None
+
 
 class CsiCamera:
     """Simple driver for a CSI camera using Picamera2."""
@@ -41,6 +46,8 @@ class CsiCamera:
         self._detection_size = None
         self._stream_format = None
         self._detection_format = None
+        self._hflip = False
+        self._vflip = False
 
         if self._picamera2_class is None:
             raise RuntimeError(
@@ -82,6 +89,8 @@ class CsiCamera:
         buffer_count: int = 4,
         queue: bool = True,
         controls: dict | None = None,
+        hflip: bool = False,
+        vflip: bool = False,
     ) -> None:
         """
         Configure the camera for a main stream and an optional low-resolution stream.
@@ -94,11 +103,17 @@ class CsiCamera:
             buffer_count: Number of frame buffers to allocate.
             queue: If True, allow queued frames for smoother capture.
             controls: Optional camera controls to apply after configure.
+            hflip: If True, mirror the image horizontally in the camera pipeline.
+            vflip: If True, flip the image vertically in the camera pipeline.
         """
         self._validate_size(stream_size, "stream_size")
         self._validate_size(detection_size, "detection_size")
         if buffer_count < 1:
             raise ValueError("buffer_count must be >= 1")
+        if not isinstance(hflip, bool):
+            raise ValueError("hflip must be a bool")
+        if not isinstance(vflip, bool):
+            raise ValueError("vflip must be a bool")
 
         was_running = self._is_running
         if was_running:
@@ -110,6 +125,11 @@ class CsiCamera:
             "queue": queue,
         }
 
+        if hflip or vflip:
+            if Transform is None:
+                raise RuntimeError("libcamera Transform is not available.")
+            config_kwargs["transform"] = Transform(hflip=hflip, vflip=vflip)
+
         if detection_size is not None:
             config_kwargs["lores"] = {"size": detection_size, "format": detection_format}
 
@@ -120,6 +140,8 @@ class CsiCamera:
         self._detection_size = detection_size
         self._stream_format = stream_format
         self._detection_format = detection_format if detection_size is not None else None
+        self._hflip = hflip
+        self._vflip = vflip
 
         if controls:
             self._camera.set_controls(controls)
@@ -134,6 +156,8 @@ class CsiCamera:
         buffer_count: int = 4,
         queue: bool = True,
         controls: dict | None = None,
+        hflip: bool = False,
+        vflip: bool = False,
     ) -> None:
         """
         Configure a simple single-stream preview mode.
@@ -144,6 +168,8 @@ class CsiCamera:
             buffer_count: Number of frame buffers to allocate.
             queue: If True, allow queued frames for smoother capture.
             controls: Optional camera controls to apply after configure.
+            hflip: If True, mirror the image horizontally in the camera pipeline.
+            vflip: If True, flip the image vertically in the camera pipeline.
         """
         self.configure_video(
             stream_size=size,
@@ -152,6 +178,8 @@ class CsiCamera:
             buffer_count=buffer_count,
             queue=queue,
             controls=controls,
+            hflip=hflip,
+            vflip=vflip,
         )
 
     def start(self) -> None:
@@ -292,6 +320,8 @@ if __name__ == "__main__":
             detection_size=(640, 480),
             stream_format="RGB888",
             detection_format="YUV420",
+            hflip=False,
+            vflip=False,
         )
         camera.start()
         camera.warmup(2)  # 预热 2 秒，让自动曝光和自动白平衡稳定一点

@@ -95,6 +95,7 @@ It already includes placeholders for:
 
 - GPIO pin assignments
 - camera defaults
+- camera orientation defaults (`hflip` / `vflip`)
 - camera mount home angles
 - ultrasonic thresholds
 - storage path / database URL
@@ -157,6 +158,8 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
   re-capturing and re-encoding per viewer
 - `CameraService` now recreates the camera cleanly after stop / start
+- Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
+  with `config.camera.hflip` and `config.camera.vflip`
 
 ## Vision Baseline
 
@@ -165,6 +168,26 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
+
+## Camera Orientation
+
+Camera flip is now handled in the camera pipeline instead of frontend CSS. The same
+orientation therefore applies to:
+
+- frontend live stream
+- detection frames
+- saved snapshots
+
+Current config switches:
+
+- `config.camera.hflip`
+- `config.camera.vflip`
+
+Typical use:
+
+- left / right mirrored image: `hflip=True`
+- upside-down image: `vflip=True`
+- 180-degree rotation: both `True`
 
 ## Module Boundaries
 
