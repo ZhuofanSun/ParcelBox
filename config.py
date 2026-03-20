@@ -84,7 +84,7 @@ class VisionConfig:
 
     backend: str = "opencv"
     mode: str = "person"
-    detection_fps: int = 10
+    detection_fps: int = 5
 
     # Reserved for future TFLite / YOLO backends.
     person_model_path: str = "models/person_detector.tflite"
