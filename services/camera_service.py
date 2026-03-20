@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 try:
@@ -20,6 +21,11 @@ class CameraService:
     def __init__(self, camera: CsiCamera | None = None) -> None:
         self._camera = camera
         self._lock = threading.Lock()
+        self._frame_condition = threading.Condition()
+        self._stop_event = threading.Event()
+        self._stream_thread: threading.Thread | None = None
+        self._latest_stream_jpeg: bytes | None = None
+        self._latest_stream_timestamp: float = 0.0
         self._started = False
 
     @property
@@ -38,6 +44,7 @@ class CameraService:
             if self._started:
                 return
 
+            self._stop_event.clear()
             if self._camera is None:
                 self._camera = CsiCamera(config.camera.camera_index)
 
@@ -52,14 +59,34 @@ class CameraService:
             self._camera.start()
             self._camera.warmup(2)
             self._started = True
+            self._stream_thread = threading.Thread(
+                target=self._stream_worker,
+                name="camera-stream-worker",
+                daemon=True,
+            )
+            self._stream_thread.start()
 
     def stop(self) -> None:
         """Stop the camera service."""
+        self._stop_event.set()
+
+        if self._stream_thread is not None:
+            self._stream_thread.join(timeout=2)
+            self._stream_thread = None
+
         with self._lock:
             if not self._started:
                 return
 
-            self._camera.cleanup()
+            if self._camera is not None:
+                self._camera.cleanup()
+                self._camera = None
+
+            with self._frame_condition:
+                self._latest_stream_jpeg = None
+                self._latest_stream_timestamp = 0.0
+                self._frame_condition.notify_all()
+
             self._started = False
 
     def _build_controls(self) -> dict:
@@ -70,6 +97,42 @@ class CameraService:
             "Sharpness": config.camera.default_sharpness,
             "Saturation": config.camera.default_saturation,
         }
+
+    def _encode_stream_frame_jpeg(self, frame, quality: int) -> bytes:
+        if cv2 is None:
+            raise RuntimeError("OpenCV is required for JPEG encoding. Install python3-opencv.")
+
+        ok, encoded = cv2.imencode(
+            ".jpg",
+            frame,
+            [int(cv2.IMWRITE_JPEG_QUALITY), quality],
+        )
+        if not ok:
+            raise RuntimeError("Failed to encode stream frame as JPEG")
+
+        return encoded.tobytes()
+
+    def _stream_worker(self) -> None:
+        interval = 1 / max(config.web.stream_fps, 1)
+
+        while not self._stop_event.is_set():
+            started_at = time.perf_counter()
+
+            try:
+                frame = self.get_stream_frame()
+                frame_bytes = self._encode_stream_frame_jpeg(frame, config.web.jpeg_quality)
+
+                with self._frame_condition:
+                    self._latest_stream_jpeg = frame_bytes
+                    self._latest_stream_timestamp = time.time()
+                    self._frame_condition.notify_all()
+            except Exception:
+                time.sleep(0.1)
+                continue
+
+            elapsed = time.perf_counter() - started_at
+            remaining = max(0.0, interval - elapsed)
+            self._stop_event.wait(remaining)
 
     def get_stream_frame(self):
         """Get one frame from the main stream."""
@@ -90,27 +153,40 @@ class CameraService:
         Get one JPEG-encoded frame from the main stream.
 
         Args:
-            quality: JPEG quality from 0 to 100. None uses config.web.jpeg_quality.
+            quality: JPEG quality from 0 to 100. None returns the cached shared frame.
         """
-        if cv2 is None:
-            raise RuntimeError("OpenCV is required for JPEG encoding. Install python3-opencv.")
-
         if quality is None:
-            quality = config.web.jpeg_quality
+            with self._frame_condition:
+                if self._latest_stream_jpeg is None:
+                    raise RuntimeError("No cached stream frame is available yet")
+                return self._latest_stream_jpeg
 
         if not 0 <= quality <= 100:
             raise ValueError("quality must be between 0 and 100")
 
         frame = self.get_stream_frame()
-        ok, encoded = cv2.imencode(
-            ".jpg",
-            frame,
-            [int(cv2.IMWRITE_JPEG_QUALITY), quality],
-        )
-        if not ok:
-            raise RuntimeError("Failed to encode stream frame as JPEG")
+        return self._encode_stream_frame_jpeg(frame, quality)
 
-        return encoded.tobytes()
+    def wait_for_latest_stream_jpeg(self, timeout: float = 2.0) -> tuple[bytes, float]:
+        """
+        Wait for the latest shared JPEG frame.
+
+        Args:
+            timeout: Maximum wait time in seconds.
+        """
+        if timeout <= 0:
+            raise ValueError("timeout must be > 0")
+
+        deadline = time.time() + timeout
+
+        with self._frame_condition:
+            while self._latest_stream_jpeg is None:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    raise RuntimeError("Timed out waiting for stream frame")
+                self._frame_condition.wait(timeout=remaining)
+
+            return self._latest_stream_jpeg, self._latest_stream_timestamp
 
     def save_snapshot(self, path: str | Path) -> None:
         """Save one full-resolution snapshot to disk."""

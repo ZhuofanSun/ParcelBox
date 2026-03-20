@@ -154,6 +154,9 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `/api/vision/boxes` currently returns fake backend boxes for overlay validation
 - `/api/stream/meta` returns stream and detection sizes
 - Current demo defaults: `720p`, `30 fps` stream, `5 fps` boxes polling, JPEG quality `70`
+- The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
+  re-capturing and re-encoding per viewer
+- `CameraService` now recreates the camera cleanly after stop / start
 
 ## Vision Baseline
 
@@ -209,6 +212,7 @@ Camera device orchestration.
 - parameter persistence
 - raw snapshot capture
 - JPEG encoding for MJPEG output
+- shared cached JPEG frame for multiple viewers
 
 ### `services/vision_service.py`
 
@@ -223,6 +227,7 @@ Vision understanding only.
 Current implementation note:
 
 - Phase 2 currently uses a fake moving box so the frontend overlay pipeline can be validated before a real detector is added
+- Fake box coordinates now read the current configured stream size each time, so later stream-size changes will not require a process restart
 
 ### `services/camera_mount_service.py`
 

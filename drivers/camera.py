@@ -221,9 +221,9 @@ class CsiCamera:
         if self._detection_format == "YUV420":
             return cv2.cvtColor(frame, cv2.COLOR_YUV2BGR_I420)
         if self._detection_format == "RGB888":
-            return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-        if self._detection_format == "BGR888":
             return frame
+        if self._detection_format == "BGR888":
+            return cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
 
         raise RuntimeError(
             f"Unsupported detection format for BGR conversion: {self._detection_format}"

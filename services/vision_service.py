@@ -11,28 +11,26 @@ from config import config
 class VisionService:
     """Fake vision output used to validate frontend overlays."""
 
-    def __init__(self) -> None:
-        self._stream_width, self._stream_height = config.camera.stream_size
-
     def get_boxes(self) -> dict:
         """Return fake detection boxes in stream coordinates."""
         now = time.time()
+        stream_width, stream_height = config.camera.stream_size
 
-        box_width = int(self._stream_width * 0.18)
-        box_height = int(self._stream_height * 0.38)
-        center_x = int(self._stream_width * 0.5 + math.sin(now * 0.8) * self._stream_width * 0.22)
-        center_y = int(self._stream_height * 0.5 + math.cos(now * 0.6) * self._stream_height * 0.12)
+        box_width = int(stream_width * 0.18)
+        box_height = int(stream_height * 0.38)
+        center_x = int(stream_width * 0.5 + math.sin(now * 0.8) * stream_width * 0.22)
+        center_y = int(stream_height * 0.5 + math.cos(now * 0.6) * stream_height * 0.12)
 
         x1 = max(0, center_x - box_width // 2)
         y1 = max(0, center_y - box_height // 2)
-        x2 = min(self._stream_width - 1, x1 + box_width)
-        y2 = min(self._stream_height - 1, y1 + box_height)
+        x2 = min(stream_width - 1, x1 + box_width)
+        y2 = min(stream_height - 1, y1 + box_height)
 
         return {
             "mode": "fake_person",
             "frame_size": {
-                "width": self._stream_width,
-                "height": self._stream_height,
+                "width": stream_width,
+                "height": stream_height,
             },
             "boxes": [
                 {

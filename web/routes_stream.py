@@ -50,12 +50,21 @@ def build_stream_router(
         interval = 1 / max(config.web.stream_fps, 1)
 
         def generate():
+            last_timestamp = 0.0
             while True:
-                frame_bytes = camera_service.get_stream_frame_jpeg()
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                )
+                try:
+                    frame_bytes, timestamp = camera_service.wait_for_latest_stream_jpeg()
+                except RuntimeError:
+                    time.sleep(0.1)
+                    continue
+
+                if timestamp != last_timestamp:
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                    )
+                    last_timestamp = timestamp
+
                 time.sleep(interval)
 
         return StreamingResponse(
