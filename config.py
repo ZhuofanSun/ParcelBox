@@ -31,8 +31,12 @@ class CameraConfig:
     detection_size: tuple[int, int] = (640, 480)
     pixel_format: str = "RGB888"
     buffer_count: int = 4
+
+    # 镜头接线放上面
+    # 和镜头同朝向时：hflip == vflip == True
+    # 面向镜头时：hflip = False, vflip = True
     hflip: bool = False
-    vflip: bool = False
+    vflip: bool = True
 
     default_fps: int = 30
     default_brightness: float = 0.0
