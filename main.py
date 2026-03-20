@@ -22,9 +22,11 @@ vision_service = VisionService()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     camera_service.start()
+    vision_service.start()
     try:
         yield
     finally:
+        vision_service.stop()
         camera_service.stop()
 
 

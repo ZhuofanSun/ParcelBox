@@ -68,6 +68,14 @@ pip install -r requirements.txt
 
 The `--system-site-packages` flag is important so the virtual environment can see `python3-picamera2` installed by `apt`.
 
+The current Phase 2 websocket vision channel also depends on the `websockets` package
+from `requirements.txt`. If the virtual environment was created earlier, rerun:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ## Raspberry Pi Runtime
 
 - Current Raspberry Pi Python environment: `/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python`
@@ -152,12 +160,15 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - `main.py` starts a minimal FastAPI app
 - `frontend/index.html` shows the live stream and draws boxes on a canvas overlay
 - `/api/stream.mjpg` provides the MJPEG stream
-- `/api/vision/boxes` currently returns fake backend boxes for overlay validation
+- `/ws/vision` now pushes fake backend boxes over WebSocket for overlay validation
+- `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream and detection sizes
-- Current demo defaults: `720p`, `30 fps` stream, `5 fps` boxes polling, JPEG quality `70`
+- Current demo defaults: `720p`, `30 fps` stream, `5 fps` detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
   re-capturing and re-encoding per viewer
 - `CameraService` now recreates the camera cleanly after stop / start
+- `VisionService` now runs on its own background detection thread and only keeps the
+  latest payload instead of queueing stale boxes
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
 

@@ -79,13 +79,19 @@ class StorageConfig:
 
 
 @dataclass
+class VisionConfig:
+    """Vision runtime configuration."""
+
+    detection_fps: int = 5
+
+
+@dataclass
 class WebConfig:
     """Web runtime configuration."""
 
     host: str = "0.0.0.0"
     port: int = 8000
     stream_fps: int = 30
-    boxes_fps: int = 5
     jpeg_quality: int = 70
     access_log: bool = False
 
@@ -99,6 +105,7 @@ class AppConfig:
     camera_mount: CameraMountConfig = field(default_factory=CameraMountConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
+    vision: VisionConfig = field(default_factory=VisionConfig)
     web: WebConfig = field(default_factory=WebConfig)
 
 
