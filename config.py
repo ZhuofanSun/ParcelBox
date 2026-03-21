@@ -8,8 +8,8 @@ class GPIOConfig:
     rc522_rst_pin: int = 25
 
     door_servo_pin: int | None = 18
-    camera_pan_servo_pin: int | None = 24
-    camera_tilt_servo_pin: int | None = 23
+    camera_pan_servo_pin: int | None = 23
+    camera_tilt_servo_pin: int | None = 24
 
     button_pin: int | None = 27
     buzzer_pin: int | None = 12
@@ -48,6 +48,7 @@ class CameraConfig:
 class CameraMountConfig:
     """Standby and movement settings for pan / tilt servos."""
 
+    enabled: bool = True
     pan_home_angle: float = 90
     tilt_home_angle: float = 90
 
@@ -56,6 +57,9 @@ class CameraMountConfig:
     tilt_min_angle: float = 0
     tilt_max_angle: float = 160
 
+    invert_pan_direction: bool = True
+    invert_tilt_direction: bool = False
+    center_deadzone_ratio: float = 0.15
     tracking_step: float = 2
     tracking_delay: float = 0.02
 

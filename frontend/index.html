@@ -14,6 +14,9 @@
       --muted: #61716b;
       --accent: #0c7c59;
       --box: #ff5a36;
+      --frame-center: #1f7ae0;
+      --target-center: #ffd166;
+      --target-line: rgba(255, 209, 102, 0.88);
     }
 
     * {
@@ -189,6 +192,10 @@
             <pre id="stream-meta">Loading...</pre>
           </div>
           <div class="info-row">
+            <div class="label">Camera Mount Suggestion</div>
+            <pre id="camera-mount-json">Loading...</pre>
+          </div>
+          <div class="info-row">
             <div class="label">Latest Boxes Payload</div>
             <pre id="boxes-json">Loading...</pre>
           </div>
@@ -201,6 +208,7 @@
     const streamImage = document.getElementById("stream");
     const overlay = document.getElementById("overlay");
     const streamMetaPre = document.getElementById("stream-meta");
+    const cameraMountPre = document.getElementById("camera-mount-json");
     const boxesJsonPre = document.getElementById("boxes-json");
     const modeBadge = document.getElementById("mode-badge");
     const ctx = overlay.getContext("2d");
@@ -217,13 +225,30 @@
       drawOverlay();
     }
 
+    function toOverlayPoint(x, y, frameWidth, frameHeight) {
+      return {
+        x: x * (overlay.width / frameWidth),
+        y: y * (overlay.height / frameHeight),
+      };
+    }
+
+    function drawMarker(x, y, radius, fillStyle, strokeStyle) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = strokeStyle;
+      ctx.stroke();
+    }
+
     function drawBox(box, frameWidth, frameHeight) {
-      const scaleX = overlay.width / frameWidth;
-      const scaleY = overlay.height / frameHeight;
-      const x = box.x1 * scaleX;
-      const y = box.y1 * scaleY;
-      const width = (box.x2 - box.x1) * scaleX;
-      const height = (box.y2 - box.y1) * scaleY;
+      const topLeft = toOverlayPoint(box.x1, box.y1, frameWidth, frameHeight);
+      const bottomRight = toOverlayPoint(box.x2, box.y2, frameWidth, frameHeight);
+      const x = topLeft.x;
+      const y = topLeft.y;
+      const width = bottomRight.x - topLeft.x;
+      const height = bottomRight.y - topLeft.y;
 
       ctx.strokeStyle = "#ff5a36";
       ctx.lineWidth = 3;
@@ -239,22 +264,93 @@
       ctx.fillText(label, x + 9, Math.max(18, y - 9));
     }
 
+    function drawTargetGuide(frameWidth, frameHeight) {
+      const advice = latestPayload?.camera_mount;
+      const frameCenterSource = advice?.frame_center || { x: frameWidth / 2, y: frameHeight / 2 };
+      const frameCenter = toOverlayPoint(frameCenterSource.x, frameCenterSource.y, frameWidth, frameHeight);
+      drawMarker(frameCenter.x, frameCenter.y, 6, "#1f7ae0", "#f4f8ff");
+
+      const target = advice?.target_center;
+      if (!target) return;
+
+      const targetCenter = toOverlayPoint(
+        target.x,
+        target.y,
+        frameWidth,
+        frameHeight,
+      );
+
+      ctx.beginPath();
+      ctx.moveTo(frameCenter.x, frameCenter.y);
+      ctx.lineTo(targetCenter.x, targetCenter.y);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255, 209, 102, 0.88)";
+      ctx.stroke();
+
+      drawMarker(targetCenter.x, targetCenter.y, 6, "#ffd166", "#5c4300");
+    }
+
+    function formatMountAdvice(advice) {
+      if (!advice) {
+        return "Mount advice unavailable";
+      }
+
+      if (advice.should_home) {
+        return `Mount: home | ${advice.home_reason}`;
+      }
+
+      if (!advice.has_target) {
+        return `Mount: ${advice.direction} | waiting for face`;
+      }
+
+      return `Mount: ${advice.direction} | distance ${(advice.distance_ratio * 100).toFixed(0)}%`;
+    }
+
+    function drawMountAdvice(frameWidth, frameHeight) {
+      const advice = latestPayload?.camera_mount;
+      if (!advice) return;
+
+      const label = formatMountAdvice(advice);
+      ctx.font = "15px Georgia";
+      const paddingX = 12;
+      const paddingY = 8;
+      const textWidth = ctx.measureText(label).width;
+      const boxWidth = textWidth + paddingX * 2;
+      const boxHeight = 32;
+      const x = 14;
+      const y = overlay.height - boxHeight - 14;
+
+      ctx.fillStyle = "rgba(15, 24, 21, 0.72)";
+      ctx.fillRect(x, y, boxWidth, boxHeight);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, boxWidth, boxHeight);
+      ctx.fillStyle = "#fff8ea";
+      ctx.fillText(label, x + paddingX, y + boxHeight - paddingY - 2);
+    }
+
     function drawOverlay() {
       ctx.clearRect(0, 0, overlay.width, overlay.height);
-      if (!latestPayload) return;
+      const frameWidth = latestPayload?.frame_size?.width || streamMeta?.stream_size?.width;
+      const frameHeight = latestPayload?.frame_size?.height || streamMeta?.stream_size?.height;
+      if (!frameWidth || !frameHeight) return;
 
-      const frameWidth = latestPayload.frame_size.width;
-      const frameHeight = latestPayload.frame_size.height;
-
-      for (const box of latestPayload.boxes) {
-        drawBox(box, frameWidth, frameHeight);
+      if (latestPayload) {
+        for (const box of latestPayload.boxes) {
+          drawBox(box, frameWidth, frameHeight);
+        }
       }
+
+      drawTargetGuide(frameWidth, frameHeight);
+      drawMountAdvice(frameWidth, frameHeight);
     }
 
     async function loadStreamMeta() {
       const response = await fetch("/api/stream/meta");
       streamMeta = await response.json();
       streamMetaPre.textContent = JSON.stringify(streamMeta, null, 2);
+      cameraMountPre.textContent = JSON.stringify(streamMeta.camera_mount_status, null, 2);
+      drawOverlay();
     }
 
     function buildVisionWebSocketUrl() {
@@ -292,6 +388,7 @@
         const payload = JSON.parse(event.data);
         latestPayload = payload;
         boxesJsonPre.textContent = JSON.stringify(latestPayload, null, 2);
+        cameraMountPre.textContent = JSON.stringify(latestPayload.camera_mount || null, null, 2);
         modeBadge.textContent = latestPayload.active_mode || latestPayload.mode;
         drawOverlay();
       });
