@@ -455,8 +455,18 @@ iot_locker/
   - [x] 已在仓库里预留未来 `tflite` / `yolo` 模型文件路径，并通过 `config.py` 配置。
   - [x] 当前已在仓库里加入 YuNet 模型路径配置，先把人脸检测从 Haar 提升到 YuNet。
   - [ ] 后续可选升级路径：
-    - [ ] `tflite` backend
-    - [ ] `yolo26n` backend
+    - [ ] `OpenCV Zoo MP-PersonDet`
+      - [ ] 先作为首个替代 HOG 的人体检测实验
+      - [ ] 沿用当前检测线程、WebSocket 和前端叠框链路
+      - [ ] 首轮先继续使用当前 `640x480` 检测流
+      - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
+    - [ ] `OpenCV Zoo NanoDet`
+      - [ ] 只在 `MP-PersonDet` 效果或性能不理想时再测
+      - [ ] 维持与 `MP-PersonDet` 相同的比较条件
+      - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
+    - [ ] 决策点
+      - [ ] 如果 `MP-PersonDet` 和 `NanoDet` 都不值当前集成成本，就暂时放弃人体检测
+      - [ ] 保留 `YuNet` 人脸检测，继续推进主流程、抓拍、数据库和 dashboard
 - [ ] 实现摄像头云台两个舵机的待机角度、归位、追踪控制。
 - [ ] 实现“目标丢失 / 离远后回到待机位”。
 - [ ] 做首版开门后扫描找人脸逻辑。

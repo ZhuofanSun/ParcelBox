@@ -207,11 +207,31 @@ See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
 The current codebase keeps the vision service and detector backend separate. This makes
 it easier to replace the baseline OpenCV detector with a stronger backend later.
 
-Practical next-step options:
+Practical next-step options for person detection on Raspberry Pi 4B:
 
-- add a `tflite` backend once a Pi-friendly model and postprocessing path are chosen
-- add a `yolo` backend, such as `yolo26n`, without rewriting the websocket protocol or
-  the main `VisionService`
+- test `OpenCV Zoo MP-PersonDet` first
+- if `MP-PersonDet` is not good enough, test `OpenCV Zoo NanoDet`
+- do not spend more time on `YOLOX` for now because the official Raspberry Pi 4B
+  benchmark is already too slow for this project direction
+- if both `MP-PersonDet` and `NanoDet` are still not worth the complexity, keep
+  `YuNet` for face detection and continue the rest of the project without person
+  detection for now
+
+Current test plan:
+
+1. `MP-PersonDet`
+   - add the model file under `models/`
+   - wire a dedicated backend or sub-backend path
+   - run with the existing `640x480` detection stream first
+   - record `latency_ms`, actual detection FPS, CPU usage, and subjective stability
+2. `NanoDet`
+   - only test if `MP-PersonDet` is not good enough
+   - keep the same stream size and comparison method
+   - compare accuracy and CPU cost against `MP-PersonDet`
+3. Decision gate
+   - if neither path is clearly acceptable, stop investing in person detection for now
+   - keep `YuNet` as the face detector baseline and move forward with locker flow,
+     snapshot linkage, database, and dashboard controls
 
 ## Camera Orientation
 
