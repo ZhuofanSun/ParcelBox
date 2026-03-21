@@ -462,6 +462,7 @@ iot_locker/
   - [x] 当前先按 `OpenCV` baseline 实现，保证树莓派环境可直接推进。
   - [x] 当前先把 `VisionService` 和具体检测 backend 拆开，方便后续替换。
   - [x] 人体检测当前 baseline 使用 OpenCV HOG people detector。
+  - [x] 当前 `nanodet-backend` 分支已把人体子后端切到 `OpenCV Zoo NanoDet`。
   
 - [x] 人脸检测当前 baseline 已升级为优先使用 OpenCV YuNet，缺模型时回退到 Haar cascade。
   - [x] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
@@ -471,27 +472,27 @@ iot_locker/
   - [x] 当前已在仓库里加入 YuNet 模型路径配置，先把人脸检测从 Haar 提升到 YuNet。
   
   - [ ] 后续可选升级路径：
-    - [ ] `OpenCV Zoo MP-PersonDet`
+    - [ ] `OpenCV Zoo NanoDet`
     
-        https://huggingface.co/opencv/opencv_zoo/tree/main/models/person_detection_mediapipe
-        - [x] 已把 `MP-PersonDet` 接到当前 `opencv` backend 的人体检测路径里
-        - [x] 默认先推荐 `person_detection_mediapipe_2023mar_int8bq.onnx`
-        - [ ] 如果 int8bq 漏检明显，再切到 `person_detection_mediapipe_2023mar.onnx`
-        - [ ] 先作为首个替代 HOG 的人体检测实验
+        https://huggingface.co/opencv/opencv_zoo/tree/main/models/object_detection_nanodet
+        - [x] 已把 `NanoDet` 接到当前 `opencv` backend 的人体检测路径里
+        - [x] 当前分支默认先推荐 `object_detection_nanodet_2022nov.onnx`
+        - [ ] 如果 full model 太重，再切到 `object_detection_nanodet_2022nov_int8bq.onnx`
+        - [ ] 先作为当前分支的人体检测实验主线
         - [ ] 沿用当前检测线程、WebSocket 和前端叠框链路
         - [ ] 首轮先继续使用当前 `640x480` 检测流
         - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
     
-    - [ ] `OpenCV Zoo NanoDet`
+    - [ ] `OpenCV Zoo MP-PersonDet`
       
-      https://huggingface.co/opencv/opencv_zoo/tree/main/models/object_detection_nanodet
+      https://huggingface.co/opencv/opencv_zoo/tree/main/models/person_detection_mediapipe
       
-      - [ ] 只在 `MP-PersonDet` 效果或性能不理想时再测
-      - [ ] 维持与 `MP-PersonDet` 相同的比较条件
+      - [ ] 作为 `main` 分支上的参考实现保留
+      - [ ] 维持与 `NanoDet` 相同的比较条件
       - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
       
     - [ ] 决策点
-      - [ ] 如果 `MP-PersonDet` 和 `NanoDet` 都不值当前集成成本，就暂时放弃人体检测
+      - [ ] 如果 `NanoDet` 和 `MP-PersonDet` 都不值当前集成成本，就暂时放弃人体检测
       - [ ] 保留 `YuNet` 人脸检测，继续推进主流程、抓拍、数据库和 dashboard
   
 - [ ] 实现摄像头云台两个舵机的待机角度、归位、追踪控制。
