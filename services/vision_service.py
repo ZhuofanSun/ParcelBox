@@ -235,12 +235,14 @@ class VisionService:
     ) -> dict:
         stream_width, stream_height = config.camera.stream_size
         detection_width, detection_height = config.camera.detection_size
+        runtime_info = self._get_backend_runtime_info()
 
         return {
             "mode": configured_mode,
             "active_mode": active_mode,
             "status": status,
             "backend": config.vision.backend,
+            "runtime": runtime_info,
             "frame_size": {
                 "width": stream_width,
                 "height": stream_height,
@@ -255,6 +257,21 @@ class VisionService:
             "latency_ms": round(latency_ms, 2),
             "error": error,
         }
+
+    def _get_backend_runtime_info(self) -> dict:
+        if self._backend is None:
+            return {}
+
+        getter = getattr(self._backend, "get_runtime_info", None)
+        if getter is None:
+            return {}
+
+        try:
+            runtime_info = getter()
+        except Exception:
+            return {}
+
+        return runtime_info if isinstance(runtime_info, dict) else {}
 
     def _build_empty_payload(
         self,

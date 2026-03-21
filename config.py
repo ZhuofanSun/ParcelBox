@@ -83,11 +83,12 @@ class VisionConfig:
     """Vision runtime configuration."""
 
     backend: str = "opencv"
-    mode: str = "face"
+    mode: str = "person"
     detection_fps: int = 5
 
-    # Reserved for future TFLite / YOLO backends.
-    person_model_path: str = "models/person_detector.tflite"
+    person_backend: str = "mp_persondet"
+    person_fallback_to_hog: bool = True
+    person_model_path: str = "models/person_detection_mediapipe_2023mar.onnx"
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
     yolo_model_path: str = "models/yolo26n.pt"
 
@@ -95,6 +96,9 @@ class VisionConfig:
     face_score_threshold: float = 0.5
     person_max_results: int = 3
     face_near_trigger_ratio: float = 0.28
+    mp_persondet_score_threshold: float = 0.5
+    mp_persondet_nms_threshold: float = 0.3
+    mp_persondet_top_k: int = 3
     face_backend: str = "yunet"
     face_fallback_to_haar: bool = True
     yunet_score_threshold: float = 0.7
