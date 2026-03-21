@@ -234,6 +234,28 @@
       line-height: 1.45;
     }
 
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      max-width: min(360px, calc(100vw - 36px));
+      padding: 12px 14px;
+      border: 1px solid rgba(12, 124, 89, 0.16);
+      border-radius: 14px;
+      background: rgba(255, 252, 244, 0.96);
+      color: var(--text);
+      box-shadow: 0 16px 40px rgba(30, 47, 40, 0.16);
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .toast.toast-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
     @media (max-width: 920px) {
       .content {
         grid-template-columns: 1fr;
@@ -267,6 +289,7 @@
             <div class="button-grid">
               <button id="open-door-btn" type="button">Open Door</button>
               <button id="close-door-btn" type="button">Close Door</button>
+              <button id="capture-snapshot-btn" type="button">Capture Photo</button>
               <button id="refresh-locker-btn" type="button">Refresh Locker</button>
               <button id="refresh-events-btn" type="button">Refresh Events</button>
               <button id="refresh-cards-btn" type="button">Refresh Cards</button>
@@ -329,6 +352,7 @@
       </aside>
     </section>
   </div>
+  <div class="toast" id="button-toast" aria-live="polite"></div>
 
   <script>
     const streamImage = document.getElementById("stream");
@@ -347,12 +371,14 @@
     const modeBadge = document.getElementById("mode-badge");
     const openDoorButton = document.getElementById("open-door-btn");
     const closeDoorButton = document.getElementById("close-door-btn");
+    const captureSnapshotButton = document.getElementById("capture-snapshot-btn");
     const refreshLockerButton = document.getElementById("refresh-locker-btn");
     const refreshEventsButton = document.getElementById("refresh-events-btn");
     const refreshCardsButton = document.getElementById("refresh-cards-btn");
     const cardReadModeButton = document.getElementById("card-read-mode-btn");
     const cardWriteModeButton = document.getElementById("card-write-mode-btn");
     const cardIoActionButton = document.getElementById("card-io-action-btn");
+    const buttonToast = document.getElementById("button-toast");
     const ctx = overlay.getContext("2d");
 
     let latestPayload = null;
@@ -365,6 +391,8 @@
     let readPollTimer = null;
     let readPollInFlight = false;
     let readPollingActive = false;
+    let buttonToastTimer = null;
+    let lastHandledButtonEventId = 0;
 
     const LOCKER_STATUS_REFRESH_MS = 2000;
     const LOCKER_EVENTS_REFRESH_MS = 6000;
@@ -521,6 +549,7 @@
     function setControlButtonsDisabled(disabled) {
       openDoorButton.disabled = disabled;
       closeDoorButton.disabled = disabled;
+      captureSnapshotButton.disabled = disabled;
       refreshLockerButton.disabled = disabled;
       refreshEventsButton.disabled = disabled;
       refreshCardsButton.disabled = disabled;
@@ -595,6 +624,56 @@
       );
     }
 
+    function showButtonToast(message) {
+      if (!message) return;
+      buttonToast.textContent = message;
+      buttonToast.classList.add("toast-visible");
+      if (buttonToastTimer) {
+        window.clearTimeout(buttonToastTimer);
+      }
+      buttonToastTimer = window.setTimeout(() => {
+        buttonToast.classList.remove("toast-visible");
+        buttonToastTimer = null;
+      }, 4200);
+    }
+
+    function snapshotLabel(snapshot) {
+      if (!snapshot) return null;
+      if (snapshot.filename) return snapshot.filename;
+      if (typeof snapshot.path === "string") {
+        const parts = snapshot.path.split("/");
+        return parts[parts.length - 1] || snapshot.path;
+      }
+      return null;
+    }
+
+    function syncButtonStatus(buttonStatus, announce = false) {
+      const buttonEvent = buttonStatus?.latest_event || null;
+      if (!buttonEvent || !Number.isFinite(buttonEvent.id)) {
+        return;
+      }
+
+      if (buttonEvent.id <= lastHandledButtonEventId) {
+        return;
+      }
+
+      lastHandledButtonEventId = buttonEvent.id;
+      if (!announce) {
+        return;
+      }
+
+      const errorMessage = buttonEvent.snapshot_error;
+      const fileLabel = snapshotLabel(buttonEvent.snapshot);
+      const message = errorMessage
+        ? `Button pressed: snapshot failed (${errorMessage})`
+        : fileLabel
+          ? `Button pressed: photo saved as ${fileLabel}`
+          : "Button pressed: photo saved locally";
+      setControlStatus(message);
+      setControlLog("button_press", buttonEvent);
+      showButtonToast(message);
+    }
+
     function actionKey(label) {
       return String(label).toLowerCase().replace(/\s+/g, "_");
     }
@@ -652,6 +731,7 @@
       streamMetaPre.textContent = stringifyForDisplay(streamMeta);
       cameraMountPre.textContent = stringifyForDisplay(streamMeta.camera_mount_status);
       lockerStatusPre.textContent = stringifyForDisplay(streamMeta.locker_status);
+      syncButtonStatus(streamMeta.button_status, false);
       drawOverlay();
     }
 
@@ -791,6 +871,26 @@
       }
     }
 
+    async function runSnapshotAction() {
+      setControlButtonsDisabled(true);
+      setControlStatus("Capturing photo...");
+      try {
+        const payload = await fetchJson("/api/camera/snapshot", {
+          method: "POST",
+          body: JSON.stringify({ source: "frontend" }),
+        });
+        setControlStatus("Photo captured");
+        setControlLog("capture_snapshot", payload);
+        return payload;
+      } catch (error) {
+        setControlStatus(`Capture photo failed: ${error.message}`);
+        setControlLog("capture_snapshot_error", { error: error.message });
+        throw error;
+      } finally {
+        setControlButtonsDisabled(false);
+      }
+    }
+
     function startBackgroundRefresh() {
       if (!lockerRefreshTimer) {
         lockerRefreshTimer = window.setInterval(() => {
@@ -839,6 +939,14 @@
       visionSocket.addEventListener("message", (event) => {
         const payload = JSON.parse(event.data);
         latestPayload = payload;
+        if (streamMeta) {
+          streamMeta.button_status = {
+            ...(streamMeta.button_status || {}),
+            latest_event: payload.button_event || null,
+          };
+          streamMetaPre.textContent = stringifyForDisplay(streamMeta);
+        }
+        syncButtonStatus({ latest_event: payload.button_event }, true);
         boxesJsonPre.textContent = stringifyForDisplay(latestPayload);
         cameraMountPre.textContent = stringifyForDisplay(latestPayload.camera_mount || null);
         modeBadge.textContent = latestPayload.active_mode || latestPayload.mode;
@@ -861,6 +969,10 @@
 
     closeDoorButton.addEventListener("click", () => {
       runLockerAction("/api/locker/close", "Close door").catch(() => {});
+    });
+
+    captureSnapshotButton.addEventListener("click", () => {
+      runSnapshotAction().catch(() => {});
     });
 
     refreshLockerButton.addEventListener("click", async () => {
@@ -935,6 +1047,9 @@
       }
       if (visionSocket) {
         visionSocket.close();
+      }
+      if (buttonToastTimer) {
+        window.clearTimeout(buttonToastTimer);
       }
     });
 

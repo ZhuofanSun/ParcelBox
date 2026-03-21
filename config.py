@@ -40,7 +40,7 @@ class CameraConfig:
 
     default_fps: int = 30
     default_brightness: float = 0.0
-    default_exposure_value: float = -0.5
+    default_exposure_value: float = 0.5
     default_sharpness: float = 1.0
     default_saturation: float = 1.0
 
@@ -49,7 +49,7 @@ class CameraConfig:
 class CameraMountConfig:
     """Standby and movement settings for pan / tilt servos."""
 
-    enabled: bool = True
+    enabled: bool = False
     pan_home_angle: float = 90
     tilt_home_angle: float = 80
 
@@ -157,6 +157,7 @@ class VisionConfig:
     # face detection misses one or two frames.
     auto_face_hold_frames: int = 2
     auto_face_velocity_smoothing: float = 0.5
+    face_snapshot_trigger_area_ratio: float = 0.08
     mp_persondet_score_threshold: float = 0.5
     mp_persondet_nms_threshold: float = 0.3
     mp_persondet_top_k: int = 3

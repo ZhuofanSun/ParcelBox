@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from config import config
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
+from services.button_service import ButtonService
 from services.locker_service import LockerService
 from services.vision_service import VisionService
 
@@ -45,14 +46,18 @@ def build_stream_router(
     vision_service: VisionService,
     camera_mount_service: CameraMountService | None = None,
     locker_service: LockerService | None = None,
+    button_service: ButtonService | None = None,
 ) -> APIRouter:
     """Create the router for stream and vision endpoints."""
     router = APIRouter()
 
     def enrich_payload(payload: dict) -> dict:
-        if camera_mount_service is None:
-            return payload
-        return camera_mount_service.enrich_payload(payload)
+        enriched_payload = dict(payload)
+        if camera_mount_service is not None:
+            enriched_payload = camera_mount_service.enrich_payload(enriched_payload)
+        if button_service is not None:
+            enriched_payload["button_event"] = button_service.get_latest_event()
+        return enriched_payload
 
     @router.get("/api/health")
     def health() -> JSONResponse:
@@ -87,12 +92,26 @@ def build_stream_router(
                     if locker_service is not None
                     else None
                 ),
+                "button_status": (
+                    button_service.get_status()
+                    if button_service is not None
+                    else None
+                ),
             }
         )
 
     @router.get("/api/vision/boxes")
     def vision_boxes() -> JSONResponse:
         return JSONResponse(enrich_payload(vision_service.get_boxes()))
+
+    @router.post("/api/camera/snapshot")
+    def capture_snapshot() -> JSONResponse:
+        try:
+            payload = camera_service.capture_snapshot()
+        except RuntimeError as error:
+            return JSONResponse({"detail": str(error)}, status_code=503)
+
+        return JSONResponse({"snapshot": payload})
 
     @router.websocket("/ws/vision")
     async def vision_websocket(websocket: WebSocket) -> None:

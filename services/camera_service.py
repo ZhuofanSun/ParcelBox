@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 try:
@@ -206,3 +207,23 @@ class CameraService:
             raise RuntimeError("Camera service is not started")
         with self._lock:
             self._camera.capture_file(str(output_path))
+
+    def capture_snapshot(self, directory: str | Path | None = None) -> dict:
+        """Capture one snapshot to the configured snapshot directory."""
+        target_dir = Path(directory) if directory is not None else Path(config.storage.snapshot_dir)
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now()
+        base_name = timestamp.strftime("%Y%m%d_%H%M%S")
+        output_path = target_dir / f"{base_name}.jpg"
+        suffix = 1
+        while output_path.exists():
+            output_path = target_dir / f"{base_name}_{suffix}.jpg"
+            suffix += 1
+
+        self.save_snapshot(output_path)
+        return {
+            "filename": output_path.name,
+            "path": str(output_path),
+            "saved_at": timestamp.isoformat(),
+        }

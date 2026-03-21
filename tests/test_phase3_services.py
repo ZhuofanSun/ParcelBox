@@ -117,6 +117,19 @@ class FakeLockerBridge:
         return event
 
 
+class FakeSnapshotRecorder:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def __call__(self) -> dict:
+        snapshot = {
+            "path": f"/tmp/snapshot_{len(self.calls) + 1}.jpg",
+            "saved_at": "2026-03-21T12:00:00",
+        }
+        self.calls.append(copy.deepcopy(snapshot))
+        return snapshot
+
+
 class Phase3ServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_config = copy.deepcopy(config)
@@ -151,8 +164,18 @@ class Phase3ServiceTests(unittest.TestCase):
         self.addCleanup(service.stop)
         return service
 
-    def build_locker_service(self, access_service: AccessService, occupancy_service: OccupancyService | None = None) -> LockerService:
-        service = LockerService(access_service, occupancy_service, servo_factory=FakeServo)
+    def build_locker_service(
+        self,
+        access_service: AccessService,
+        occupancy_service: OccupancyService | None = None,
+        snapshot_callback=None,
+    ) -> LockerService:
+        service = LockerService(
+            access_service,
+            occupancy_service,
+            servo_factory=FakeServo,
+            snapshot_callback=snapshot_callback,
+        )
         service.start()
         self.addCleanup(service.stop)
         return service
@@ -246,6 +269,25 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(event["uid"], "CAFE01")
         self.assertEqual(status["door_state"], "open")
         self.assertEqual(status["current_angle"], config.door.open_angle)
+
+    def test_rfid_scan_captures_snapshot_once_until_card_removed(self) -> None:
+        access_service = self.build_access_service()
+        access_service.enroll_card("CAFE01", name="Tester")
+        snapshot_recorder = FakeSnapshotRecorder()
+        locker_service = self.build_locker_service(
+            access_service,
+            snapshot_callback=snapshot_recorder,
+        )
+
+        first_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
+        duplicate_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
+        locker_service.note_no_card_present()
+        second_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
+
+        self.assertEqual(len(snapshot_recorder.calls), 2)
+        self.assertIsNotNone(first_event["snapshot"])
+        self.assertIsNone(duplicate_event)
+        self.assertIsNotNone(second_event["snapshot"])
 
     def test_duplicate_card_does_not_reopen_until_reader_sees_no_card(self) -> None:
         access_service = self.build_access_service()

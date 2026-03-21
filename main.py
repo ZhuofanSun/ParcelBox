@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import config
 from services.access_service import AccessService
+from services.button_service import ButtonService
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
 from services.locker_service import LockerService
@@ -24,9 +25,14 @@ from web.routes_stream import begin_stream_shutdown, build_stream_router, reset_
 camera_service = CameraService()
 vision_service = VisionService(camera_service)
 camera_mount_service = CameraMountService(vision_service)
+button_service = ButtonService(snapshot_callback=camera_service.capture_snapshot)
 access_service = AccessService()
 occupancy_service = OccupancyService()
-locker_service = LockerService(access_service, occupancy_service)
+locker_service = LockerService(
+    access_service,
+    occupancy_service,
+    snapshot_callback=camera_service.capture_snapshot,
+)
 
 
 @asynccontextmanager
@@ -34,24 +40,34 @@ async def lifespan(app: FastAPI):
     reset_stream_shutdown_state()
     access_service.start()
     occupancy_service.start()
-    locker_service.start()
     camera_service.start()
+    button_service.start()
     vision_service.start()
+    locker_service.start()
     camera_mount_service.start()
     try:
         yield
     finally:
         await begin_stream_shutdown()
         camera_mount_service.stop()
-        vision_service.stop()
-        camera_service.stop()
         locker_service.stop()
+        vision_service.stop()
+        button_service.stop()
+        camera_service.stop()
         occupancy_service.stop()
         access_service.stop()
 
 
 app = FastAPI(title="ParcelBox", lifespan=lifespan)
-app.include_router(build_stream_router(camera_service, vision_service, camera_mount_service, locker_service))
+app.include_router(
+    build_stream_router(
+        camera_service,
+        vision_service,
+        camera_mount_service,
+        locker_service,
+        button_service,
+    )
+)
 app.include_router(build_control_router(locker_service))
 app.include_router(build_cards_router(access_service, locker_service))
 

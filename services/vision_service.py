@@ -29,6 +29,7 @@ class VisionService:
         self._tracked_face_box: dict | None = None
         self._tracked_face_velocity = (0.0, 0.0)
         self._face_miss_count = 0
+        self._face_snapshot_taken = False
 
     def start(self) -> None:
         """Start the background detection loop."""
@@ -62,6 +63,7 @@ class VisionService:
             self._frame_condition.notify_all()
 
         self._reset_auto_tracking()
+        self._face_snapshot_taken = False
 
     def get_boxes(self) -> dict:
         """Return the latest detection payload."""
@@ -160,6 +162,7 @@ class VisionService:
                 boxes, active_mode = self._detect_auto_boxes(backend, frame_bgr)
 
             mapped_boxes = self._map_detection_boxes_to_stream(boxes)
+            self._maybe_capture_face_snapshot(mapped_boxes)
             latency_ms = (time.perf_counter() - started_at) * 1000
 
             return self._build_payload(
@@ -406,6 +409,42 @@ class VisionService:
             "center_x": round(center_x, 1),
             "center_y": round(center_y, 1),
         }
+
+    def _maybe_capture_face_snapshot(self, boxes: list[dict]) -> None:
+        face_box = self._largest_face_box(boxes)
+        if face_box is None:
+            self._face_snapshot_taken = False
+            return
+
+        if self._face_snapshot_taken:
+            return
+
+        area_ratio = self._box_area_ratio(face_box)
+        if area_ratio < config.vision.face_snapshot_trigger_area_ratio:
+            return
+
+        try:
+            self._camera_service.capture_snapshot()
+        except Exception:
+            return
+
+        self._face_snapshot_taken = True
+
+    def _largest_face_box(self, boxes: list[dict]) -> dict | None:
+        face_boxes = [box for box in boxes if box.get("label") == "face"]
+        if not face_boxes:
+            return None
+
+        return max(
+            face_boxes,
+            key=lambda box: (box["x2"] - box["x1"]) * (box["y2"] - box["y1"]),
+        )
+
+    def _box_area_ratio(self, box: dict) -> float:
+        stream_width, stream_height = config.camera.stream_size
+        frame_area = max(stream_width * stream_height, 1)
+        box_area = max(box["x2"] - box["x1"], 0) * max(box["y2"] - box["y1"], 0)
+        return box_area / frame_area
 
     def _close_backend(self) -> None:
         if self._backend is not None and hasattr(self._backend, "close"):

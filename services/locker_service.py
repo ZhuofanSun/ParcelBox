@@ -20,10 +20,12 @@ class LockerService:
         access_service: AccessService,
         occupancy_service: OccupancyService | None = None,
         servo_factory=Servo,
+        snapshot_callback=None,
     ) -> None:
         self._access_service = access_service
         self._occupancy_service = occupancy_service
         self._servo_factory = servo_factory
+        self._snapshot_callback = snapshot_callback
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
@@ -131,20 +133,30 @@ class LockerService:
             if self._is_duplicate_scan_locked(access_result["uid"]):
                 return None
             self._remember_scan_locked(access_result["uid"])
+        snapshot = self.capture_snapshot_for_card_action(source=source, uid=access_result["uid"])
+        with self._lock:
             self._last_access_result = copy.deepcopy(access_result)
             if access_result["allowed"]:
-                return copy.deepcopy(self._open_door_locked(source=source, access_result=access_result))
+                return copy.deepcopy(
+                    self._open_door_locked(
+                        source=source,
+                        access_result=access_result,
+                        snapshot=snapshot,
+                    )
+                )
 
-            event = self._record_event_locked(
-                {
-                    "type": "access_denied",
-                    "source": source,
-                    "uid": access_result["uid"],
-                    "allowed": False,
-                    "reason": access_result["reason"],
-                    "timestamp": time.time(),
-                }
-            )
+            event = {
+                "type": "access_denied",
+                "source": source,
+                "uid": access_result["uid"],
+                "allowed": False,
+                "reason": access_result["reason"],
+                "timestamp": time.time(),
+            }
+            if snapshot is not None:
+                event["snapshot"] = snapshot
+
+            event = self._record_event_locked(event)
             return copy.deepcopy(event)
 
     def note_no_card_present(self) -> None:
@@ -152,6 +164,25 @@ class LockerService:
         with self._lock:
             self._last_scanned_uid = None
             self._last_scanned_at = 0.0
+
+    def capture_snapshot_for_card_action(self, *, source: str, uid: str | None = None) -> dict | None:
+        """Capture one snapshot for a card-present event if camera capture is available."""
+        if self._snapshot_callback is None:
+            return None
+
+        try:
+            snapshot = self._snapshot_callback()
+        except Exception as error:
+            with self._lock:
+                self._last_error = str(error)
+            return None
+
+        if isinstance(snapshot, dict):
+            snapshot.setdefault("trigger", "rfid")
+            snapshot.setdefault("source", source)
+            if uid is not None:
+                snapshot.setdefault("uid", uid)
+        return snapshot
 
     def list_events(self, limit: int = 30) -> list[dict]:
         """Return recent locker events."""
@@ -233,7 +264,13 @@ class LockerService:
             self._door_servo_enabled = False
             self._last_error = str(error)
 
-    def _open_door_locked(self, *, source: str, access_result: dict | None) -> dict:
+    def _open_door_locked(
+        self,
+        *,
+        source: str,
+        access_result: dict | None,
+        snapshot: dict | None = None,
+    ) -> dict:
         self._cancel_auto_close_locked()
         self._move_door_locked(config.door.open_angle, state="open")
         event = {
@@ -244,6 +281,8 @@ class LockerService:
             "reason": "manual_open" if access_result is None else access_result["reason"],
             "timestamp": time.time(),
         }
+        if snapshot is not None:
+            event["snapshot"] = snapshot
         recorded_event = self._record_event_locked(event)
         self._schedule_auto_close_locked()
         return recorded_event
