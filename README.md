@@ -185,7 +185,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - Use a separate `640x480` inference resolution for vision tasks
 - Current detection backend is `OpenCV`
 - Current config supports `person`, `face`, and `auto` mode
-- Current recommended person detector on this branch is `OpenCV Zoo NanoDet`
+- Current recommended person detector is `OpenCV Zoo NanoDet`
 - Current recommended face detector is `YuNet`
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
@@ -205,7 +205,6 @@ Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-pr
 
 - `models/object_detection_nanodet_2022nov.onnx`
 - `models/face_detection_yunet_2023mar.onnx`
-- `models/yolo26n.pt`
 
 The current OpenCV backend can already use:
 
@@ -222,37 +221,17 @@ This branch starts with the full NanoDet ONNX model because it is a cleaner firs
 baseline for accuracy. The `int8bq` variant remains the lighter follow-up experiment.
 See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
 
-## Future Detection Backends
+## Detection Notes
 
-The current codebase keeps the vision service and detector backend separate. This makes
-it easier to replace the baseline OpenCV detector with a stronger backend later.
+The current mainline keeps `NanoDet` for person detection and `YuNet` for face
+detection because this combination gave the best balance of accuracy, speed, and
+dependency simplicity on Raspberry Pi 4.
 
-Practical next-step options for person detection on Raspberry Pi 4B:
+Other routes were not enabled in the mainline:
 
-- this branch is currently testing `OpenCV Zoo NanoDet`
-- keep `OpenCV Zoo MP-PersonDet` as the reference from `main`
-- do not spend more time on `YOLOX` for now because the official Raspberry Pi 4B
-  benchmark is already too slow for this project direction
-- if both `NanoDet` and `MP-PersonDet` are still not worth the complexity, keep
-  `YuNet` for face detection and continue the rest of the project without person
-  detection for now
-
-Current test plan:
-
-1. `NanoDet`
-   - use `object_detection_nanodet_2022nov.onnx` first
-   - keep `object_detection_nanodet_2022nov_int8bq.onnx` as the lighter fallback
-   - wire it through the current OpenCV backend with `person_backend = "nanodet"`
-   - run with the existing `640x480` detection stream first
-   - record `latency_ms`, actual detection FPS, CPU usage, and subjective stability
-2. `MP-PersonDet`
-   - use `main` branch as the reference implementation
-   - keep the same stream size and comparison method
-   - compare accuracy and CPU cost against `NanoDet`
-3. Decision gate
-   - if neither path is clearly acceptable, stop investing in person detection for now
-   - keep `YuNet` as the face detector baseline and move forward with locker flow,
-     snapshot linkage, database, and dashboard controls
+- `MP-PersonDet` worked but tended to focus too much on head / upper-body cues for this project
+- `YOLO` / `YOLOX` added more runtime and dependency cost than value for the current Raspberry Pi setup
+- `TFLite` added Python runtime friction on the current environment and was not kept on the main path
 
 ## Camera Orientation
 

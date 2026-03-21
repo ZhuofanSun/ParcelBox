@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from config import config
 from services.camera_service import CameraService
 from services.vision_service import VisionService
-from web.routes_stream import build_stream_router
+from web.routes_stream import begin_stream_shutdown, build_stream_router, reset_stream_shutdown_state
 
 
 camera_service = CameraService()
@@ -21,11 +21,13 @@ vision_service = VisionService(camera_service)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    reset_stream_shutdown_state()
     camera_service.start()
     vision_service.start()
     try:
         yield
     finally:
+        await begin_stream_shutdown()
         vision_service.stop()
         camera_service.stop()
 
@@ -45,6 +47,7 @@ def serve() -> None:
         port=config.web.port,
         reload=False,
         access_log=config.web.access_log,
+        timeout_graceful_shutdown=1,
     )
 
 

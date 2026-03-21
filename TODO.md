@@ -462,7 +462,7 @@ iot_locker/
   - [x] 当前先按 `OpenCV` baseline 实现，保证树莓派环境可直接推进。
   - [x] 当前先把 `VisionService` 和具体检测 backend 拆开，方便后续替换。
   - [x] 人体检测当前 baseline 使用 OpenCV HOG people detector。
-  - [x] 当前 `nanodet-backend` 分支已把人体子后端切到 `OpenCV Zoo NanoDet`。
+  - [x] 当前主线已把人体子后端切到 `OpenCV Zoo NanoDet`。
   - [x] `auto` 模式已升级为状态机式切换：`person_search -> face_track -> face_hold -> person_search`
   - [x] `auto` 模式下，进入 `face_track` 后不再每帧重复跑人体检测。
   - [x] `auto` 模式下已拆分两套检测频率：
@@ -472,34 +472,16 @@ iot_locker/
   
 - [x] 人脸检测当前 baseline 已升级为优先使用 OpenCV YuNet，缺模型时回退到 Haar cascade。
   - [x] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
-  
-  - [x] 已在仓库里预留未来 `tflite` / `yolo` 模型文件路径，并通过 `config.py` 配置。
-  
   - [x] 当前已在仓库里加入 YuNet 模型路径配置，先把人脸检测从 Haar 提升到 YuNet。
-  
-  - [ ] 后续可选升级路径：
-    - [ ] `OpenCV Zoo NanoDet`
-    
-        https://huggingface.co/opencv/opencv_zoo/tree/main/models/object_detection_nanodet
-        - [x] 已把 `NanoDet` 接到当前 `opencv` backend 的人体检测路径里
-        - [x] 当前分支默认先推荐 `object_detection_nanodet_2022nov.onnx`
-        - [ ] 如果 full model 太重，再切到 `object_detection_nanodet_2022nov_int8bq.onnx`
-        - [ ] 先作为当前分支的人体检测实验主线
-        - [ ] 沿用当前检测线程、WebSocket 和前端叠框链路
-        - [ ] 首轮先继续使用当前 `640x480` 检测流
-        - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
-    
-    - [ ] `OpenCV Zoo MP-PersonDet`
-      
-      https://huggingface.co/opencv/opencv_zoo/tree/main/models/person_detection_mediapipe
-      
-      - [ ] 作为 `main` 分支上的参考实现保留
-      - [ ] 维持与 `NanoDet` 相同的比较条件
-      - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
-      
-    - [ ] 决策点
-      - [ ] 如果 `NanoDet` 和 `MP-PersonDet` 都不值当前集成成本，就暂时放弃人体检测
-      - [ ] 保留 `YuNet` 人脸检测，继续推进主流程、抓拍、数据库和 dashboard
+  - [x] 当前人体检测主线已切到 `OpenCV Zoo NanoDet`。
+  - [x] 当前默认先使用 `object_detection_nanodet_2022nov.onnx`。
+  - [ ] 如果 full model 太重，再切到 `object_detection_nanodet_2022nov_int8bq.onnx`。
+  - [ ] 保留一轮 `NanoDet` 实测记录：
+    - [ ] `latency_ms`
+    - [ ] 实际检测 fps
+    - [ ] CPU 占用
+    - [ ] 多目标稳定性
+    - [ ] 和 `YuNet auto` 联动时的体感表现
   
   - [ ] 后续自动模式优化：
     - [ ] 在人脸上次检测区域或人体 ROI 内做人脸重检，减少整帧人脸检测开销

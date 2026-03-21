@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from contextlib import suppress
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -11,6 +12,30 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from config import config
 from services.camera_service import CameraService
 from services.vision_service import VisionService
+
+
+ACTIVE_VISION_WEBSOCKETS: set[WebSocket] = set()
+STREAM_SHUTDOWN_EVENT = asyncio.Event()
+
+
+def reset_stream_shutdown_state() -> None:
+    """Clear shutdown flags when the app starts."""
+    STREAM_SHUTDOWN_EVENT.clear()
+
+
+async def begin_stream_shutdown() -> None:
+    """Signal routes to stop streaming and close active vision websockets."""
+    STREAM_SHUTDOWN_EVENT.set()
+
+    if not ACTIVE_VISION_WEBSOCKETS:
+        return
+
+    closing_tasks = []
+    for websocket in list(ACTIVE_VISION_WEBSOCKETS):
+        closing_tasks.append(websocket.close(code=1001, reason="Server shutting down"))
+
+    with suppress(Exception):
+        await asyncio.gather(*closing_tasks, return_exceptions=True)
 
 
 def build_stream_router(
@@ -54,14 +79,15 @@ def build_stream_router(
     async def vision_websocket(websocket: WebSocket) -> None:
         await websocket.accept()
         last_seen_version = 0
+        ACTIVE_VISION_WEBSOCKETS.add(websocket)
 
         try:
-            while True:
+            while not STREAM_SHUTDOWN_EVENT.is_set():
                 try:
                     payload, version = await asyncio.to_thread(
                         vision_service.wait_for_latest_boxes,
                         last_seen_version,
-                        5.0,
+                        0.5,
                     )
                 except TimeoutError:
                     continue
@@ -70,6 +96,10 @@ def build_stream_router(
                 last_seen_version = version
         except WebSocketDisconnect:
             return
+        except asyncio.CancelledError:
+            return
+        finally:
+            ACTIVE_VISION_WEBSOCKETS.discard(websocket)
 
     @router.get("/api/stream.mjpg")
     def mjpeg_stream() -> StreamingResponse:
@@ -77,7 +107,7 @@ def build_stream_router(
 
         def generate():
             last_timestamp = 0.0
-            while True:
+            while not STREAM_SHUTDOWN_EVENT.is_set():
                 try:
                     frame_bytes, timestamp = camera_service.wait_for_latest_stream_jpeg()
                 except RuntimeError:

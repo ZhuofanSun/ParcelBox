@@ -98,10 +98,9 @@ class VisionConfig:
     person_backend: str = "nanodet"
     person_fallback_to_hog: bool = True
     # person_model_path should match the selected person_backend.
-    # Current branch baseline uses NanoDet.
+    # Current mainline baseline uses NanoDet.
     person_model_path: str = "models/object_detection_nanodet_2022nov.onnx"
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
-    yolo_model_path: str = "models/yolo26n.pt"
 
     person_score_threshold: float = 0.35
     face_score_threshold: float = 0.5
