@@ -450,9 +450,10 @@ iot_locker/
   - [x] 当前先按 `OpenCV` baseline 实现，保证树莓派环境可直接推进。
   - [x] 当前先把 `VisionService` 和具体检测 backend 拆开，方便后续替换。
   - [x] 人体检测当前 baseline 使用 OpenCV HOG people detector。
-  - [x] 人脸检测当前 baseline 使用 OpenCV Haar cascade。
+- [x] 人脸检测当前 baseline 已升级为优先使用 OpenCV YuNet，缺模型时回退到 Haar cascade。
   - [x] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
   - [x] 已在仓库里预留未来 `tflite` / `yolo` 模型文件路径，并通过 `config.py` 配置。
+  - [x] 当前已在仓库里加入 YuNet 模型路径配置，先把人脸检测从 Haar 提升到 YuNet。
   - [ ] 后续可选升级路径：
     - [ ] `tflite` backend
     - [ ] `yolo26n` backend

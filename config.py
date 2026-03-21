@@ -30,7 +30,7 @@ class CameraConfig:
     stream_size: tuple[int, int] = (1280, 720)
     detection_size: tuple[int, int] = (640, 480)
     pixel_format: str = "RGB888"
-    buffer_count: int = 4
+    buffer_count: int = 8
 
     # 镜头接线放上面
     # 和镜头同朝向时：hflip == vflip == True
@@ -83,18 +83,23 @@ class VisionConfig:
     """Vision runtime configuration."""
 
     backend: str = "opencv"
-    mode: str = "person"
+    mode: str = "face"
     detection_fps: int = 5
 
     # Reserved for future TFLite / YOLO backends.
     person_model_path: str = "models/person_detector.tflite"
-    face_model_path: str = "models/face_detector.task"
+    face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
     yolo_model_path: str = "models/yolo26n.pt"
 
     person_score_threshold: float = 0.4
     face_score_threshold: float = 0.5
     person_max_results: int = 3
     face_near_trigger_ratio: float = 0.28
+    face_backend: str = "yunet"
+    face_fallback_to_haar: bool = True
+    yunet_score_threshold: float = 0.7
+    yunet_nms_threshold: float = 0.3
+    yunet_top_k: int = 20
 
     opencv_person_stride: int = 8
     opencv_person_padding: int = 8

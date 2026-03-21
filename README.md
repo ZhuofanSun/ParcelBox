@@ -174,6 +174,8 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
   latest payload instead of queueing stale boxes
 - `VisionService` now uses a pluggable backend and currently defaults to an OpenCV-based
   person / face detection baseline
+- Current face baseline prefers `YuNet` when the ONNX model is present, and falls back to
+  `Haar` when the model is missing or the OpenCV build does not support it
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
 
@@ -183,6 +185,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - Use a separate `640x480` inference resolution for vision tasks
 - Current detection backend is `OpenCV`
 - Current config supports `person`, `face`, and `auto` mode
+- Current recommended face detector is `YuNet`
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
@@ -192,11 +195,12 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
 - `models/person_detector.tflite`
-- `models/face_detector.task`
+- `models/face_detection_yunet_2023mar.onnx`
 - `models/yolo26n.pt`
 
-The current OpenCV backend does not need these files yet. They are reserved for future
-`tflite` or `yolo` backends. See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
+The current OpenCV backend can already use the YuNet face model if you place it at the
+configured path above. `tflite` and `yolo` model paths remain reserved for future work.
+See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
 
 ## Future Detection Backends
 
