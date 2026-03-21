@@ -83,11 +83,19 @@ class VisionConfig:
     """Vision runtime configuration."""
 
     backend: str = "opencv"
+    # person: only run person detection
+    # face: only run face detection
+    # auto: run person detection first, and only switch to face detection when
+    # the largest person box is close enough based on face_near_trigger_ratio
     mode: str = "person"
     detection_fps: int = 5
 
+    # Select which person detector to use under the OpenCV backend.
+    # Supported values currently include: hog, mp_persondet, nanodet.
     person_backend: str = "nanodet"
     person_fallback_to_hog: bool = True
+    # person_model_path should match the selected person_backend.
+    # Current branch baseline uses NanoDet.
     person_model_path: str = "models/object_detection_nanodet_2022nov.onnx"
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
     yolo_model_path: str = "models/yolo26n.pt"
@@ -99,6 +107,7 @@ class VisionConfig:
     mp_persondet_score_threshold: float = 0.5
     mp_persondet_nms_threshold: float = 0.3
     mp_persondet_top_k: int = 3
+    # NanoDet-specific tuning.
     nanodet_prob_threshold: float = 0.35
     nanodet_iou_threshold: float = 0.3
     nanodet_input_size: tuple[int, int] = (416, 416)
