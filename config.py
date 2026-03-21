@@ -86,19 +86,22 @@ class VisionConfig:
     mode: str = "person"
     detection_fps: int = 5
 
-    person_backend: str = "mp_persondet"
+    person_backend: str = "nanodet"
     person_fallback_to_hog: bool = True
-    person_model_path: str = "models/person_detection_mediapipe_2023mar.onnx"
+    person_model_path: str = "models/object_detection_nanodet_2022nov.onnx"
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
     yolo_model_path: str = "models/yolo26n.pt"
 
-    person_score_threshold: float = 0.4
+    person_score_threshold: float = 0.35
     face_score_threshold: float = 0.5
     person_max_results: int = 3
     face_near_trigger_ratio: float = 0.28
     mp_persondet_score_threshold: float = 0.5
     mp_persondet_nms_threshold: float = 0.3
     mp_persondet_top_k: int = 3
+    nanodet_prob_threshold: float = 0.35
+    nanodet_iou_threshold: float = 0.3
+    nanodet_input_size: tuple[int, int] = (416, 416)
     face_backend: str = "yunet"
     face_fallback_to_haar: bool = True
     yunet_score_threshold: float = 0.7

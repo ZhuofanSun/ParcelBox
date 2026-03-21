@@ -42,6 +42,15 @@ class OpenCvVisionBackend:
         if preferred_backend == "hog":
             self._last_person_backend = "hog"
             return self._detect_person_with_hog(frame_bgr)
+        if preferred_backend == "nanodet":
+            try:
+                self._last_person_backend = "nanodet"
+                return self._detect_person_with_nanodet(frame_bgr)
+            except Exception:
+                if not config.vision.person_fallback_to_hog:
+                    raise
+                self._last_person_backend = "hog"
+                return self._detect_person_with_hog(frame_bgr)
 
         try:
             self._last_person_backend = "mp_persondet"
@@ -113,6 +122,10 @@ class OpenCvVisionBackend:
         detector = self._ensure_person_detector()
         return detector.detect(frame_bgr)
 
+    def _detect_person_with_nanodet(self, frame_bgr) -> list[dict]:
+        detector = self._ensure_person_detector()
+        return detector.detect(frame_bgr)
+
     def _ensure_hog(self):
         if self._hog is not None:
             return self._hog
@@ -134,11 +147,15 @@ class OpenCvVisionBackend:
         model_path = self._resolve_local_path(config.vision.person_model_path)
         if not model_path.is_file():
             raise RuntimeError(
-                f"MP-PersonDet model not found: {model_path}. "
+                f"Person detector model not found: {model_path}. "
                 "Put the ONNX file in the configured models path."
             )
 
-        self._person_detector = MPPersonDet(str(model_path))
+        preferred_backend = config.vision.person_backend.lower().strip()
+        if preferred_backend == "nanodet":
+            self._person_detector = NanoDetPersonDet(str(model_path))
+        else:
+            self._person_detector = MPPersonDet(str(model_path))
         return self._person_detector
 
     def _ensure_face_cascade(self):
@@ -333,6 +350,178 @@ class OpenCvVisionBackend:
             "face_backend_active": self._last_face_backend,
             "face_model_path": config.vision.face_model_path,
         }
+
+
+class NanoDetPersonDet:
+    """OpenCV DNN wrapper for OpenCV Zoo NanoDet."""
+
+    STRIDES = (8, 16, 32, 64)
+    REG_MAX = 7
+    PERSON_CLASS_ID = 0
+
+    def __init__(self, model_path: str) -> None:
+        self._input_width, self._input_height = config.vision.nanodet_input_size
+        self._prob_threshold = config.vision.nanodet_prob_threshold
+        self._iou_threshold = config.vision.nanodet_iou_threshold
+        self._project = np.arange(self.REG_MAX + 1, dtype=np.float32)
+        self._mean = np.array([103.53, 116.28, 123.675], dtype=np.float32).reshape(1, 1, 3)
+        self._std = np.array([57.375, 57.12, 58.395], dtype=np.float32).reshape(1, 1, 3)
+        self._net = cv2.dnn.readNet(model_path)
+        self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+        self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+        self._anchors_mlvl = self._build_anchors()
+
+    def detect(self, frame_bgr) -> list[dict]:
+        """Run NanoDet and return person boxes in original frame coordinates."""
+        frame_height, frame_width = frame_bgr.shape[:2]
+        resized = cv2.resize(frame_bgr, (self._input_width, self._input_height))
+
+        blob = self._preprocess(resized)
+        self._net.setInput(blob)
+        outputs = self._net.forward(self._net.getUnconnectedOutLayersNames())
+        detections = self._post_process(outputs)
+        if detections.size == 0:
+            return []
+
+        scale_x = frame_width / self._input_width
+        scale_y = frame_height / self._input_height
+        boxes = []
+
+        for detection in detections:
+            x1, y1, x2, y2, score, class_id = detection[:6]
+            if int(class_id) != self.PERSON_CLASS_ID:
+                continue
+            if float(score) < config.vision.person_score_threshold:
+                continue
+
+            mapped_x1 = max(0, min(frame_width - 1, int(round(float(x1) * scale_x))))
+            mapped_y1 = max(0, min(frame_height - 1, int(round(float(y1) * scale_y))))
+            mapped_x2 = max(mapped_x1 + 1, min(frame_width, int(round(float(x2) * scale_x))))
+            mapped_y2 = max(mapped_y1 + 1, min(frame_height, int(round(float(y2) * scale_y))))
+
+            boxes.append(
+                {
+                    "id": f"person-{len(boxes) + 1}",
+                    "label": "person",
+                    "score": round(float(score), 3),
+                    "x1": mapped_x1,
+                    "y1": mapped_y1,
+                    "x2": mapped_x2,
+                    "y2": mapped_y2,
+                }
+            )
+
+        boxes.sort(
+            key=lambda box: (box["x2"] - box["x1"]) * (box["y2"] - box["y1"]),
+            reverse=True,
+        )
+        return boxes[: config.vision.person_max_results]
+
+    def _preprocess(self, resized_bgr):
+        normalized = resized_bgr.astype(np.float32)
+        normalized = (normalized - self._mean) / self._std
+        return cv2.dnn.blobFromImage(normalized)
+
+    def _post_process(self, preds) -> np.ndarray:
+        cls_scores = preds[::2]
+        bbox_preds = preds[1::2]
+        bboxes_mlvl = []
+        scores_mlvl = []
+
+        for stride, cls_score, bbox_pred, anchors in zip(
+            self.STRIDES,
+            cls_scores,
+            bbox_preds,
+            self._anchors_mlvl,
+        ):
+            cls_score = self._squeeze_to_2d(cls_score)
+            bbox_pred = self._squeeze_to_2d(bbox_pred)
+
+            x_exp = np.exp(bbox_pred.reshape(-1, self.REG_MAX + 1))
+            x_sum = np.sum(x_exp, axis=1, keepdims=True)
+            bbox_pred = x_exp / x_sum
+            bbox_pred = np.dot(bbox_pred, self._project).reshape(-1, 4)
+            bbox_pred *= stride
+
+            nms_pre = 1000
+            if nms_pre > 0 and cls_score.shape[0] > nms_pre:
+                max_scores = cls_score.max(axis=1)
+                topk_inds = max_scores.argsort()[::-1][:nms_pre]
+                anchors = anchors[topk_inds, :]
+                bbox_pred = bbox_pred[topk_inds, :]
+                cls_score = cls_score[topk_inds, :]
+
+            x1 = anchors[:, 0] - bbox_pred[:, 0]
+            y1 = anchors[:, 1] - bbox_pred[:, 1]
+            x2 = anchors[:, 0] + bbox_pred[:, 2]
+            y2 = anchors[:, 1] + bbox_pred[:, 3]
+
+            x1 = np.clip(x1, 0, self._input_width)
+            y1 = np.clip(y1, 0, self._input_height)
+            x2 = np.clip(x2, 0, self._input_width)
+            y2 = np.clip(y2, 0, self._input_height)
+
+            bboxes = np.column_stack([x1, y1, x2, y2])
+            bboxes_mlvl.append(bboxes)
+            scores_mlvl.append(cls_score)
+
+        if not bboxes_mlvl:
+            return np.array([])
+
+        bboxes_mlvl = np.concatenate(bboxes_mlvl, axis=0)
+        scores_mlvl = np.concatenate(scores_mlvl, axis=0)
+        bboxes_wh = bboxes_mlvl.copy()
+        bboxes_wh[:, 2:4] = bboxes_wh[:, 2:4] - bboxes_wh[:, 0:2]
+
+        class_ids = np.argmax(scores_mlvl, axis=1)
+        confidences = np.max(scores_mlvl, axis=1)
+
+        person_mask = class_ids == self.PERSON_CLASS_ID
+        if not np.any(person_mask):
+            return np.array([])
+
+        person_boxes = bboxes_wh[person_mask]
+        person_boxes_xyxy = bboxes_mlvl[person_mask]
+        person_scores = confidences[person_mask]
+        person_class_ids = class_ids[person_mask]
+
+        indices = cv2.dnn.NMSBoxes(
+            person_boxes.tolist(),
+            person_scores.tolist(),
+            self._prob_threshold,
+            self._iou_threshold,
+        )
+
+        if indices is None or len(indices) == 0:
+            return np.array([])
+
+        flat_indices = np.array(indices).reshape(-1)
+        kept_boxes = person_boxes_xyxy[flat_indices]
+        kept_scores = person_scores[flat_indices]
+        kept_class_ids = person_class_ids[flat_indices]
+        return np.concatenate(
+            [kept_boxes, kept_scores.reshape(-1, 1), kept_class_ids.reshape(-1, 1)],
+            axis=1,
+        )
+
+    def _build_anchors(self) -> list[np.ndarray]:
+        anchors_mlvl = []
+        for stride in self.STRIDES:
+            feat_h = int(self._input_height / stride)
+            feat_w = int(self._input_width / stride)
+            shift_x = np.arange(0, feat_w, dtype=np.float32) * stride
+            shift_y = np.arange(0, feat_h, dtype=np.float32) * stride
+            xv, yv = np.meshgrid(shift_x, shift_y)
+            cx = xv.flatten() + 0.5 * (stride - 1)
+            cy = yv.flatten() + 0.5 * (stride - 1)
+            anchors_mlvl.append(np.column_stack((cx, cy)))
+        return anchors_mlvl
+
+    def _squeeze_to_2d(self, array) -> np.ndarray:
+        normalized = np.asarray(array).squeeze()
+        if normalized.ndim == 1:
+            return normalized.reshape(-1, 1)
+        return normalized
 
 
 class MPPersonDet:
