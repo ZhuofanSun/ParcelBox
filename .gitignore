@@ -21,3 +21,11 @@ logs/
 .venv/
 
 *.fzz
+
+models/*.pt
+models/*.tflite
+models/*.task
+models/*.onnx
+models/*_ncnn_model/
+scripts/*.pt
+scripts/*_ncnn_model/

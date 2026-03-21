@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-PI_HOST="${PI_HOST:-raspberrypi.local}"
+PI_HOST="${PI_HOST:-sunzhuofan.local}"
 PI_USER="${PI_USER:-sunzhuofan}"
 PI_PORT="${PI_PORT:-22}"
 REMOTE_DIR="${REMOTE_DIR:-/home/sunzhuofan/Desktop/ParcelBox}"
@@ -25,6 +25,13 @@ rsync \
   --exclude ".DS_Store" \
   --exclude "data/" \
   --exclude "drivers/camera_test.jpg" \
+  --exclude "models/*.pt" \
+  --exclude "models/*.tflite" \
+  --exclude "models/*.task" \
+  --exclude "models/*.onnx" \
+  --exclude "models/*_ncnn_model/" \
+  --exclude "scripts/*.pt" \
+  --exclude "scripts/*_ncnn_model/" \
   -e "ssh -p ${PI_PORT}" \
   "${PROJECT_ROOT}/" \
   "${PI_USER}@${PI_HOST}:${REMOTE_DIR}/"
