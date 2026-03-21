@@ -38,7 +38,7 @@ These, together with [config.py](/Users/sunzhuofan/IOT-project/config.py), are t
 
 - Platform: Raspberry Pi
 - Language: Python
-- Python version: `3.11.2`
+- Python version: `3.13`
 - Camera stack: CSI camera with `Picamera2`
 - GPIO library: `RPi.GPIO`
 - RFID stack: `pi-rc522` + `spidev`
@@ -185,6 +185,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - Use a separate `640x480` inference resolution for vision tasks
 - Current detection backend is `OpenCV`
 - Current config supports `person`, `face`, and `auto` mode
+- Current recommended person detector is `OpenCV Zoo MP-PersonDet`
 - Current recommended face detector is `YuNet`
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
@@ -194,13 +195,23 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 
 Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
-- `models/person_detector.tflite`
+- `models/person_detection_mediapipe_2023mar_int8bq.onnx`
 - `models/face_detection_yunet_2023mar.onnx`
 - `models/yolo26n.pt`
 
-The current OpenCV backend can already use the YuNet face model if you place it at the
-configured path above. `tflite` and `yolo` model paths remain reserved for future work.
-See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
+The current OpenCV backend can already use:
+
+- `YuNet` for face detection
+- `MP-PersonDet` for person detection
+
+Current recommended person model choice on Raspberry Pi 4B:
+
+- use `person_detection_mediapipe_2023mar_int8bq.onnx` first
+- if the int8 model misses too many people, switch `config.vision.person_model_path`
+  to the larger `person_detection_mediapipe_2023mar.onnx`
+
+The `int8bq` model is the better first try because it is much smaller and should be
+lighter on Raspberry Pi CPU. See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
 
 ## Future Detection Backends
 
@@ -220,8 +231,9 @@ Practical next-step options for person detection on Raspberry Pi 4B:
 Current test plan:
 
 1. `MP-PersonDet`
-   - add the model file under `models/`
-   - wire a dedicated backend or sub-backend path
+   - use `person_detection_mediapipe_2023mar_int8bq.onnx` first
+   - keep `person_detection_mediapipe_2023mar.onnx` as the heavier fallback
+   - wire it through the current OpenCV backend with `person_backend = "mp_persondet"`
    - run with the existing `640x480` detection stream first
    - record `latency_ms`, actual detection FPS, CPU usage, and subjective stability
 2. `NanoDet`

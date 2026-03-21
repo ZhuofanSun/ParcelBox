@@ -33,7 +33,7 @@
   - [x] 摄像头云台待机角度
   - [x] 超声波阈值初版
   - [x] 存储路径 / 数据库 URL
-- [x] 树莓派上的 Python 版本：`3.11.2`
+- [x] 树莓派上的 Python 版本：`3.13`
 - [x] 最终 GPIO 分配已补到 `config.py`。
 - [x] 当前存储基线按本地 SQLite 记录：`sqlite:///iot_locker.db`
 - [x] 当前树莓派 venv Python 路径：`/home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python`
@@ -435,41 +435,71 @@ iot_locker/
 ### Phase 2: Camera, Vision, And Mount Control
 
 - [x] 做稳定的视频采集和持续视频流输出。
+
 - [x] 先打通“后端出框数据，前端叠框”的链路。
+
 - [x] 先用假框验证前端叠框和坐标缩放。
+
 - [x] 已修掉 Phase 2 demo 里“每个客户端重复抓帧 / 编码”的流架构问题。
+
 - [x] 已修掉 `CameraService` 的 stop / restart 生命周期问题。
+
 - [x] 已修掉假框尺寸缓存和低清颜色转换的潜在坑。
+
 - [x] 把视觉结果通道从 HTTP 轮询改成 `WebSocket`。
+
 - [x] 把检测 fps 从展示 fps 独立出来，并写进 `config.py`。
+
 - [x] 移除独立的 `boxes_fps` 配置，改为让识别框刷新频率跟随检测 fps。
+
 - [x] 把检测循环放到独立线程里运行。
+
 - [x] 把前端改成订阅后端视觉结果，而不是轮询拉取。
+
 - [x] 视觉结果推送只保留最新状态，不堆积过期框数据。
+
 - [ ] 实现人体检测 / 人脸检测两种模式。
   - [x] 当前先按 `OpenCV` baseline 实现，保证树莓派环境可直接推进。
   - [x] 当前先把 `VisionService` 和具体检测 backend 拆开，方便后续替换。
   - [x] 人体检测当前 baseline 使用 OpenCV HOG people detector。
+  
 - [x] 人脸检测当前 baseline 已升级为优先使用 OpenCV YuNet，缺模型时回退到 Haar cascade。
   - [x] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
+  
   - [x] 已在仓库里预留未来 `tflite` / `yolo` 模型文件路径，并通过 `config.py` 配置。
+  
   - [x] 当前已在仓库里加入 YuNet 模型路径配置，先把人脸检测从 Haar 提升到 YuNet。
+  
   - [ ] 后续可选升级路径：
     - [ ] `OpenCV Zoo MP-PersonDet`
-      - [ ] 先作为首个替代 HOG 的人体检测实验
-      - [ ] 沿用当前检测线程、WebSocket 和前端叠框链路
-      - [ ] 首轮先继续使用当前 `640x480` 检测流
-      - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
+    
+        https://huggingface.co/opencv/opencv_zoo/tree/main/models/person_detection_mediapipe
+        - [x] 已把 `MP-PersonDet` 接到当前 `opencv` backend 的人体检测路径里
+        - [x] 默认先推荐 `person_detection_mediapipe_2023mar_int8bq.onnx`
+        - [ ] 如果 int8bq 漏检明显，再切到 `person_detection_mediapipe_2023mar.onnx`
+        - [ ] 先作为首个替代 HOG 的人体检测实验
+        - [ ] 沿用当前检测线程、WebSocket 和前端叠框链路
+        - [ ] 首轮先继续使用当前 `640x480` 检测流
+        - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
+    
     - [ ] `OpenCV Zoo NanoDet`
+      
+      https://huggingface.co/opencv/opencv_zoo/tree/main/models/object_detection_nanodet
+      
       - [ ] 只在 `MP-PersonDet` 效果或性能不理想时再测
       - [ ] 维持与 `MP-PersonDet` 相同的比较条件
       - [ ] 记录 `latency_ms / detection_fps / CPU / 主观稳定性`
+      
     - [ ] 决策点
       - [ ] 如果 `MP-PersonDet` 和 `NanoDet` 都不值当前集成成本，就暂时放弃人体检测
       - [ ] 保留 `YuNet` 人脸检测，继续推进主流程、抓拍、数据库和 dashboard
+  
 - [ ] 实现摄像头云台两个舵机的待机角度、归位、追踪控制。
+
 - [ ] 实现“目标丢失 / 离远后回到待机位”。
+
 - [ ] 做首版开门后扫描找人脸逻辑。
+
 - [ ] 做首版清晰帧评分与保存逻辑。
 
 检查点
