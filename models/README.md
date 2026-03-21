@@ -12,17 +12,17 @@ This folder is reserved for future detector backends such as:
 
 Current reserved paths from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
-- `models/person_detection_mediapipe_2023mar_int8bq.onnx`
+- `models/object_detection_nanodet_2022nov.onnx`
 - `models/face_detection_yunet_2023mar.onnx`
 - `models/yolo26n.pt`
 
 Current recommended person model path:
 
-- `models/person_detection_mediapipe_2023mar_int8bq.onnx`
+- `models/object_detection_nanodet_2022nov.onnx`
 
-Optional heavier fallback:
+Optional lighter fallback:
 
-- `models/person_detection_mediapipe_2023mar.onnx`
+- `models/object_detection_nanodet_2022nov_int8bq.onnx`
 
 Current recommended face model path:
 
@@ -39,7 +39,6 @@ https://huggingface.co/opencv
 https://huggingface.co/opencv/face_detection_yunet/tree/main
 
 https://huggingface.co/opencv/opencv_zoo
-
 
 
 
