@@ -34,6 +34,7 @@ class CameraMountService:
         self._last_seen_version = 0
         self._last_tracking_move_at = 0.0
         self._last_tracking_move_version: int | None = None
+        self._last_home_issue_at = 0.0
         self._pan_servo = None
         self._tilt_servo = None
         self._pan_angle: float | None = None
@@ -55,6 +56,7 @@ class CameraMountService:
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
             self._last_tracking_move_version = None
+            self._last_home_issue_at = 0.0
             self._latest_advice = self._build_idle_advice(started=True)
             self._last_error = None
             self._initialize_servos_locked()
@@ -86,6 +88,7 @@ class CameraMountService:
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
             self._last_tracking_move_version = None
+            self._last_home_issue_at = 0.0
 
     def move_home(self) -> None:
         """Move both servos back to the configured home angles."""
@@ -338,12 +341,35 @@ class CameraMountService:
         frame_center_x = frame_width / 2
         frame_center_y = frame_height / 2
         target = self._extract_face_target(payload)
-        if payload.get("status") != "ok" or target is None:
+        if payload.get("status") != "ok":
             if self._tracking_face_active:
                 self._tracking_face_active = False
                 return self._build_home_advice(
                     started=started,
                     reason="face_lost",
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
+            return self._build_idle_advice(
+                started=started,
+                status="waiting_for_face",
+                frame_width=frame_width,
+                frame_height=frame_height,
+            )
+
+        if target is None:
+            if self._tracking_face_active:
+                self._tracking_face_active = False
+                return self._build_home_advice(
+                    started=started,
+                    reason="face_lost",
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
+            if self._should_issue_no_face_home_locked():
+                return self._build_home_advice(
+                    started=started,
+                    reason="no_face_idle",
                     frame_width=frame_width,
                     frame_height=frame_height,
                 )
@@ -430,6 +456,7 @@ class CameraMountService:
         frame_height: float,
     ) -> dict:
         self._tracking_face_active = False
+        self._last_home_issue_at = time.monotonic()
         return {
             "started": started,
             "enabled": config.camera_mount.enabled,
@@ -600,6 +627,14 @@ class CameraMountService:
         if self._last_tracking_move_at <= 0:
             return True
         return (time.monotonic() - self._last_tracking_move_at) >= cooldown
+
+    def _should_issue_no_face_home_locked(self) -> bool:
+        interval = max(config.camera_mount.no_face_home_interval_seconds, 0.0)
+        if interval <= 0:
+            return False
+        if self._last_home_issue_at <= 0:
+            return True
+        return (time.monotonic() - self._last_home_issue_at) >= interval
 
     def _current_angle(self, axis: str) -> float | None:
         return self._pan_angle if axis == "pan" else self._tilt_angle

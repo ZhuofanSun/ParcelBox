@@ -1,0 +1,132 @@
+"""Routes for RFID card enrollment and access setup."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, HTTPException
+
+from config import config
+from services.access_service import AccessService
+from services.locker_service import LockerService
+from web.schemas import CardEnrollPayload, CardReadPayload, CardUpdatePayload, CardWritePayload
+
+
+def _window_to_dict(window) -> dict:
+    if hasattr(window, "model_dump"):
+        return window.model_dump()
+    return window.dict()
+
+
+def build_cards_router(access_service: AccessService, locker_service: LockerService) -> APIRouter:
+    """Create card-management endpoints."""
+    router = APIRouter()
+
+    def ensure_reader_available() -> None:
+        if not access_service.get_status()["reader_enabled"]:
+            raise HTTPException(status_code=503, detail="RFID reader is unavailable")
+
+    @router.get("/api/cards")
+    def list_cards() -> dict:
+        return {
+            "cards": access_service.list_cards(),
+            "status": access_service.get_status(),
+        }
+
+    @router.get("/api/cards/{uid}")
+    def get_card(uid: str) -> dict:
+        card = access_service.get_card(uid)
+        if card is None:
+            raise HTTPException(status_code=404, detail="Card not found")
+        return {"card": card}
+
+    @router.post("/api/cards/enroll")
+    def enroll_card(payload: CardEnrollPayload) -> dict:
+        uid = payload.uid
+        if uid is None:
+            ensure_reader_available()
+            timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
+            locker_service.pause_rfid_polling(timeout + 0.5)
+            uid = access_service.scan_uid(timeout=timeout)
+            if uid is None:
+                raise HTTPException(status_code=408, detail="Timed out waiting for card")
+
+        try:
+            card = access_service.enroll_card(
+                uid,
+                name=payload.name,
+                user_name=payload.user_name,
+                enabled=payload.enabled,
+                overwrite=payload.overwrite,
+                access_windows=[_window_to_dict(window) for window in payload.access_windows],
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        return {"card": card}
+
+    @router.post("/api/cards/read")
+    def read_card(payload: CardReadPayload) -> dict:
+        ensure_reader_available()
+        timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
+        locker_service.pause_rfid_polling(timeout + 0.5)
+
+        try:
+            result = access_service.read_card_text(
+                timeout=timeout,
+                start_block=payload.start_block,
+                block_count=payload.block_count,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+        if result is None:
+            raise HTTPException(status_code=408, detail="Timed out waiting for card")
+
+        return {"card_io": result, "mode": "read"}
+
+    @router.post("/api/cards/write")
+    def write_card(payload: CardWritePayload) -> dict:
+        ensure_reader_available()
+        timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
+        locker_service.pause_rfid_polling(timeout + 0.5)
+
+        try:
+            result = access_service.write_card_text(
+                payload.text,
+                timeout=timeout,
+                start_block=payload.start_block,
+                block_count=payload.block_count,
+            )
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(status_code=503, detail=str(error)) from error
+
+        if result is None:
+            raise HTTPException(status_code=408, detail="Timed out waiting for card")
+
+        return {"card_io": result, "mode": "write"}
+
+    @router.patch("/api/cards/{uid}")
+    def update_card(uid: str, payload: CardUpdatePayload) -> dict:
+        try:
+            card = access_service.update_card(
+                uid,
+                name=payload.name,
+                user_name=payload.user_name,
+                enabled=payload.enabled,
+                access_windows=(
+                    None
+                    if payload.access_windows is None
+                    else [_window_to_dict(window) for window in payload.access_windows]
+                ),
+            )
+        except KeyError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error)) from error
+
+        return {"card": card}
+
+    return router

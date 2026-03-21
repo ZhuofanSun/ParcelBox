@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import time
 import unittest
 
 from config import config
@@ -159,6 +160,22 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertEqual(advice["direction"], "hold")
         self.assertEqual(advice["pan"]["move_angle"], 0.0)
         self.assertEqual(advice["tilt"]["move_angle"], 0.0)
+
+    def test_missing_face_periodically_triggers_home_fallback(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        service._last_home_issue_at = time.monotonic() - (
+            config.camera_mount.no_face_home_interval_seconds + 0.1
+        )
+
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
+        self.assertEqual(advice["status"], "returning_home")
+        self.assertEqual(advice["home_reason"], "no_face_idle")
+        self.assertTrue(advice["should_home"])
+        self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
     def test_startup_requests_home_first(self) -> None:
         service = self.build_service()

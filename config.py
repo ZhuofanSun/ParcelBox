@@ -66,6 +66,36 @@ class CameraMountConfig:
     tracking_step: float = 1.0
     tracking_delay: float = 0.05
     tracking_cooldown_seconds: float = 0.3
+    no_face_home_interval_seconds: float = 3.0
+
+
+@dataclass
+class DoorConfig:
+    """Servo movement settings for the locker door."""
+
+    enabled: bool = True
+    closed_angle: float = 10.0
+    open_angle: float = 92.0
+    min_angle: float = 0.0
+    max_angle: float = 180.0
+    move_step: float = 2.0
+    move_delay: float = 0.02
+
+
+@dataclass
+class RFIDConfig:
+    """RFID reader polling and debounce settings."""
+
+    enabled: bool = True
+    spi_bus: int = 0
+    spi_device: int = 0
+    irq_pin: int | None = None
+    scan_timeout_seconds: float = 0.25
+    poll_interval_seconds: float = 0.08
+    same_card_cooldown_seconds: float = 1.5
+    enroll_scan_timeout_seconds: float = 10.0
+    text_start_block: int = 4
+    text_block_count: int = 4
 
 
 @dataclass
@@ -84,6 +114,7 @@ class StorageConfig:
 
     database_url: str = "sqlite:///iot_locker.db"
     snapshot_dir: str = "data/snapshots"
+    card_store_path: str = "data/cards.json"
 
 
 @dataclass
@@ -150,7 +181,7 @@ class WebConfig:
 
     host: str = "0.0.0.0"
     port: int = 8000
-    stream_fps: int = 30
+    stream_fps: int = 15
     jpeg_quality: int = 70
     access_log: bool = False
 
@@ -162,6 +193,8 @@ class AppConfig:
     gpio: GPIOConfig = field(default_factory=GPIOConfig)
     camera: CameraConfig = field(default_factory=CameraConfig)
     camera_mount: CameraMountConfig = field(default_factory=CameraMountConfig)
+    door: DoorConfig = field(default_factory=DoorConfig)
+    rfid: RFIDConfig = field(default_factory=RFIDConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)

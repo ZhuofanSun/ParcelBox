@@ -281,6 +281,11 @@ RFID and permission logic only.
 - access permission rules
 - time-based access checks
 
+Current implementation note:
+
+- Cards now persist to a local JSON store as a Phase 3 bridge before the storage layer is built.
+- The access service can enroll cards, rename / rebind them, enable or disable them, and apply simple weekday + time-window checks.
+
 ### `services/locker_service.py`
 
 Locker workflow orchestration.
@@ -289,6 +294,10 @@ Locker workflow orchestration.
 - bind access result to door events
 - trigger occupancy check after close
 - link snapshots to door events
+
+Current implementation note:
+
+- The locker service now runs a background RFID worker, opens the door on authorized scans, rejects unknown or disabled cards, supports manual `/api/locker/open` and `/api/locker/close`, and records an in-memory recent event list.
 
 ### `services/camera_service.py`
 
@@ -333,6 +342,10 @@ Locker occupancy logic based on ultrasonic readings.
 - average calculation
 - empty / occupied classification
 - threshold calibration
+
+Current implementation note:
+
+- Closing the door now triggers an immediate occupancy measurement when the ultrasonic sensor is available.
 
 ### `services/alert_service.py`
 
@@ -437,6 +450,10 @@ iot_locker/
 ### Access Flow
 
 `RC522 -> access_service -> locker_service -> servo -> storage`
+
+Current implementation note:
+
+- Phase 3 currently wires `RC522 -> access_service -> locker_service -> servo` and keeps card state in a JSON file plus recent door events in memory until the storage layer lands.
 
 ### Vision Flow
 

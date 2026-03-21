@@ -142,6 +142,81 @@
       color: var(--muted);
     }
 
+    .button-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .single-action {
+      width: 100%;
+    }
+
+    button {
+      border: 1px solid rgba(12, 124, 89, 0.18);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font: inherit;
+      font-size: 14px;
+      color: #f6f8f4;
+      background: linear-gradient(135deg, #0c7c59 0%, #17694f 100%);
+      cursor: pointer;
+      transition: transform 120ms ease, opacity 120ms ease;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .toggle-button {
+      color: var(--text);
+      background: rgba(12, 124, 89, 0.08);
+    }
+
+    .toggle-button.button-active {
+      color: #f6f8f4;
+      background: linear-gradient(135deg, #0c7c59 0%, #17694f 100%);
+    }
+
+    .field-stack {
+      display: grid;
+      gap: 8px;
+    }
+
+    .helper-text {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 86px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font: inherit;
+      font-size: 14px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .action-status {
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(26, 38, 34, 0.06);
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
     pre {
       margin: 0;
       padding: 14px;
@@ -162,10 +237,10 @@
 <body>
   <div class="page">
     <section class="hero">
-      <h1>ParcelBox Phase 2 Demo</h1>
+      <h1>ParcelBox Phase 3 Demo</h1>
       <p>
-        This page validates the Phase 2 baseline: live camera stream, backend vision websocket,
-        and frontend overlay rendering. Vision results are pushed by the backend detection service.
+        This page now includes the Phase 3 locker loop: RFID card APIs, door open / close control,
+        occupancy feedback, and the existing live camera stream with backend vision overlays.
       </p>
     </section>
 
@@ -196,6 +271,48 @@
             <pre id="camera-mount-json">Loading...</pre>
           </div>
           <div class="info-row">
+            <div class="label">Phase 3 Controls</div>
+            <div class="button-grid">
+              <button id="open-door-btn" type="button">Open Door</button>
+              <button id="close-door-btn" type="button">Close Door</button>
+              <button id="refresh-locker-btn" type="button">Refresh Locker</button>
+              <button id="refresh-events-btn" type="button">Refresh Events</button>
+              <button id="refresh-cards-btn" type="button">Refresh Cards</button>
+            </div>
+            <div class="action-status" id="control-status">Waiting for action...</div>
+          </div>
+          <div class="info-row">
+            <div class="label">RFID Card I/O</div>
+            <div class="button-grid">
+              <button id="card-read-mode-btn" class="toggle-button button-active" type="button">Read Card</button>
+              <button id="card-write-mode-btn" class="toggle-button" type="button">Write Card</button>
+            </div>
+            <div class="field-stack" id="card-write-fields" hidden>
+              <textarea id="card-text-input" placeholder="Write text payload to the presented card"></textarea>
+              <div class="helper-text">The backend will use the configured RFID text blocks.</div>
+            </div>
+            <div class="helper-text" id="card-io-helper">
+              Present a card to read text from the configured RFID blocks.
+            </div>
+            <button id="card-io-action-btn" class="single-action" type="button">Scan Card</button>
+          </div>
+          <div class="info-row">
+            <div class="label">RFID Card I/O Result</div>
+            <pre id="card-io-json">Waiting for read/write action...</pre>
+          </div>
+          <div class="info-row">
+            <div class="label">Locker Status</div>
+            <pre id="locker-status-json">Loading...</pre>
+          </div>
+          <div class="info-row">
+            <div class="label">Recent Locker Events</div>
+            <pre id="locker-events-json">Loading...</pre>
+          </div>
+          <div class="info-row">
+            <div class="label">Card Store Snapshot</div>
+            <pre id="cards-json">Loading...</pre>
+          </div>
+          <div class="info-row">
             <div class="label">Latest Boxes Payload</div>
             <pre id="boxes-json">Loading...</pre>
           </div>
@@ -209,14 +326,36 @@
     const overlay = document.getElementById("overlay");
     const streamMetaPre = document.getElementById("stream-meta");
     const cameraMountPre = document.getElementById("camera-mount-json");
+    const lockerStatusPre = document.getElementById("locker-status-json");
+    const lockerEventsPre = document.getElementById("locker-events-json");
+    const cardsJsonPre = document.getElementById("cards-json");
+    const cardIoJsonPre = document.getElementById("card-io-json");
+    const cardIoHelper = document.getElementById("card-io-helper");
+    const cardWriteFields = document.getElementById("card-write-fields");
+    const cardTextInput = document.getElementById("card-text-input");
+    const controlStatus = document.getElementById("control-status");
     const boxesJsonPre = document.getElementById("boxes-json");
     const modeBadge = document.getElementById("mode-badge");
+    const openDoorButton = document.getElementById("open-door-btn");
+    const closeDoorButton = document.getElementById("close-door-btn");
+    const refreshLockerButton = document.getElementById("refresh-locker-btn");
+    const refreshEventsButton = document.getElementById("refresh-events-btn");
+    const refreshCardsButton = document.getElementById("refresh-cards-btn");
+    const cardReadModeButton = document.getElementById("card-read-mode-btn");
+    const cardWriteModeButton = document.getElementById("card-write-mode-btn");
+    const cardIoActionButton = document.getElementById("card-io-action-btn");
     const ctx = overlay.getContext("2d");
 
     let latestPayload = null;
     let streamMeta = null;
     let visionSocket = null;
     let reconnectTimer = null;
+    let lockerRefreshTimer = null;
+    let eventsRefreshTimer = null;
+    let cardIoMode = "read";
+
+    const LOCKER_STATUS_REFRESH_MS = 2000;
+    const LOCKER_EVENTS_REFRESH_MS = 6000;
 
     function resizeOverlay() {
       const rect = streamImage.getBoundingClientRect();
@@ -349,12 +488,147 @@
       drawMountAdvice(frameWidth, frameHeight);
     }
 
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+      });
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : null;
+      if (!response.ok) {
+        throw new Error(payload?.detail || `${response.status} ${response.statusText}`);
+      }
+      return payload;
+    }
+
+    function setControlButtonsDisabled(disabled) {
+      openDoorButton.disabled = disabled;
+      closeDoorButton.disabled = disabled;
+      refreshLockerButton.disabled = disabled;
+      refreshEventsButton.disabled = disabled;
+      refreshCardsButton.disabled = disabled;
+      cardReadModeButton.disabled = disabled;
+      cardWriteModeButton.disabled = disabled;
+      cardIoActionButton.disabled = disabled;
+    }
+
+    function setControlStatus(message) {
+      controlStatus.textContent = message;
+    }
+
+    function applyCardIoMode(mode = cardIoMode) {
+      cardIoMode = mode;
+      const isReadMode = cardIoMode === "read";
+
+      cardReadModeButton.classList.toggle("button-active", isReadMode);
+      cardWriteModeButton.classList.toggle("button-active", !isReadMode);
+      cardWriteFields.hidden = isReadMode;
+      cardIoActionButton.textContent = isReadMode ? "Scan Card" : "Write Card";
+      cardIoHelper.textContent = isReadMode
+        ? "Present a card to read text from the configured RFID blocks."
+        : "Present a card and write the text below into the configured RFID blocks.";
+    }
+
     async function loadStreamMeta() {
-      const response = await fetch("/api/stream/meta");
-      streamMeta = await response.json();
+      streamMeta = await fetchJson("/api/stream/meta", { headers: {} });
       streamMetaPre.textContent = JSON.stringify(streamMeta, null, 2);
       cameraMountPre.textContent = JSON.stringify(streamMeta.camera_mount_status, null, 2);
+      lockerStatusPre.textContent = JSON.stringify(streamMeta.locker_status, null, 2);
       drawOverlay();
+    }
+
+    async function refreshLockerStatus() {
+      const payload = await fetchJson("/api/locker/status", { headers: {} });
+      lockerStatusPre.textContent = JSON.stringify(payload, null, 2);
+      return payload;
+    }
+
+    async function refreshLockerEvents() {
+      const payload = await fetchJson("/api/locker/events?limit=10", { headers: {} });
+      lockerEventsPre.textContent = JSON.stringify(payload, null, 2);
+      return payload;
+    }
+
+    async function refreshCards() {
+      const payload = await fetchJson("/api/cards", { headers: {} });
+      cardsJsonPre.textContent = JSON.stringify(payload, null, 2);
+      return payload;
+    }
+
+    async function runCardIoAction() {
+      const isReadMode = cardIoMode === "read";
+      const path = isReadMode ? "/api/cards/read" : "/api/cards/write";
+      const label = isReadMode ? "Read card" : "Write card";
+      const text = cardTextInput.value.trim();
+
+      if (!isReadMode && !text) {
+        setControlStatus("Write card failed: text is required");
+        return;
+      }
+
+      setControlButtonsDisabled(true);
+      setControlStatus(`${label}...`);
+      cardIoJsonPre.textContent = `${label} in progress...`;
+
+      try {
+        const payload = await fetchJson(path, {
+          method: "POST",
+          body: JSON.stringify(isReadMode ? {} : { text }),
+        });
+        cardIoJsonPre.textContent = JSON.stringify(payload, null, 2);
+        setControlStatus(`${label} succeeded`);
+        await refreshLockerStatus();
+        return payload;
+      } catch (error) {
+        cardIoJsonPre.textContent = JSON.stringify(
+          {
+            mode: cardIoMode,
+            error: error.message,
+          },
+          null,
+          2,
+        );
+        setControlStatus(`${label} failed: ${error.message}`);
+        throw error;
+      } finally {
+        setControlButtonsDisabled(false);
+      }
+    }
+
+    async function runLockerAction(path, label) {
+      setControlButtonsDisabled(true);
+      setControlStatus(`${label}...`);
+      try {
+        const payload = await fetchJson(path, {
+          method: "POST",
+          body: JSON.stringify({ source: "frontend" }),
+        });
+        setControlStatus(`${label} succeeded`);
+        await Promise.all([loadStreamMeta(), refreshLockerStatus(), refreshLockerEvents()]);
+        return payload;
+      } catch (error) {
+        setControlStatus(`${label} failed: ${error.message}`);
+        throw error;
+      } finally {
+        setControlButtonsDisabled(false);
+      }
+    }
+
+    function startBackgroundRefresh() {
+      if (!lockerRefreshTimer) {
+        lockerRefreshTimer = window.setInterval(() => {
+          refreshLockerStatus().catch(() => {});
+        }, LOCKER_STATUS_REFRESH_MS);
+      }
+
+      if (!eventsRefreshTimer) {
+        eventsRefreshTimer = window.setInterval(() => {
+          refreshLockerEvents().catch(() => {});
+        }, LOCKER_EVENTS_REFRESH_MS);
+      }
     }
 
     function buildVisionWebSocketUrl() {
@@ -407,10 +681,109 @@
       });
     }
 
+    openDoorButton.addEventListener("click", () => {
+      runLockerAction("/api/locker/open", "Open door").catch(() => {});
+    });
+
+    closeDoorButton.addEventListener("click", () => {
+      runLockerAction("/api/locker/close", "Close door").catch(() => {});
+    });
+
+    refreshLockerButton.addEventListener("click", async () => {
+      setControlButtonsDisabled(true);
+      setControlStatus("Refreshing locker status...");
+      try {
+        await Promise.all([loadStreamMeta(), refreshLockerStatus()]);
+        setControlStatus("Locker status refreshed");
+      } catch (error) {
+        setControlStatus(`Locker refresh failed: ${error.message}`);
+      } finally {
+        setControlButtonsDisabled(false);
+      }
+    });
+
+    refreshEventsButton.addEventListener("click", async () => {
+      setControlButtonsDisabled(true);
+      setControlStatus("Refreshing recent events...");
+      try {
+        await refreshLockerEvents();
+        setControlStatus("Recent events refreshed");
+      } catch (error) {
+        setControlStatus(`Event refresh failed: ${error.message}`);
+      } finally {
+        setControlButtonsDisabled(false);
+      }
+    });
+
+    refreshCardsButton.addEventListener("click", async () => {
+      setControlButtonsDisabled(true);
+      setControlStatus("Refreshing cards...");
+      try {
+        await refreshCards();
+        setControlStatus("Cards refreshed");
+      } catch (error) {
+        setControlStatus(`Card refresh failed: ${error.message}`);
+      } finally {
+        setControlButtonsDisabled(false);
+      }
+    });
+
+    cardReadModeButton.addEventListener("click", () => {
+      applyCardIoMode("read");
+    });
+
+    cardWriteModeButton.addEventListener("click", () => {
+      applyCardIoMode("write");
+    });
+
+    cardIoActionButton.addEventListener("click", () => {
+      runCardIoAction().catch(() => {});
+    });
+
     window.addEventListener("resize", resizeOverlay);
     streamImage.addEventListener("load", resizeOverlay);
+    window.addEventListener("beforeunload", () => {
+      if (lockerRefreshTimer) {
+        window.clearInterval(lockerRefreshTimer);
+      }
+      if (eventsRefreshTimer) {
+        window.clearInterval(eventsRefreshTimer);
+      }
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer);
+      }
+      if (visionSocket) {
+        visionSocket.close();
+      }
+    });
 
-    loadStreamMeta().then(connectVisionSocket);
+    async function bootstrap() {
+      try {
+        await loadStreamMeta();
+        connectVisionSocket();
+      } catch (error) {
+        setControlStatus(`Initial load failed: ${error.message}`);
+        return;
+      }
+
+      const results = await Promise.allSettled([
+        refreshLockerStatus(),
+        refreshLockerEvents(),
+        refreshCards(),
+      ]);
+
+      const firstFailure = results.find((result) => result.status === "rejected");
+      if (firstFailure) {
+        setControlStatus(`Partial load failed: ${firstFailure.reason.message}`);
+        return;
+      }
+
+      applyCardIoMode("read");
+      startBackgroundRefresh();
+      setControlStatus("Phase 3 controls ready");
+    }
+
+    bootstrap();
   </script>
 </body>
 </html>

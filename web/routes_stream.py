@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from config import config
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
+from services.locker_service import LockerService
 from services.vision_service import VisionService
 
 
@@ -43,6 +44,7 @@ def build_stream_router(
     camera_service: CameraService,
     vision_service: VisionService,
     camera_mount_service: CameraMountService | None = None,
+    locker_service: LockerService | None = None,
 ) -> APIRouter:
     """Create the router for stream and vision endpoints."""
     router = APIRouter()
@@ -78,6 +80,11 @@ def build_stream_router(
                 "camera_mount_status": (
                     camera_mount_service.get_status()
                     if camera_mount_service is not None
+                    else None
+                ),
+                "locker_status": (
+                    locker_service.get_status()
+                    if locker_service is not None
                     else None
                 ),
             }
