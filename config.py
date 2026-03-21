@@ -35,11 +35,12 @@ class CameraConfig:
     # 镜头接线放上面
     # 和镜头同朝向时：hflip == vflip == True
     # 面向镜头时：hflip = False, vflip = True
-    hflip: bool = False
+    hflip: bool = True
     vflip: bool = True
 
     default_fps: int = 30
     default_brightness: float = 0.0
+    default_exposure_value: float = -0.5
     default_sharpness: float = 1.0
     default_saturation: float = 1.0
 
@@ -50,18 +51,21 @@ class CameraMountConfig:
 
     enabled: bool = True
     pan_home_angle: float = 90
-    tilt_home_angle: float = 90
+    tilt_home_angle: float = 80
 
-    pan_min_angle: float = 0
+    pan_min_angle: float = 20
     pan_max_angle: float = 160
-    tilt_min_angle: float = 0
-    tilt_max_angle: float = 160
+    tilt_min_angle: float = 60
+    tilt_max_angle: float = 120
 
-    invert_pan_direction: bool = True
+    invert_pan_direction: bool = False
     invert_tilt_direction: bool = False
     center_deadzone_ratio: float = 0.15
-    tracking_step: float = 2
-    tracking_delay: float = 0.02
+    pan_max_single_move_angle: float = 3.0
+    tilt_max_single_move_angle: float = 3.0
+    tracking_step: float = 1.0
+    tracking_delay: float = 0.05
+    tracking_cooldown_seconds: float = 0.3
 
 
 @dataclass
@@ -106,8 +110,8 @@ class VisionConfig:
     person_model_path: str = "models/object_detection_nanodet_2022nov.onnx"
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
 
-    person_score_threshold: float = 0.35
-    face_score_threshold: float = 0.5
+    person_score_threshold: float = 0.4
+    face_score_threshold: float = 0.4
     person_max_results: int = 3
     face_near_trigger_ratio: float = 0.28
     # auto mode uses lower fps while searching for a person and higher fps after

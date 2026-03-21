@@ -7,6 +7,32 @@ from config import config
 from services.camera_mount_service import CameraMountService
 
 
+class FakeServo:
+    def __init__(self, pin: int, min_angle: float = 0, max_angle: float = 180, **kwargs) -> None:
+        self.pin = pin
+        self.min_angle = min_angle
+        self.max_angle = max_angle
+        self.current_angle = None
+        self.moves: list[dict] = []
+        self.cleaned_up = False
+
+    def move_to(self, angle: float, step: float = 1, delay: float = 0.02, release: bool = True) -> None:
+        if not self.min_angle <= angle <= self.max_angle:
+            raise ValueError("angle out of range")
+        self.current_angle = angle
+        self.moves.append(
+            {
+                "angle": angle,
+                "step": step,
+                "delay": delay,
+                "release": release,
+            }
+        )
+
+    def cleanup(self) -> None:
+        self.cleaned_up = True
+
+
 def build_payload(
     *,
     center_x: float | None = 640,
@@ -38,46 +64,59 @@ def build_payload(
 class CameraMountServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_mount_config = copy.deepcopy(config.camera_mount)
+        config.camera_mount.invert_pan_direction = True
+        config.camera_mount.invert_tilt_direction = False
 
     def tearDown(self) -> None:
         config.camera_mount = self.original_mount_config
 
-    def test_centered_target_returns_centered_advice(self) -> None:
-        service = CameraMountService()
+    def build_service(self) -> CameraMountService:
+        service = CameraMountService(servo_factory=FakeServo)
         service.start()
+        self.addCleanup(service.stop)
+        return service
 
-        service.enrich_payload(build_payload())
-        payload = service.enrich_payload(build_payload())
-        advice = payload["camera_mount"]
+    def test_centered_target_returns_centered_advice(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        advice = service._process_payload(build_payload())
 
         self.assertEqual(advice["status"], "centered")
         self.assertEqual(advice["direction"], "centered")
         self.assertEqual(advice["pan"]["direction"], "hold")
         self.assertEqual(advice["tilt"]["direction"], "hold")
+        self.assertEqual(advice["pan"]["move_angle"], 0.0)
+        self.assertEqual(advice["tilt"]["move_angle"], 0.0)
         self.assertEqual(advice["distance_ratio"], 0.0)
         self.assertEqual(advice["tracking_label"], "face")
+        self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
     def test_off_center_target_returns_axis_directions_with_pan_inversion(self) -> None:
-        service = CameraMountService()
-        service.start()
+        service = self.build_service()
 
-        service.enrich_payload(build_payload(center_x=980, center_y=200))
-        payload = service.enrich_payload(build_payload(center_x=980, center_y=200))
-        advice = payload["camera_mount"]
+        service._process_payload(build_payload())
+        advice = service._process_payload(build_payload(center_x=980, center_y=200))
 
         self.assertEqual(advice["status"], "tracking")
         self.assertEqual(advice["pan"]["direction"], "left")
         self.assertEqual(advice["tilt"]["direction"], "up")
+        self.assertGreater(advice["pan"]["move_angle"], 0.0)
+        self.assertGreater(advice["tilt"]["move_angle"], 0.0)
+        self.assertLessEqual(advice["pan"]["move_angle"], config.camera_mount.pan_max_single_move_angle)
+        self.assertLessEqual(advice["tilt"]["move_angle"], config.camera_mount.tilt_max_single_move_angle)
         self.assertEqual(advice["direction"], "up-left")
         self.assertGreater(advice["distance_ratio"], 0.0)
+        self.assertLess(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
+        self.assertLess(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
     def test_person_target_after_face_tracking_triggers_home(self) -> None:
-        service = CameraMountService()
-        service.start()
+        service = self.build_service()
 
-        service.enrich_payload(build_payload())
-        service.enrich_payload(build_payload())
-        payload = service.enrich_payload(
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=980, center_y=200))
+        advice = service._process_payload(
             {
                 "status": "ok",
                 "frame_size": {"width": 1280, "height": 720},
@@ -99,47 +138,112 @@ class CameraMountServiceTests(unittest.TestCase):
                 ],
             }
         )
-        advice = payload["camera_mount"]
 
         self.assertEqual(advice["status"], "returning_home")
         self.assertEqual(advice["home_reason"], "face_lost")
         self.assertFalse(advice["has_target"])
         self.assertEqual(advice["direction"], "home")
+        self.assertEqual(advice["pan"]["move_angle"], 0.0)
+        self.assertEqual(advice["tilt"]["move_angle"], 0.0)
+        self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
     def test_missing_target_returns_waiting_for_face_after_home(self) -> None:
-        service = CameraMountService()
-        service.start()
+        service = self.build_service()
 
-        service.enrich_payload(build_payload(center_x=None, center_y=None))
-        payload = service.enrich_payload(build_payload(center_x=None, center_y=None))
-        advice = payload["camera_mount"]
+        service._process_payload(build_payload(center_x=None, center_y=None))
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
 
         self.assertEqual(advice["status"], "waiting_for_face")
         self.assertFalse(advice["has_target"])
         self.assertEqual(advice["direction"], "hold")
+        self.assertEqual(advice["pan"]["move_angle"], 0.0)
+        self.assertEqual(advice["tilt"]["move_angle"], 0.0)
 
     def test_startup_requests_home_first(self) -> None:
-        service = CameraMountService()
-        service.start()
+        service = self.build_service()
 
-        payload = service.enrich_payload(build_payload())
-        advice = payload["camera_mount"]
+        advice = service._process_payload(build_payload())
 
         self.assertEqual(advice["status"], "returning_home")
         self.assertEqual(advice["home_reason"], "startup")
         self.assertTrue(advice["should_home"])
+        self.assertEqual(advice["pan"]["move_angle"], 0.0)
+        self.assertEqual(advice["tilt"]["move_angle"], 0.0)
+        self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
     def test_status_exposes_latest_advice(self) -> None:
-        service = CameraMountService()
-        service.start()
-        service.enrich_payload(build_payload(center_x=800, center_y=500))
-        service.enrich_payload(build_payload(center_x=800, center_y=500))
+        service = self.build_service()
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=800, center_y=500))
 
         status = service.get_status()
         self.assertTrue(status["started"])
         self.assertIn("latest_advice", status)
         self.assertTrue(status["direction_inversion"]["pan"])
         self.assertEqual(status["latest_advice"]["pan"]["direction"], "left")
+        self.assertTrue(status["servo_control_enabled"])
+        self.assertIsNone(status["last_error"])
+
+    def test_move_angle_scales_up_and_caps_at_single_move_limit(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        near = service._process_payload(build_payload(center_x=780, center_y=360))
+        far = service._process_payload(build_payload(center_x=1200, center_y=360))
+        edge = service._process_payload(build_payload(center_x=1280, center_y=360))
+
+        self.assertGreater(far["pan"]["move_angle"], near["pan"]["move_angle"])
+        self.assertEqual(edge["pan"]["move_angle"], config.camera_mount.pan_max_single_move_angle)
+
+    def test_duplicate_detection_version_moves_only_once(self) -> None:
+        service = self.build_service()
+        config.camera_mount.tracking_cooldown_seconds = 0.0
+
+        service._process_payload(build_payload(), version=1)
+        service._process_payload(build_payload(center_x=980, center_y=200), version=2)
+        first_pan_moves = len(service._pan_servo.moves)
+        first_tilt_moves = len(service._tilt_servo.moves)
+
+        service._process_payload(build_payload(center_x=980, center_y=200), version=2)
+
+        self.assertEqual(len(service._pan_servo.moves), first_pan_moves)
+        self.assertEqual(len(service._tilt_servo.moves), first_tilt_moves)
+
+    def test_tracking_cooldown_blocks_immediate_second_move(self) -> None:
+        service = self.build_service()
+        config.camera_mount.tracking_cooldown_seconds = 60.0
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=980, center_y=200), version=2)
+        first_pan_angle = service.get_status()["current_angles"]["pan"]
+        first_tilt_angle = service.get_status()["current_angles"]["tilt"]
+        first_pan_moves = len(service._pan_servo.moves)
+        first_tilt_moves = len(service._tilt_servo.moves)
+
+        advice = service._process_payload(build_payload(center_x=1120, center_y=140), version=3)
+
+        self.assertEqual(advice["status"], "tracking")
+        self.assertEqual(len(service._pan_servo.moves), first_pan_moves)
+        self.assertEqual(len(service._tilt_servo.moves), first_tilt_moves)
+        self.assertEqual(service.get_status()["current_angles"]["pan"], first_pan_angle)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], first_tilt_angle)
+
+    def test_tracking_move_uses_minimum_step_and_maximum_delay(self) -> None:
+        service = self.build_service()
+        config.camera_mount.tracking_step = 0.2
+        config.camera_mount.tracking_delay = 0.3
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=980, center_y=200), version=2)
+
+        self.assertEqual(service._pan_servo.moves[-1]["step"], 1.0)
+        self.assertEqual(service._tilt_servo.moves[-1]["step"], 1.0)
+        self.assertEqual(service._pan_servo.moves[-1]["delay"], 0.02)
+        self.assertEqual(service._tilt_servo.moves[-1]["delay"], 0.02)
+        self.assertTrue(service._pan_servo.moves[-1]["release"])
+        self.assertTrue(service._tilt_servo.moves[-1]["release"])
 
 
 if __name__ == "__main__":

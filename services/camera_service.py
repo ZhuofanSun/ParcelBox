@@ -96,6 +96,7 @@ class CameraService:
         return {
             "FrameDurationLimits": (frame_duration_us, frame_duration_us),
             "Brightness": config.camera.default_brightness,
+            "ExposureValue": config.camera.default_exposure_value,
             "Sharpness": config.camera.default_sharpness,
             "Saturation": config.camera.default_saturation,
         }

@@ -246,22 +246,24 @@ class Servo:
 
 
 if __name__ == "__main__":
-    TEST_PIN = 18
+    TEST_PIN = 24
 
     servo = Servo(TEST_PIN)
     try:
-        servo.move_min()  # 转到最小角度
-        time.sleep(1)
-        servo.center()  # 转到中间位置
-        time.sleep(1)
-        servo.move_max(settle_time=1.0, release=False)  # 转到最大角度
-        time.sleep(1)
-        servo.move_to(45, 2, 0.02)  # 平滑移动到 45 度
-        time.sleep(1)
-        servo.move_to(180, 2, 0.02)  # 平滑移动到 135 度
-        time.sleep(1)
-        servo.sweep(45, 120, 2, 0.02)  # 低风险扫一段角度
+        # servo.move_min()  # 转到最小角度
+        # time.sleep(1)
+        # servo.center()  # 转到中间位置
+        # time.sleep(1)
+        # servo.move_max(settle_time=1.0, release=False)  # 转到最大角度
+        # time.sleep(1)
+        # servo.move_to(45, 2, 0.02)  # 平滑移动到 45 度
+        # time.sleep(1)
+        # servo.move_to(180, 2, 0.02)  # 平滑移动到 135 度
+        # time.sleep(1)
+        # servo.sweep(45, 120, 2, 0.02)  # 低风险扫一段角度
         servo.center()
+        servo.move_to(120, 1, 0.02)
+
 
     finally:
         servo.cleanup()

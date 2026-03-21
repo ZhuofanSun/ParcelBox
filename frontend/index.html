@@ -303,7 +303,11 @@
         return `Mount: ${advice.direction} | waiting for face`;
       }
 
-      return `Mount: ${advice.direction} | distance ${(advice.distance_ratio * 100).toFixed(0)}%`;
+      return (
+        `Mount: ${advice.direction} | distance ${(advice.distance_ratio * 100).toFixed(0)}%` +
+        ` | pan ${Number(advice.pan.move_angle || 0).toFixed(1)}deg` +
+        ` | tilt ${Number(advice.tilt.move_angle || 0).toFixed(1)}deg`
+      );
     }
 
     function drawMountAdvice(frameWidth, frameHeight) {
