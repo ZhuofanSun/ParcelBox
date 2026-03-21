@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from config import config
 from services.camera_service import CameraService
+from services.camera_mount_service import CameraMountService
 from services.vision_service import VisionService
 
 
@@ -41,9 +42,15 @@ async def begin_stream_shutdown() -> None:
 def build_stream_router(
     camera_service: CameraService,
     vision_service: VisionService,
+    camera_mount_service: CameraMountService | None = None,
 ) -> APIRouter:
-    """Create the router for stream and fake vision endpoints."""
+    """Create the router for stream and vision endpoints."""
     router = APIRouter()
+
+    def enrich_payload(payload: dict) -> dict:
+        if camera_mount_service is None:
+            return payload
+        return camera_mount_service.enrich_payload(payload)
 
     @router.get("/api/health")
     def health() -> JSONResponse:
@@ -68,12 +75,17 @@ def build_stream_router(
                 "jpeg_quality": config.web.jpeg_quality,
                 "vision_transport": "websocket",
                 "vision_ws_path": "/ws/vision",
+                "camera_mount_status": (
+                    camera_mount_service.get_status()
+                    if camera_mount_service is not None
+                    else None
+                ),
             }
         )
 
     @router.get("/api/vision/boxes")
     def vision_boxes() -> JSONResponse:
-        return JSONResponse(vision_service.get_boxes())
+        return JSONResponse(enrich_payload(vision_service.get_boxes()))
 
     @router.websocket("/ws/vision")
     async def vision_websocket(websocket: WebSocket) -> None:
@@ -92,7 +104,7 @@ def build_stream_router(
                 except TimeoutError:
                     continue
 
-                await websocket.send_json(payload)
+                await websocket.send_json(enrich_payload(payload))
                 last_seen_version = version
         except WebSocketDisconnect:
             return
