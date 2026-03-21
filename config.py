@@ -122,6 +122,25 @@ class StorageConfig:
 
 
 @dataclass
+class EmailConfig:
+    """Outbound email notification settings."""
+
+    enabled: bool = True
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    use_tls: bool = True
+    timeout_seconds: float = 10.0
+    username: str = "yinnclja@gmail.com"
+    password: str = "wzsm atzm dwlj dfqd"
+    from_address: str = "yinnclja@gmail.com"
+    to_addresses: list[str] = field(default_factory=lambda: ["yinnclja@gmail.com"])
+    frontend_url: str = "http://192.168.0.106:8000/"
+    request_subject: str = "ParcelBox door open request"
+    request_message: str = "Someone pressed the ParcelBox request-open button."
+    duplicate_request_cooldown_seconds: float = 30.0
+
+
+@dataclass
 class VisionConfig:
     """Vision runtime configuration."""
 
@@ -202,6 +221,7 @@ class AppConfig:
     rfid: RFIDConfig = field(default_factory=RFIDConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
+    email: EmailConfig = field(default_factory=EmailConfig)
     vision: VisionConfig = field(default_factory=VisionConfig)
     web: WebConfig = field(default_factory=WebConfig)
 

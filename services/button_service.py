@@ -16,9 +16,11 @@ class ButtonService:
     def __init__(
         self,
         snapshot_callback=None,
+        notification_callback=None,
         button_factory=Button,
     ) -> None:
         self._snapshot_callback = snapshot_callback
+        self._notification_callback = notification_callback
         self._button_factory = button_factory
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -71,6 +73,7 @@ class ButtonService:
                 "enabled": self._button_enabled,
                 "pin": config.gpio.button_pin,
                 "last_error": self._last_error,
+                "has_notification_callback": self._notification_callback is not None,
                 "latest_event": copy.deepcopy(self._latest_event),
             }
 
@@ -142,6 +145,8 @@ class ButtonService:
     def _record_button_press(self) -> None:
         snapshot = None
         snapshot_error = None
+        notification = None
+        notification_error = None
 
         if self._snapshot_callback is not None:
             try:
@@ -149,9 +154,19 @@ class ButtonService:
             except Exception as error:
                 snapshot_error = str(error)
 
+        if self._notification_callback is not None:
+            try:
+                notification = self._notification_callback()
+            except Exception as error:
+                notification_error = str(error)
+
         if isinstance(snapshot, dict):
             snapshot.setdefault("trigger", "button")
             snapshot.setdefault("source", "hardware_button")
+
+        if isinstance(notification, dict):
+            notification.setdefault("trigger", "button")
+            notification.setdefault("source", "hardware_button")
 
         with self._lock:
             self._event_counter += 1
@@ -161,10 +176,16 @@ class ButtonService:
                 "source": "hardware_button",
                 "timestamp": time.time(),
                 "snapshot": copy.deepcopy(snapshot),
+                "notification": copy.deepcopy(notification),
             }
             if snapshot_error is not None:
                 event["snapshot_error"] = snapshot_error
+            if notification_error is not None:
+                event["notification_error"] = notification_error
+            if snapshot_error is not None:
                 self._last_error = snapshot_error
+            elif notification_error is not None:
+                self._last_error = notification_error
             else:
                 self._last_error = None
             self._latest_event = event

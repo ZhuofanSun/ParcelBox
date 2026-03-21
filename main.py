@@ -14,6 +14,7 @@ from services.access_service import AccessService
 from services.button_service import ButtonService
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
+from services.email_service import EmailNotificationService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
 from services.vision_service import VisionService
@@ -25,7 +26,11 @@ from web.routes_stream import begin_stream_shutdown, build_stream_router, reset_
 camera_service = CameraService()
 vision_service = VisionService(camera_service)
 camera_mount_service = CameraMountService(vision_service)
-button_service = ButtonService(snapshot_callback=camera_service.capture_snapshot)
+email_service = EmailNotificationService()
+button_service = ButtonService(
+    snapshot_callback=camera_service.capture_snapshot,
+    notification_callback=email_service.send_open_request_email,
+)
 access_service = AccessService()
 occupancy_service = OccupancyService()
 locker_service = LockerService(

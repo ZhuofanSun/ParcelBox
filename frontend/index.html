@@ -663,12 +663,27 @@
       }
 
       const errorMessage = buttonEvent.snapshot_error;
+      const notification = buttonEvent.notification;
+      const notificationError = buttonEvent.notification_error;
       const fileLabel = snapshotLabel(buttonEvent.snapshot);
-      const message = errorMessage
-        ? `Button pressed: snapshot failed (${errorMessage})`
+      const photoMessage = errorMessage
+        ? `snapshot failed (${errorMessage})`
         : fileLabel
-          ? `Button pressed: photo saved as ${fileLabel}`
-          : "Button pressed: photo saved locally";
+          ? `photo saved as ${fileLabel}`
+          : "photo saved locally";
+      let notificationMessage = "email notification not configured";
+      if (notificationError) {
+        notificationMessage = `email failed (${notificationError})`;
+      } else if (notification?.status === "sent") {
+        notificationMessage = "open-request email sent";
+      } else if (notification?.status === "duplicate_filtered") {
+        notificationMessage = "duplicate open request filtered";
+      } else if (notification?.status === "disabled") {
+        notificationMessage = "email notification disabled";
+      } else if (notification?.status === "error") {
+        notificationMessage = `email failed (${notification.error})`;
+      }
+      const message = `Button pressed: ${photoMessage}; ${notificationMessage}`;
       setControlStatus(message);
       setControlLog("button_press", buttonEvent);
       showButtonToast(message);

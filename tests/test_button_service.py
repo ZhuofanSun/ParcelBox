@@ -48,6 +48,7 @@ class ButtonServiceTests(unittest.TestCase):
     def test_button_press_captures_snapshot_and_records_event(self) -> None:
         fake_button = FakeButton(27)
         snapshots: list[dict] = []
+        notifications: list[dict] = []
 
         def capture_snapshot() -> dict:
             snapshot = {
@@ -57,8 +58,14 @@ class ButtonServiceTests(unittest.TestCase):
             snapshots.append(snapshot)
             return snapshot
 
+        def send_notification() -> dict:
+            notification = {"status": "sent"}
+            notifications.append(notification)
+            return notification
+
         service = ButtonService(
             snapshot_callback=capture_snapshot,
+            notification_callback=send_notification,
             button_factory=lambda pin: fake_button,
         )
         service.start()
@@ -72,6 +79,10 @@ class ButtonServiceTests(unittest.TestCase):
         self.assertEqual(event["snapshot"]["filename"], "button_1.jpg")
         self.assertEqual(event["snapshot"]["trigger"], "button")
         self.assertEqual(event["snapshot"]["source"], "hardware_button")
+        self.assertEqual(event["notification"]["status"], "sent")
+        self.assertEqual(event["notification"]["trigger"], "button")
+        self.assertEqual(event["notification"]["source"], "hardware_button")
+        self.assertEqual(len(notifications), 1)
         self.assertEqual(service.get_status()["latest_event"]["id"], 1)
 
     def test_each_press_after_release_creates_new_event(self) -> None:
@@ -100,6 +111,28 @@ class ButtonServiceTests(unittest.TestCase):
 
         self.assertEqual(capture_count, 2)
         self.assertEqual(event["snapshot"]["filename"], "button_2.jpg")
+
+    def test_notification_error_is_recorded_in_event(self) -> None:
+        fake_button = FakeButton(27)
+
+        def send_notification() -> dict:
+            raise RuntimeError("smtp failed")
+
+        service = ButtonService(
+            snapshot_callback=lambda: {"filename": "button.jpg"},
+            notification_callback=send_notification,
+            button_factory=lambda pin: fake_button,
+        )
+        service.start()
+        self.addCleanup(service.stop)
+
+        fake_button.trigger_press()
+        fake_button.trigger_release()
+        event = self.wait_for_event(service, 1)
+
+        self.assertEqual(event["notification"], None)
+        self.assertEqual(event["notification_error"], "smtp failed")
+        self.assertEqual(service.get_status()["last_error"], "smtp failed")
 
 
 if __name__ == "__main__":
