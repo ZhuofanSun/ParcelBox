@@ -100,7 +100,7 @@ class VisionConfig:
     mp_persondet_nms_threshold: float = 0.3
     mp_persondet_top_k: int = 3
     nanodet_prob_threshold: float = 0.35
-    nanodet_iou_threshold: float = 0.6
+    nanodet_iou_threshold: float = 0.3
     nanodet_input_size: tuple[int, int] = (416, 416)
     face_backend: str = "yunet"
     face_fallback_to_haar: bool = True
