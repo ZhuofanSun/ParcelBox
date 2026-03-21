@@ -74,11 +74,12 @@ class DoorConfig:
     """Servo movement settings for the locker door."""
 
     enabled: bool = True
-    closed_angle: float = 10.0
-    open_angle: float = 92.0
+    closed_angle: float = 0.0
+    open_angle: float = 90.0
+    auto_close_seconds: float = 10.0
     min_angle: float = 0.0
     max_angle: float = 180.0
-    move_step: float = 2.0
+    move_step: float = 5.0
     move_delay: float = 0.02
 
 
@@ -102,10 +103,13 @@ class RFIDConfig:
 class UltrasonicConfig:
     """Baseline thresholds for locker occupancy detection."""
 
-    occupied_threshold_cm: float = 40.0
-    empty_threshold_cm: float = 100.0
+    # <= occupied_threshold_cm: occupied
+    # > occupied_threshold_cm: use door_state to distinguish empty vs door_not_closed
+    occupied_threshold_cm: float = 20.0
+    # Retained for compatibility; current occupancy logic does not use this value.
+    empty_threshold_cm: float = 50.0
     sample_count: int = 5
-    sample_interval: float = 0.05
+    sample_interval: float = 0.1
 
 
 @dataclass

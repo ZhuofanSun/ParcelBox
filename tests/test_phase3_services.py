@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import copy
+import json
 import tempfile
+import time
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -99,6 +101,22 @@ class FakeReader:
         self.cleaned_up = True
 
 
+class FakeLockerBridge:
+    def __init__(self) -> None:
+        self.processed_uids: list[dict] = []
+
+    def process_scanned_uid(self, uid: str, *, source: str = "rfid") -> dict:
+        event = {
+            "type": "door_opened",
+            "source": source,
+            "uid": uid,
+            "allowed": True,
+            "reason": "granted",
+        }
+        self.processed_uids.append(event)
+        return event
+
+
 class Phase3ServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_config = copy.deepcopy(config)
@@ -183,7 +201,37 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(close_event["type"], "door_closed")
         self.assertEqual(status["door_state"], "closed")
         self.assertEqual(status["current_angle"], config.door.closed_angle)
-        self.assertEqual(close_event["occupancy"]["state"], "occupied")
+        self.assertEqual(close_event["occupancy"]["state"], "empty")
+
+    def test_ultrasonic_mid_range_is_empty(self) -> None:
+        occupancy_service = self.build_occupancy_service()
+
+        occupancy_service._sensor.next_distance_cm = 60.0
+        measurement = occupancy_service.measure_once(door_state="closed")
+
+        self.assertEqual(measurement["state"], "empty")
+        self.assertEqual(measurement["reason"], "distance_above_occupied_threshold_door_closed")
+
+    def test_ultrasonic_far_range_means_door_not_closed(self) -> None:
+        occupancy_service = self.build_occupancy_service()
+
+        occupancy_service._sensor.next_distance_cm = 140.0
+        measurement = occupancy_service.measure_once(door_state="open")
+
+        self.assertEqual(measurement["state"], "door_not_closed")
+        self.assertEqual(measurement["reason"], "distance_above_occupied_threshold_door_open")
+
+    def test_occupancy_status_uses_current_door_state_context(self) -> None:
+        occupancy_service = self.build_occupancy_service()
+
+        occupancy_service._sensor.next_distance_cm = 60.0
+        occupancy_service.measure_once(door_state="closed")
+
+        closed_status = occupancy_service.get_status(door_state="closed")
+        open_status = occupancy_service.get_status(door_state="open")
+
+        self.assertEqual(closed_status["latest_measurement"]["state"], "empty")
+        self.assertEqual(open_status["latest_measurement"]["state"], "door_not_closed")
 
     def test_authorized_rfid_scan_opens_door(self) -> None:
         access_service = self.build_access_service()
@@ -198,6 +246,40 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(event["uid"], "CAFE01")
         self.assertEqual(status["door_state"], "open")
         self.assertEqual(status["current_angle"], config.door.open_angle)
+
+    def test_duplicate_card_does_not_reopen_until_reader_sees_no_card(self) -> None:
+        access_service = self.build_access_service()
+        access_service.enroll_card("CAFE01", name="Tester")
+        locker_service = self.build_locker_service(access_service)
+
+        first_event = locker_service.process_scanned_uid("CAFE01", source="frontend_read")
+        close_event = locker_service.close_door(source="frontend")
+        duplicate_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
+        status_after_duplicate = locker_service.get_status()
+
+        locker_service.note_no_card_present()
+        reopened_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
+
+        self.assertEqual(first_event["type"], "door_opened")
+        self.assertEqual(close_event["type"], "door_closed")
+        self.assertIsNone(duplicate_event)
+        self.assertEqual(status_after_duplicate["door_state"], "closed")
+        self.assertEqual(reopened_event["type"], "door_opened")
+
+    def test_open_door_auto_closes_after_delay(self) -> None:
+        access_service = self.build_access_service()
+        config.door.auto_close_seconds = 0.02
+        locker_service = self.build_locker_service(access_service)
+
+        open_event = locker_service.open_door(source="frontend")
+        time.sleep(0.08)
+        status = locker_service.get_status()
+        events = locker_service.list_events(limit=3)
+
+        self.assertEqual(open_event["type"], "door_opened")
+        self.assertEqual(status["door_state"], "closed")
+        self.assertEqual(events[0]["type"], "door_closed")
+        self.assertEqual(events[0]["source"], "auto_close")
 
     def test_unknown_card_is_denied_without_opening_door(self) -> None:
         access_service = self.build_access_service()
@@ -234,6 +316,35 @@ class Phase3ServiceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             access_service.write_card_text("x" * (config.rfid.text_block_count * 16 + 1))
+
+    def test_ensure_card_authorized_persists_card_record(self) -> None:
+        access_service, reader = self.build_reader_access_service()
+
+        card = access_service.ensure_card_authorized(reader.uid, name="courier-1")
+
+        self.assertEqual(card["uid"], reader.uid)
+        self.assertTrue(card["enabled"])
+        self.assertEqual(card["name"], "courier-1")
+        self.assertEqual(access_service.get_card(reader.uid)["uid"], reader.uid)
+
+        store_payload = json.loads(Path(config.storage.card_store_path).read_text(encoding="utf-8"))
+        self.assertEqual(store_payload["cards"][0]["uid"], reader.uid)
+
+    def test_read_card_flow_opens_door_for_authorized_card(self) -> None:
+        access_service, reader = self.build_reader_access_service()
+        access_service.ensure_card_authorized(reader.uid, name="courier-1")
+        locker_bridge = FakeLockerBridge()
+
+        result = access_service.read_card_text()
+        access_result = access_service.authorize_uid(result["uid"])
+        door_event = None
+        if access_result["allowed"]:
+            door_event = locker_bridge.process_scanned_uid(result["uid"], source="frontend_read")
+
+        self.assertTrue(access_result["allowed"])
+        self.assertEqual(door_event["type"], "door_opened")
+        self.assertEqual(door_event["source"], "frontend_read")
+        self.assertEqual(locker_bridge.processed_uids[0]["uid"], reader.uid)
 
 
 if __name__ == "__main__":

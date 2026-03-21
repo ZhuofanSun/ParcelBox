@@ -38,6 +38,7 @@ class LockerService:
         self._last_scanned_at = 0.0
         self._rfid_polling_paused_until = 0.0
         self._events: list[dict] = []
+        self._auto_close_timer: threading.Timer | None = None
 
     def start(self) -> None:
         """Initialize the door servo and RFID worker."""
@@ -68,6 +69,7 @@ class LockerService:
             self._worker_thread = None
 
         with self._lock:
+            self._cancel_auto_close_locked()
             servo = self._door_servo
             self._door_servo = None
             self._door_servo_enabled = False
@@ -106,7 +108,7 @@ class LockerService:
             event = self._close_door_locked(source=source)
 
         if self._occupancy_service is not None:
-            measurement = self._occupancy_service.measure_once()
+            measurement = self._occupancy_service.measure_once(door_state="closed")
 
         if measurement is not None:
             with self._lock:
@@ -116,10 +118,19 @@ class LockerService:
 
         return copy.deepcopy(event)
 
-    def process_scanned_uid(self, uid: str, *, source: str = "rfid") -> dict:
+    def process_scanned_uid(
+        self,
+        uid: str,
+        *,
+        source: str = "rfid",
+        access_result: dict | None = None,
+    ) -> dict | None:
         """Handle a scanned UID through access control and door workflow."""
-        access_result = self._access_service.authorize_uid(uid)
+        access_result = copy.deepcopy(access_result) if access_result is not None else self._access_service.authorize_uid(uid)
         with self._lock:
+            if self._is_duplicate_scan_locked(access_result["uid"]):
+                return None
+            self._remember_scan_locked(access_result["uid"])
             self._last_access_result = copy.deepcopy(access_result)
             if access_result["allowed"]:
                 return copy.deepcopy(self._open_door_locked(source=source, access_result=access_result))
@@ -136,6 +147,12 @@ class LockerService:
             )
             return copy.deepcopy(event)
 
+    def note_no_card_present(self) -> None:
+        """Clear duplicate-scan latch after the reader sees no card."""
+        with self._lock:
+            self._last_scanned_uid = None
+            self._last_scanned_at = 0.0
+
     def list_events(self, limit: int = 30) -> list[dict]:
         """Return recent locker events."""
         with self._lock:
@@ -143,7 +160,11 @@ class LockerService:
 
     def get_status(self) -> dict:
         """Return current locker, RFID, and occupancy status."""
-        occupancy_status = self._occupancy_service.get_status() if self._occupancy_service is not None else None
+        occupancy_status = (
+            self._occupancy_service.get_status(door_state=self._door_state)
+            if self._occupancy_service is not None
+            else None
+        )
         return {
             "started": self._started,
             "door_servo_enabled": self._door_servo_enabled,
@@ -178,27 +199,14 @@ class LockerService:
                 continue
 
             if access_result is None:
+                self.note_no_card_present()
                 continue
 
-            uid = access_result["uid"]
-            if self._is_duplicate_scan(uid):
-                continue
-
-            with self._lock:
-                self._last_access_result = copy.deepcopy(access_result)
-                if access_result["allowed"]:
-                    self._open_door_locked(source="rfid", access_result=access_result)
-                else:
-                    self._record_event_locked(
-                        {
-                            "type": "access_denied",
-                            "source": "rfid",
-                            "uid": uid,
-                            "allowed": False,
-                            "reason": access_result["reason"],
-                            "timestamp": time.time(),
-                        }
-                    )
+            self.process_scanned_uid(
+                access_result["uid"],
+                source="rfid",
+                access_result=access_result,
+            )
 
     def _initialize_servo_locked(self) -> None:
         self._door_servo = None
@@ -226,6 +234,7 @@ class LockerService:
             self._last_error = str(error)
 
     def _open_door_locked(self, *, source: str, access_result: dict | None) -> dict:
+        self._cancel_auto_close_locked()
         self._move_door_locked(config.door.open_angle, state="open")
         event = {
             "type": "door_opened",
@@ -235,9 +244,12 @@ class LockerService:
             "reason": "manual_open" if access_result is None else access_result["reason"],
             "timestamp": time.time(),
         }
-        return self._record_event_locked(event)
+        recorded_event = self._record_event_locked(event)
+        self._schedule_auto_close_locked()
+        return recorded_event
 
     def _close_door_locked(self, *, source: str) -> dict:
+        self._cancel_auto_close_locked()
         self._move_door_locked(config.door.closed_angle, state="closed")
         return self._record_event_locked(
             {
@@ -274,22 +286,35 @@ class LockerService:
         del self._events[50:]
         return event
 
-    def _is_duplicate_scan(self, uid: str) -> bool:
-        now = time.monotonic()
-        with self._lock:
-            if (
-                self._last_scanned_uid == uid
-                and now - self._last_scanned_at < config.rfid.same_card_cooldown_seconds
-            ):
-                return True
-            self._last_scanned_uid = uid
-            self._last_scanned_at = now
-            return False
+    def _is_duplicate_scan_locked(self, uid: str) -> bool:
+        return self._last_scanned_uid == uid
+
+    def _remember_scan_locked(self, uid: str) -> None:
+        self._last_scanned_uid = uid
+        self._last_scanned_at = time.monotonic()
 
     def _rfid_pause_remaining(self) -> float:
         with self._lock:
             remaining = self._rfid_polling_paused_until - time.monotonic()
         return max(remaining, 0.0)
+
+    def _schedule_auto_close_locked(self) -> None:
+        delay_seconds = max(config.door.auto_close_seconds, 0.0)
+        if delay_seconds <= 0:
+            return
+
+        self._auto_close_timer = threading.Timer(delay_seconds, self._auto_close_from_timer)
+        self._auto_close_timer.daemon = True
+        self._auto_close_timer.start()
+
+    def _cancel_auto_close_locked(self) -> None:
+        timer = self._auto_close_timer
+        self._auto_close_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _auto_close_from_timer(self) -> None:
+        self.close_door(source="auto_close")
 
     @staticmethod
     def _clamp(value: float, minimum: float, maximum: float) -> float:

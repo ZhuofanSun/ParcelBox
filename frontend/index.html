@@ -108,6 +108,13 @@
       aspect-ratio: 16 / 9;
     }
 
+    .stream-controls {
+      padding: 16px 18px 20px;
+      display: grid;
+      gap: 14px;
+      border-top: 1px solid var(--border);
+    }
+
     #stream {
       width: 100%;
       height: 100%;
@@ -254,6 +261,38 @@
           <img id="stream" src="/api/stream.mjpg" alt="Live stream" />
           <canvas id="overlay"></canvas>
         </div>
+        <div class="stream-controls">
+          <div class="info-row">
+            <div class="label">Locker Controls</div>
+            <div class="button-grid">
+              <button id="open-door-btn" type="button">Open Door</button>
+              <button id="close-door-btn" type="button">Close Door</button>
+              <button id="refresh-locker-btn" type="button">Refresh Locker</button>
+              <button id="refresh-events-btn" type="button">Refresh Events</button>
+              <button id="refresh-cards-btn" type="button">Refresh Cards</button>
+            </div>
+          </div>
+          <div class="info-row">
+            <div class="label">RFID Card I/O</div>
+            <div class="button-grid">
+              <button id="card-read-mode-btn" class="toggle-button button-active" type="button">Read Card</button>
+              <button id="card-write-mode-btn" class="toggle-button" type="button">Write Card</button>
+            </div>
+            <div class="field-stack" id="card-write-fields" hidden>
+              <textarea id="card-text-input" placeholder="Write text payload to the presented card"></textarea>
+              <div class="helper-text">The backend will use the configured RFID text blocks.</div>
+            </div>
+            <div class="helper-text" id="card-io-helper">
+              Click Start Polling, then present a card to read text from the configured RFID blocks.
+            </div>
+            <button id="card-io-action-btn" class="single-action" type="button">Start Polling</button>
+          </div>
+          <div class="info-row">
+            <div class="label">Latest Update</div>
+            <div class="action-status" id="control-status">Waiting for action...</div>
+            <pre id="control-log-json">Waiting for manual update...</pre>
+          </div>
+        </div>
       </div>
 
       <aside class="meta-card">
@@ -269,36 +308,6 @@
           <div class="info-row">
             <div class="label">Camera Mount Suggestion</div>
             <pre id="camera-mount-json">Loading...</pre>
-          </div>
-          <div class="info-row">
-            <div class="label">Phase 3 Controls</div>
-            <div class="button-grid">
-              <button id="open-door-btn" type="button">Open Door</button>
-              <button id="close-door-btn" type="button">Close Door</button>
-              <button id="refresh-locker-btn" type="button">Refresh Locker</button>
-              <button id="refresh-events-btn" type="button">Refresh Events</button>
-              <button id="refresh-cards-btn" type="button">Refresh Cards</button>
-            </div>
-            <div class="action-status" id="control-status">Waiting for action...</div>
-          </div>
-          <div class="info-row">
-            <div class="label">RFID Card I/O</div>
-            <div class="button-grid">
-              <button id="card-read-mode-btn" class="toggle-button button-active" type="button">Read Card</button>
-              <button id="card-write-mode-btn" class="toggle-button" type="button">Write Card</button>
-            </div>
-            <div class="field-stack" id="card-write-fields" hidden>
-              <textarea id="card-text-input" placeholder="Write text payload to the presented card"></textarea>
-              <div class="helper-text">The backend will use the configured RFID text blocks.</div>
-            </div>
-            <div class="helper-text" id="card-io-helper">
-              Present a card to read text from the configured RFID blocks.
-            </div>
-            <button id="card-io-action-btn" class="single-action" type="button">Scan Card</button>
-          </div>
-          <div class="info-row">
-            <div class="label">RFID Card I/O Result</div>
-            <pre id="card-io-json">Waiting for read/write action...</pre>
           </div>
           <div class="info-row">
             <div class="label">Locker Status</div>
@@ -329,7 +338,7 @@
     const lockerStatusPre = document.getElementById("locker-status-json");
     const lockerEventsPre = document.getElementById("locker-events-json");
     const cardsJsonPre = document.getElementById("cards-json");
-    const cardIoJsonPre = document.getElementById("card-io-json");
+    const controlLogPre = document.getElementById("control-log-json");
     const cardIoHelper = document.getElementById("card-io-helper");
     const cardWriteFields = document.getElementById("card-write-fields");
     const cardTextInput = document.getElementById("card-text-input");
@@ -353,9 +362,14 @@
     let lockerRefreshTimer = null;
     let eventsRefreshTimer = null;
     let cardIoMode = "read";
+    let readPollTimer = null;
+    let readPollInFlight = false;
+    let readPollingActive = false;
 
     const LOCKER_STATUS_REFRESH_MS = 2000;
     const LOCKER_EVENTS_REFRESH_MS = 6000;
+    const READ_POLL_TIMEOUT_SECONDS = 0.75;
+    const READ_POLL_INTERVAL_MS = 250;
 
     function resizeOverlay() {
       const rect = streamImage.getBoundingClientRect();
@@ -519,79 +533,237 @@
       controlStatus.textContent = message;
     }
 
+    function formatDateTime(value) {
+      const date = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+
+      const year = String(date.getFullYear()).padStart(4, "0");
+      const month = String(date.getMonth() + 1).padStart(2, "0");
+      const day = String(date.getDate()).padStart(2, "0");
+      const hour = String(date.getHours()).padStart(2, "0");
+      const minute = String(date.getMinutes()).padStart(2, "0");
+      const second = String(date.getSeconds()).padStart(2, "0");
+      return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+    }
+
+    function formatTimestampField(key, value) {
+      if (!key) return value;
+      const isTimestampKey = key === "timestamp" || key.endsWith("_at") || key === "measured_at";
+      if (!isTimestampKey) return value;
+
+      if (typeof value === "number" && Number.isFinite(value)) {
+        return formatDateTime(value * 1000);
+      }
+
+      if (typeof value === "string") {
+        const parsed = Date.parse(value);
+        if (!Number.isNaN(parsed)) {
+          return formatDateTime(parsed);
+        }
+      }
+
+      return value;
+    }
+
+    function formatPayloadForDisplay(value, key = "") {
+      if (Array.isArray(value)) {
+        return value.map((item) => formatPayloadForDisplay(item));
+      }
+
+      if (value && typeof value === "object") {
+        const formatted = {};
+        for (const [childKey, childValue] of Object.entries(value)) {
+          formatted[childKey] = formatPayloadForDisplay(childValue, childKey);
+        }
+        return formatted;
+      }
+
+      return formatTimestampField(key, value);
+    }
+
+    function stringifyForDisplay(value) {
+      return JSON.stringify(formatPayloadForDisplay(value), null, 2);
+    }
+
+    function setControlLog(action, payload) {
+      controlLogPre.textContent = stringifyForDisplay(
+        {
+          updated_at: new Date().toISOString(),
+          action,
+          payload,
+        },
+      );
+    }
+
+    function actionKey(label) {
+      return String(label).toLowerCase().replace(/\s+/g, "_");
+    }
+
+    function updateCardIoActionLabel() {
+      if (cardIoMode === "read") {
+        cardIoActionButton.textContent = readPollingActive ? "Stop Polling" : "Start Polling";
+        return;
+      }
+
+      cardIoActionButton.textContent = "Write Card";
+    }
+
+    function stopReadPolling(statusMessage = null) {
+      readPollingActive = false;
+      if (readPollTimer) {
+        window.clearTimeout(readPollTimer);
+        readPollTimer = null;
+      }
+      updateCardIoActionLabel();
+      if (statusMessage) {
+        setControlStatus(statusMessage);
+      }
+    }
+
+    function scheduleReadPoll(delayMs = READ_POLL_INTERVAL_MS) {
+      if (!readPollingActive) return;
+      if (readPollTimer) {
+        window.clearTimeout(readPollTimer);
+      }
+      readPollTimer = window.setTimeout(() => {
+        readPollTimer = null;
+        pollReadCardOnce().catch(() => {});
+      }, delayMs);
+    }
+
     function applyCardIoMode(mode = cardIoMode) {
+      if (mode !== "read" && readPollingActive) {
+        stopReadPolling();
+      }
       cardIoMode = mode;
       const isReadMode = cardIoMode === "read";
 
       cardReadModeButton.classList.toggle("button-active", isReadMode);
       cardWriteModeButton.classList.toggle("button-active", !isReadMode);
       cardWriteFields.hidden = isReadMode;
-      cardIoActionButton.textContent = isReadMode ? "Scan Card" : "Write Card";
       cardIoHelper.textContent = isReadMode
-        ? "Present a card to read text from the configured RFID blocks."
+        ? "Click Start Polling, then present a card to read text from the configured RFID blocks."
         : "Present a card and write the text below into the configured RFID blocks.";
+      updateCardIoActionLabel();
     }
 
     async function loadStreamMeta() {
       streamMeta = await fetchJson("/api/stream/meta", { headers: {} });
-      streamMetaPre.textContent = JSON.stringify(streamMeta, null, 2);
-      cameraMountPre.textContent = JSON.stringify(streamMeta.camera_mount_status, null, 2);
-      lockerStatusPre.textContent = JSON.stringify(streamMeta.locker_status, null, 2);
+      streamMetaPre.textContent = stringifyForDisplay(streamMeta);
+      cameraMountPre.textContent = stringifyForDisplay(streamMeta.camera_mount_status);
+      lockerStatusPre.textContent = stringifyForDisplay(streamMeta.locker_status);
       drawOverlay();
     }
 
     async function refreshLockerStatus() {
       const payload = await fetchJson("/api/locker/status", { headers: {} });
-      lockerStatusPre.textContent = JSON.stringify(payload, null, 2);
+      lockerStatusPre.textContent = stringifyForDisplay(payload);
       return payload;
     }
 
     async function refreshLockerEvents() {
       const payload = await fetchJson("/api/locker/events?limit=10", { headers: {} });
-      lockerEventsPre.textContent = JSON.stringify(payload, null, 2);
+      lockerEventsPre.textContent = stringifyForDisplay(payload);
       return payload;
     }
 
     async function refreshCards() {
       const payload = await fetchJson("/api/cards", { headers: {} });
-      cardsJsonPre.textContent = JSON.stringify(payload, null, 2);
+      cardsJsonPre.textContent = stringifyForDisplay(payload);
       return payload;
+    }
+
+    async function pollReadCardOnce() {
+      if (!readPollingActive || readPollInFlight) return;
+      readPollInFlight = true;
+
+      try {
+        const payload = await fetchJson("/api/cards/read", {
+          method: "POST",
+          body: JSON.stringify({ scan_timeout_seconds: READ_POLL_TIMEOUT_SECONDS }),
+        });
+
+        if (payload.status === "waiting_for_card") {
+          setControlStatus("Read polling: waiting for card");
+          scheduleReadPoll();
+          return payload;
+        }
+
+        setControlLog("read_card", payload);
+        if (payload.status === "duplicate_scan_ignored") {
+          setControlStatus("Read polling: duplicate card ignored");
+        } else if (payload.door_event) {
+          setControlStatus("Authorized card detected: door opened");
+        } else {
+          setControlStatus("Card detected: not authorized");
+        }
+        await Promise.allSettled([refreshLockerStatus(), refreshLockerEvents(), refreshCards()]);
+        scheduleReadPoll();
+        return payload;
+      } catch (error) {
+        setControlLog("read_card_error", {
+          mode: "read",
+          error: error.message,
+        });
+        stopReadPolling(`Read polling failed: ${error.message}`);
+        throw error;
+      } finally {
+        readPollInFlight = false;
+      }
     }
 
     async function runCardIoAction() {
       const isReadMode = cardIoMode === "read";
-      const path = isReadMode ? "/api/cards/read" : "/api/cards/write";
-      const label = isReadMode ? "Read card" : "Write card";
       const text = cardTextInput.value.trim();
 
-      if (!isReadMode && !text) {
+      if (isReadMode) {
+        if (readPollingActive) {
+          stopReadPolling("Read polling stopped");
+          return;
+        }
+
+        readPollingActive = true;
+        updateCardIoActionLabel();
+        setControlStatus("Read polling started");
+        setControlLog(
+          "read_polling",
+          {
+            mode: "read",
+            status: "polling_started",
+          },
+        );
+        await pollReadCardOnce();
+        return;
+      }
+
+      if (!text) {
         setControlStatus("Write card failed: text is required");
         return;
       }
 
       setControlButtonsDisabled(true);
-      setControlStatus(`${label}...`);
-      cardIoJsonPre.textContent = `${label} in progress...`;
+      setControlStatus("Write card...");
+      setControlLog("write_card", { status: "in_progress" });
 
       try {
-        const payload = await fetchJson(path, {
+        const payload = await fetchJson("/api/cards/write", {
           method: "POST",
-          body: JSON.stringify(isReadMode ? {} : { text }),
+          body: JSON.stringify({ text }),
         });
-        cardIoJsonPre.textContent = JSON.stringify(payload, null, 2);
-        setControlStatus(`${label} succeeded`);
-        await refreshLockerStatus();
+        setControlLog("write_card", payload);
+        if (payload.authorized_card) {
+          setControlStatus("Write card succeeded: card saved as authorized");
+        } else {
+          setControlStatus("Write card succeeded");
+        }
+        await Promise.allSettled([refreshLockerStatus(), refreshLockerEvents(), refreshCards()]);
         return payload;
       } catch (error) {
-        cardIoJsonPre.textContent = JSON.stringify(
-          {
-            mode: cardIoMode,
-            error: error.message,
-          },
-          null,
-          2,
-        );
-        setControlStatus(`${label} failed: ${error.message}`);
+        setControlLog("write_card_error", {
+          mode: "write",
+          error: error.message,
+        });
+        setControlStatus(`Write card failed: ${error.message}`);
         throw error;
       } finally {
         setControlButtonsDisabled(false);
@@ -607,10 +779,12 @@
           body: JSON.stringify({ source: "frontend" }),
         });
         setControlStatus(`${label} succeeded`);
+        setControlLog(actionKey(label), payload);
         await Promise.all([loadStreamMeta(), refreshLockerStatus(), refreshLockerEvents()]);
         return payload;
       } catch (error) {
         setControlStatus(`${label} failed: ${error.message}`);
+        setControlLog(`${actionKey(label)}_error`, { error: error.message });
         throw error;
       } finally {
         setControlButtonsDisabled(false);
@@ -665,8 +839,8 @@
       visionSocket.addEventListener("message", (event) => {
         const payload = JSON.parse(event.data);
         latestPayload = payload;
-        boxesJsonPre.textContent = JSON.stringify(latestPayload, null, 2);
-        cameraMountPre.textContent = JSON.stringify(latestPayload.camera_mount || null, null, 2);
+        boxesJsonPre.textContent = stringifyForDisplay(latestPayload);
+        cameraMountPre.textContent = stringifyForDisplay(latestPayload.camera_mount || null);
         modeBadge.textContent = latestPayload.active_mode || latestPayload.mode;
         drawOverlay();
       });
@@ -695,8 +869,10 @@
       try {
         await Promise.all([loadStreamMeta(), refreshLockerStatus()]);
         setControlStatus("Locker status refreshed");
+        setControlLog("refresh_locker", { status: "ok" });
       } catch (error) {
         setControlStatus(`Locker refresh failed: ${error.message}`);
+        setControlLog("refresh_locker_error", { error: error.message });
       } finally {
         setControlButtonsDisabled(false);
       }
@@ -708,8 +884,10 @@
       try {
         await refreshLockerEvents();
         setControlStatus("Recent events refreshed");
+        setControlLog("refresh_events", { status: "ok" });
       } catch (error) {
         setControlStatus(`Event refresh failed: ${error.message}`);
+        setControlLog("refresh_events_error", { error: error.message });
       } finally {
         setControlButtonsDisabled(false);
       }
@@ -721,8 +899,10 @@
       try {
         await refreshCards();
         setControlStatus("Cards refreshed");
+        setControlLog("refresh_cards", { status: "ok" });
       } catch (error) {
         setControlStatus(`Card refresh failed: ${error.message}`);
+        setControlLog("refresh_cards_error", { error: error.message });
       } finally {
         setControlButtonsDisabled(false);
       }
@@ -743,6 +923,7 @@
     window.addEventListener("resize", resizeOverlay);
     streamImage.addEventListener("load", resizeOverlay);
     window.addEventListener("beforeunload", () => {
+      stopReadPolling();
       if (lockerRefreshTimer) {
         window.clearInterval(lockerRefreshTimer);
       }

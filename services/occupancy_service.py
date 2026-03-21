@@ -49,7 +49,7 @@ class OccupancyService:
             except Exception:
                 pass
 
-    def measure_once(self) -> dict:
+    def measure_once(self, *, door_state: str | None = None) -> dict:
         """Capture one occupancy measurement and classify it."""
         with self._lock:
             sensor = self._sensor
@@ -74,20 +74,21 @@ class OccupancyService:
                 self._latest_measurement = result
             return copy.deepcopy(result)
 
-        result = self._classify_distance(distance_cm)
+        result = self._classify_distance(distance_cm, door_state=door_state)
         with self._lock:
             self._last_error = None
             self._latest_measurement = result
         return copy.deepcopy(result)
 
-    def get_status(self) -> dict:
+    def get_status(self, *, door_state: str | None = None) -> dict:
         """Return occupancy-service state and latest measurement."""
         with self._lock:
+            measurement = copy.deepcopy(self._latest_measurement)
             return {
                 "started": self._started,
                 "enabled": self._sensor_enabled,
                 "last_error": self._last_error,
-                "latest_measurement": copy.deepcopy(self._latest_measurement),
+                "latest_measurement": self._apply_door_state_context(measurement, door_state=door_state),
             }
 
     def _initialize_sensor_locked(self) -> None:
@@ -110,7 +111,7 @@ class OccupancyService:
             self._last_error = str(error)
             self._latest_measurement = self._build_unavailable_result(reason="sensor_error", error=str(error))
 
-    def _classify_distance(self, distance_cm: float | None) -> dict:
+    def _classify_distance(self, distance_cm: float | None, *, door_state: str | None = None) -> dict:
         now = time.time()
         if distance_cm is None:
             return {
@@ -120,30 +121,40 @@ class OccupancyService:
                 "measured_at": now,
             }
 
-        occupied_threshold = config.ultrasonic.occupied_threshold_cm
-        empty_threshold = config.ultrasonic.empty_threshold_cm
-
-        if distance_cm <= occupied_threshold:
-            state = "occupied"
-            reason = "distance_below_occupied_threshold"
-        elif distance_cm >= empty_threshold:
-            state = "empty"
-            reason = "distance_above_empty_threshold"
-        else:
-            previous_state = self._latest_measurement.get("state")
-            if previous_state in {"occupied", "empty"}:
-                state = previous_state
-                reason = "hold_previous_state"
-            else:
-                state = "unknown"
-                reason = "uncertain_range"
-
-        return {
-            "state": state,
-            "reason": reason,
+        result = {
+            "state": "unknown",
+            "reason": "distance_captured",
             "distance_cm": round(distance_cm, 2),
             "measured_at": now,
         }
+        return self._apply_door_state_context(result, door_state=door_state)
+
+    @staticmethod
+    def _apply_door_state_context(measurement: dict, *, door_state: str | None = None) -> dict:
+        distance_cm = measurement.get("distance_cm")
+        if distance_cm is None:
+            return measurement
+
+        occupied_threshold = config.ultrasonic.occupied_threshold_cm
+        normalized = dict(measurement)
+        if distance_cm <= occupied_threshold:
+            normalized["state"] = "occupied"
+            normalized["reason"] = "distance_below_occupied_threshold"
+            return normalized
+
+        if door_state == "closed":
+            normalized["state"] = "empty"
+            normalized["reason"] = "distance_above_occupied_threshold_door_closed"
+            return normalized
+
+        if door_state == "open":
+            normalized["state"] = "door_not_closed"
+            normalized["reason"] = "distance_above_occupied_threshold_door_open"
+            return normalized
+
+        normalized["state"] = "unknown"
+        normalized["reason"] = "clear_distance_unknown_door_state"
+        return normalized
 
     @staticmethod
     def _build_unavailable_result(*, reason: str, error: str | None = None) -> dict:

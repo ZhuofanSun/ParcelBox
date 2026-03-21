@@ -81,9 +81,31 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
             raise HTTPException(status_code=503, detail=str(error)) from error
 
         if result is None:
-            raise HTTPException(status_code=408, detail="Timed out waiting for card")
+            locker_service.note_no_card_present()
+            return {
+                "mode": "read",
+                "status": "waiting_for_card",
+                "card_io": None,
+                "access_result": None,
+                "door_event": None,
+            }
 
-        return {"card_io": result, "mode": "read"}
+        access_result = access_service.authorize_uid(result["uid"])
+        scan_event = locker_service.process_scanned_uid(
+            result["uid"],
+            source="frontend_read",
+            access_result=access_result,
+        )
+        door_event = scan_event if scan_event is not None and scan_event.get("type") == "door_opened" else None
+
+        return {
+            "card_io": result,
+            "mode": "read",
+            "status": "duplicate_scan_ignored" if scan_event is None else "card_detected",
+            "access_result": access_result,
+            "scan_event": scan_event,
+            "door_event": door_event,
+        }
 
     @router.post("/api/cards/write")
     def write_card(payload: CardWritePayload) -> dict:
@@ -106,7 +128,12 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
         if result is None:
             raise HTTPException(status_code=408, detail="Timed out waiting for card")
 
-        return {"card_io": result, "mode": "write"}
+        authorized_card = access_service.ensure_card_authorized(result["uid"], name=payload.text)
+        return {
+            "card_io": result,
+            "mode": "write",
+            "authorized_card": authorized_card,
+        }
 
     @router.patch("/api/cards/{uid}")
     def update_card(uid: str, payload: CardUpdatePayload) -> dict:

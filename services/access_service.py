@@ -148,6 +148,44 @@ class AccessService:
             self._save_cards_locked()
             return copy.deepcopy(card)
 
+    def ensure_card_authorized(
+        self,
+        uid: str,
+        *,
+        name: str | None = None,
+        user_name: str | None = None,
+    ) -> dict:
+        """Create or enable a card record while preserving existing schedules."""
+        normalized_uid = self._normalize_uid(uid)
+        normalized_name = self._normalize_optional_text(name)
+        normalized_user_name = self._normalize_optional_text(user_name)
+        now = time.time()
+
+        with self._lock:
+            existing = self._cards.get(normalized_uid)
+            if existing is None:
+                card = {
+                    "uid": normalized_uid,
+                    "name": normalized_name,
+                    "user_name": normalized_user_name,
+                    "enabled": True,
+                    "access_windows": [],
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            else:
+                card = dict(existing)
+                if normalized_name is not None and card.get("name") is None:
+                    card["name"] = normalized_name
+                if normalized_user_name is not None and card.get("user_name") is None:
+                    card["user_name"] = normalized_user_name
+                card["enabled"] = True
+                card["updated_at"] = now
+
+            self._cards[normalized_uid] = card
+            self._save_cards_locked()
+            return copy.deepcopy(card)
+
     def scan_uid(self, timeout: float | None = None) -> str | None:
         """Read one RFID UID in hex."""
         with self._lock:
