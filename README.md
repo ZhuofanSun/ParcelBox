@@ -189,6 +189,14 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - Current recommended face detector is `YuNet`
 - Use person detection at longer distance
 - Only switch to face detection when the target is near enough
+- Current `auto` mode now uses a small state machine:
+  - `person_search`
+  - `face_track`
+  - `face_hold`
+- After a face is locked, `auto` mode prefers face detection and can use a higher
+  face-stage detection fps than person search
+- Short face misses can now be bridged by `1-2` predicted frames to reduce visible
+  jitter before the system falls back to person search
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
 
 ## Vision Models

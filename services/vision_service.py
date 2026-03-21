@@ -25,6 +25,10 @@ class VisionService:
         self._latest_version = 0
         self._started = False
         self._backend = None
+        self._auto_state = "person_search"
+        self._tracked_face_box: dict | None = None
+        self._tracked_face_velocity = (0.0, 0.0)
+        self._face_miss_count = 0
 
     def start(self) -> None:
         """Start the background detection loop."""
@@ -56,6 +60,8 @@ class VisionService:
             self._latest_payload = None
             self._latest_version = 0
             self._frame_condition.notify_all()
+
+        self._reset_auto_tracking()
 
     def get_boxes(self) -> dict:
         """Return the latest detection payload."""
@@ -97,9 +103,8 @@ class VisionService:
             return self._latest_payload, self._latest_version
 
     def _worker_loop(self) -> None:
-        interval = 1 / max(config.vision.detection_fps, 1)
-
         while not self._stop_event.is_set():
+            interval = self._current_detection_interval()
             started_at = time.perf_counter()
             payload = self._run_detection_cycle()
 
@@ -111,6 +116,19 @@ class VisionService:
             elapsed = time.perf_counter() - started_at
             remaining = max(0.0, interval - elapsed)
             self._stop_event.wait(remaining)
+
+    def _current_detection_interval(self) -> float:
+        fps = self._current_detection_fps_target()
+        return 1 / max(fps, 1)
+
+    def _current_detection_fps_target(self) -> int:
+        configured_mode = self._normalized_mode()
+        if configured_mode != "auto":
+            return config.vision.detection_fps
+
+        if self._auto_state in {"face_track", "face_hold"}:
+            return config.vision.auto_face_detection_fps
+        return config.vision.auto_person_detection_fps
 
     def _run_detection_cycle(self) -> dict:
         configured_mode = self._normalized_mode()
@@ -131,9 +149,11 @@ class VisionService:
             backend = self._ensure_backend()
 
             if configured_mode == "person":
+                self._reset_auto_tracking()
                 boxes = backend.detect_person(frame_bgr)
                 active_mode = "person"
             elif configured_mode == "face":
+                self._reset_auto_tracking()
                 boxes = backend.detect_face(frame_bgr)
                 active_mode = "face"
             else:
@@ -171,15 +191,94 @@ class VisionService:
         return mode
 
     def _detect_auto_boxes(self, backend, frame_bgr) -> tuple[list[dict], str]:
-        person_boxes = backend.detect_person(frame_bgr)
-        if not self._is_person_near(person_boxes):
+        if self._auto_state == "person_search":
+            person_boxes = backend.detect_person(frame_bgr)
+            if self._is_person_near(person_boxes):
+                self._auto_state = "face_track"
+                self._face_miss_count = 0
+            else:
+                self._clear_face_track()
             return person_boxes, "person"
 
         face_boxes = backend.detect_face(frame_bgr)
         if face_boxes:
+            self._update_face_track(face_boxes)
+            self._auto_state = "face_track"
+            self._face_miss_count = 0
             return face_boxes, "face"
 
+        self._face_miss_count += 1
+        predicted_boxes = self._predict_face_boxes()
+        if predicted_boxes and self._face_miss_count <= config.vision.auto_face_hold_frames:
+            self._auto_state = "face_hold"
+            return predicted_boxes, "face"
+
+        self._clear_face_track()
+        self._auto_state = "person_search"
+        person_boxes = backend.detect_person(frame_bgr)
+        if self._is_person_near(person_boxes):
+            self._auto_state = "face_track"
+            self._face_miss_count = 0
         return person_boxes, "person"
+
+    def _update_face_track(self, face_boxes: list[dict]) -> None:
+        if not face_boxes:
+            return
+
+        primary_box = dict(face_boxes[0])
+        if self._tracked_face_box is None:
+            self._tracked_face_box = primary_box
+            self._tracked_face_velocity = (0.0, 0.0)
+            return
+
+        previous_center = self._box_center(self._tracked_face_box)
+        current_center = self._box_center(primary_box)
+        raw_velocity = (
+            current_center[0] - previous_center[0],
+            current_center[1] - previous_center[1],
+        )
+        smoothing = config.vision.auto_face_velocity_smoothing
+        self._tracked_face_velocity = (
+            self._tracked_face_velocity[0] * (1.0 - smoothing) + raw_velocity[0] * smoothing,
+            self._tracked_face_velocity[1] * (1.0 - smoothing) + raw_velocity[1] * smoothing,
+        )
+        self._tracked_face_box = primary_box
+
+    def _predict_face_boxes(self) -> list[dict]:
+        if self._tracked_face_box is None:
+            return []
+
+        shift_x = self._tracked_face_velocity[0]
+        shift_y = self._tracked_face_velocity[1]
+        predicted_box = dict(self._tracked_face_box)
+        predicted_box["x1"] = int(round(predicted_box["x1"] + shift_x))
+        predicted_box["y1"] = int(round(predicted_box["y1"] + shift_y))
+        predicted_box["x2"] = int(round(predicted_box["x2"] + shift_x))
+        predicted_box["y2"] = int(round(predicted_box["y2"] + shift_y))
+        predicted_box["score"] = round(float(predicted_box["score"]) * 0.98, 3)
+
+        detection_width, detection_height = config.camera.detection_size
+        predicted_box["x1"] = max(0, min(detection_width - 1, predicted_box["x1"]))
+        predicted_box["y1"] = max(0, min(detection_height - 1, predicted_box["y1"]))
+        predicted_box["x2"] = max(predicted_box["x1"] + 1, min(detection_width, predicted_box["x2"]))
+        predicted_box["y2"] = max(predicted_box["y1"] + 1, min(detection_height, predicted_box["y2"]))
+
+        self._tracked_face_box = predicted_box
+        return [predicted_box]
+
+    def _clear_face_track(self) -> None:
+        self._tracked_face_box = None
+        self._tracked_face_velocity = (0.0, 0.0)
+        self._face_miss_count = 0
+
+    def _reset_auto_tracking(self) -> None:
+        self._auto_state = "person_search"
+        self._clear_face_track()
+
+    def _box_center(self, box: dict) -> tuple[float, float]:
+        center_x = (box["x1"] + box["x2"]) / 2
+        center_y = (box["y1"] + box["y2"]) / 2
+        return center_x, center_y
 
     def _is_person_near(self, detection_boxes: list[dict]) -> bool:
         if not detection_boxes:
@@ -236,6 +335,9 @@ class VisionService:
         stream_width, stream_height = config.camera.stream_size
         detection_width, detection_height = config.camera.detection_size
         runtime_info = self._get_backend_runtime_info()
+        if configured_mode == "auto":
+            runtime_info["auto_state"] = self._auto_state
+            runtime_info["current_detection_fps_target"] = self._current_detection_fps_target()
 
         return {
             "mode": configured_mode,

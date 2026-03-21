@@ -28,7 +28,7 @@ class CameraConfig:
 
     camera_index: int = 0
     stream_size: tuple[int, int] = (1280, 720)
-    detection_size: tuple[int, int] = (640, 480)
+    detection_size: tuple[int, int] = (480, 480)
     pixel_format: str = "RGB888"
     buffer_count: int = 8
 
@@ -85,9 +85,12 @@ class VisionConfig:
     backend: str = "opencv"
     # person: only run person detection
     # face: only run face detection
-    # auto: run person detection first, and only switch to face detection when
-    # the largest person box is close enough based on face_near_trigger_ratio
-    mode: str = "person"
+    # auto: use a small state machine:
+    # person_search -> face_track -> face_hold -> person_search
+    # The service searches with person detection, switches to face detection when
+    # the largest person box is close enough, and allows short predicted hold frames
+    # before returning to person detection.
+    mode: str = "auto"
     detection_fps: int = 5
 
     # Select which person detector to use under the OpenCV backend.
@@ -104,6 +107,14 @@ class VisionConfig:
     face_score_threshold: float = 0.5
     person_max_results: int = 3
     face_near_trigger_ratio: float = 0.28
+    # auto mode uses lower fps while searching for a person and higher fps after
+    # locking onto a face.
+    auto_person_detection_fps: int = 3
+    auto_face_detection_fps: int = 8
+    # Keep predicted face boxes alive for a very short time to reduce jitter when
+    # face detection misses one or two frames.
+    auto_face_hold_frames: int = 2
+    auto_face_velocity_smoothing: float = 0.5
     mp_persondet_score_threshold: float = 0.5
     mp_persondet_nms_threshold: float = 0.3
     mp_persondet_top_k: int = 3

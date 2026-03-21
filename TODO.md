@@ -463,6 +463,12 @@ iot_locker/
   - [x] 当前先把 `VisionService` 和具体检测 backend 拆开，方便后续替换。
   - [x] 人体检测当前 baseline 使用 OpenCV HOG people detector。
   - [x] 当前 `nanodet-backend` 分支已把人体子后端切到 `OpenCV Zoo NanoDet`。
+  - [x] `auto` 模式已升级为状态机式切换：`person_search -> face_track -> face_hold -> person_search`
+  - [x] `auto` 模式下，进入 `face_track` 后不再每帧重复跑人体检测。
+  - [x] `auto` 模式下已拆分两套检测频率：
+    - [x] `auto_person_detection_fps`
+    - [x] `auto_face_detection_fps`
+  - [x] 人脸偶发漏检时，已支持短时 `1-2` 帧预测框缓冲，前端不区分真实框和预测框。
   
 - [x] 人脸检测当前 baseline 已升级为优先使用 OpenCV YuNet，缺模型时回退到 Haar cascade。
   - [x] 首版先不接额外 tracker，先用“每帧检测 + 最新结果缓存”跑通。
@@ -494,6 +500,11 @@ iot_locker/
     - [ ] 决策点
       - [ ] 如果 `NanoDet` 和 `MP-PersonDet` 都不值当前集成成本，就暂时放弃人体检测
       - [ ] 保留 `YuNet` 人脸检测，继续推进主流程、抓拍、数据库和 dashboard
+  
+  - [ ] 后续自动模式优化：
+    - [ ] 在人脸上次检测区域或人体 ROI 内做人脸重检，减少整帧人脸检测开销
+    - [ ] 为多目标场景补更稳定的目标关联逻辑，减少不同人之间的目标跳变
+    - [ ] 结合云台控制增加死区、限速和平滑参数，减轻舵机抖动
   
 - [ ] 实现摄像头云台两个舵机的待机角度、归位、追踪控制。
 
