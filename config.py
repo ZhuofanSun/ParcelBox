@@ -65,8 +65,8 @@ class CameraMountConfig:
     tilt_max_single_move_angle: float = 4.0
     tracking_step: float = 0.5
     tracking_delay: float = 0.01
-    tracking_cooldown_seconds: float = 0.01
-    face_lost_home_delay_seconds: float = 1.0
+    tracking_cooldown_seconds: float = 0
+    face_lost_home_delay_seconds: float = 0.5
     home_step: float = 1.0
     home_delay: float = 0.03
     no_face_home_interval_seconds: float = 3.0
@@ -155,11 +155,13 @@ class VisionConfig:
     # Keep predicted face boxes alive for a very short time to reduce jitter when
     # face detection misses one or two frames.
     face_hold_frames: int = 3
+    # Blend factor for the primary face box. Lower is steadier; higher is more responsive.
+    face_box_smoothing: float = 0.35
     face_velocity_smoothing: float = 0.5
     face_snapshot_trigger_area_ratio: float = 0.08
     face_backend: str = "yunet"
     face_fallback_to_haar: bool = True
-    yunet_score_threshold: float = 0.7
+    yunet_score_threshold: float = 0.6
     yunet_nms_threshold: float = 0.3
     yunet_top_k: int = 20
 

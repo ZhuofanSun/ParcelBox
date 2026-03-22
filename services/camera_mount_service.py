@@ -33,6 +33,7 @@ class CameraMountService:
         self._home_pending_reason: str | None = None
         self._tracking_face_active = False
         self._face_lost_deadline_at: float | None = None
+        self._face_recovery_waypoints: list[float] = []
         self._last_seen_version = 0
         self._last_tracking_move_at = 0.0
         self._last_tracking_move_version: int | None = None
@@ -56,6 +57,7 @@ class CameraMountService:
             self._home_pending_reason = "startup"
             self._tracking_face_active = False
             self._face_lost_deadline_at = None
+            self._face_recovery_waypoints = []
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
             self._last_tracking_move_version = None
@@ -88,6 +90,7 @@ class CameraMountService:
             self._home_pending_reason = None
             self._tracking_face_active = False
             self._face_lost_deadline_at = None
+            self._face_recovery_waypoints = []
             self._latest_advice = self._build_idle_advice()
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
@@ -265,6 +268,19 @@ class CameraMountService:
                 "kind": "home",
                 "pan_target": config.camera_mount.pan_home_angle,
                 "tilt_target": config.camera_mount.tilt_home_angle,
+                "step": self._home_step(),
+                "delay": self._home_delay(),
+                "version": None,
+            }
+
+        if advice.get("status") == "searching":
+            search_step = self._current_face_recovery_step_locked()
+            if search_step is None:
+                return None
+            return {
+                "kind": "search",
+                "pan_target": search_step["pan_target"],
+                "tilt_target": search_step["tilt_target"],
                 "step": self._home_step(),
                 "delay": self._home_delay(),
                 "version": None,
@@ -468,6 +484,14 @@ class CameraMountService:
     def _home_delay() -> float:
         return max(config.camera_mount.home_delay, 0.0)
 
+    @staticmethod
+    def _step_towards(current: float, target: float, max_step: float) -> float:
+        max_step = max(max_step, 1e-6)
+        delta = target - current
+        if abs(delta) <= max_step:
+            return target
+        return current + math.copysign(max_step, delta)
+
     def _build_advice(self, payload: dict, *, started: bool) -> dict:
         frame_width, frame_height = self._extract_frame_size(payload)
         if not frame_width or not frame_height:
@@ -486,29 +510,14 @@ class CameraMountService:
         frame_center_x = frame_width / 2
         frame_center_y = frame_height / 2
         target = self._extract_face_target(payload)
-        if payload.get("status") != "ok":
-            if self._is_face_lost_home_due_locked():
-                return self._build_home_advice(
-                    started=started,
-                    reason="face_lost",
-                    frame_width=frame_width,
-                    frame_height=frame_height,
-                )
-            return self._build_idle_advice(
+        if payload.get("status") != "ok" or target is None:
+            search_advice = self._build_face_recovery_advice_locked(
                 started=started,
-                status="waiting_for_face",
                 frame_width=frame_width,
                 frame_height=frame_height,
             )
-
-        if target is None:
-            if self._is_face_lost_home_due_locked():
-                return self._build_home_advice(
-                    started=started,
-                    reason="face_lost",
-                    frame_width=frame_width,
-                    frame_height=frame_height,
-                )
+            if search_advice is not None:
+                return search_advice
             if self._should_issue_no_face_home_locked():
                 return self._build_home_advice(
                     started=started,
@@ -551,6 +560,7 @@ class CameraMountService:
         status = "centered" if overall_direction == "centered" else "tracking"
         self._tracking_face_active = True
         self._face_lost_deadline_at = None
+        self._face_recovery_waypoints = []
 
         return {
             "started": started,
@@ -601,6 +611,7 @@ class CameraMountService:
     ) -> dict:
         self._tracking_face_active = False
         self._face_lost_deadline_at = None
+        self._face_recovery_waypoints = []
         self._last_home_issue_at = time.monotonic()
         return {
             "started": started,
@@ -632,6 +643,53 @@ class CameraMountService:
             "tilt": {
                 "direction": "home",
                 "move_angle": 0.0,
+                "offset_ratio": 0.0,
+                "offset_px": 0.0,
+            },
+            "updated_at": time.time(),
+        }
+
+    def _build_search_advice(
+        self,
+        *,
+        started: bool,
+        frame_width: float,
+        frame_height: float,
+        search_step: dict,
+    ) -> dict:
+        pan_direction = search_step["pan_direction"]
+        tilt_direction = search_step["tilt_direction"]
+        direction = self._combine_direction(pan_direction, tilt_direction)
+        return {
+            "started": started,
+            "enabled": config.camera_mount.enabled,
+            "servo_control_enabled": self._servo_control_enabled,
+            "status": "searching",
+            "has_target": False,
+            "tracking_label": None,
+            "should_home": False,
+            "home_reason": None,
+            "direction": direction,
+            "distance_ratio": 0.0,
+            "distance_px": 0.0,
+            "frame_center": {
+                "x": round(frame_width / 2, 1),
+                "y": round(frame_height / 2, 1),
+            },
+            "target_center": None,
+            "current_angles": {
+                "pan": round(self._pan_angle, 2) if self._pan_angle is not None else None,
+                "tilt": round(self._tilt_angle, 2) if self._tilt_angle is not None else None,
+            },
+            "pan": {
+                "direction": pan_direction,
+                "move_angle": round(search_step["pan_move_angle"], 2),
+                "offset_ratio": 0.0,
+                "offset_px": 0.0,
+            },
+            "tilt": {
+                "direction": tilt_direction,
+                "move_angle": round(search_step["tilt_move_angle"], 2),
                 "offset_ratio": 0.0,
                 "offset_px": 0.0,
             },
@@ -777,13 +835,130 @@ class CameraMountService:
         interval = max(config.camera_mount.no_face_home_interval_seconds, 0.0)
         if interval <= 0:
             return False
-        if self._tracking_face_active or self._face_lost_deadline_at is not None:
+        if (
+            self._tracking_face_active
+            or self._face_lost_deadline_at is not None
+            or self._face_recovery_waypoints
+        ):
             return False
         if self._last_home_issue_at <= 0:
             return True
         return (time.monotonic() - self._last_home_issue_at) >= interval
 
-    def _is_face_lost_home_due_locked(self) -> bool:
+    def _build_face_recovery_advice_locked(
+        self,
+        *,
+        started: bool,
+        frame_width: float,
+        frame_height: float,
+    ) -> dict | None:
+        if self._face_recovery_waypoints:
+            search_step = self._current_face_recovery_step_locked()
+            if search_step is None:
+                self._clear_face_recovery_locked()
+                return self._build_home_advice(
+                    started=started,
+                    reason="face_lost",
+                    frame_width=frame_width,
+                    frame_height=frame_height,
+                )
+            return self._build_search_advice(
+                started=started,
+                frame_width=frame_width,
+                frame_height=frame_height,
+                search_step=search_step,
+            )
+
+        if not self._is_face_lost_search_due_locked():
+            return None
+
+        self._start_face_recovery_locked()
+        search_step = self._current_face_recovery_step_locked()
+        if search_step is None:
+            self._clear_face_recovery_locked()
+            return self._build_home_advice(
+                started=started,
+                reason="face_lost",
+                frame_width=frame_width,
+                frame_height=frame_height,
+            )
+        return self._build_search_advice(
+            started=started,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            search_step=search_step,
+        )
+
+    def _start_face_recovery_locked(self) -> None:
+        current_pan = self._current_angle("pan")
+        if current_pan is None:
+            current_pan = self._home_angle("pan")
+
+        if current_pan >= config.camera_mount.pan_home_angle:
+            self._face_recovery_waypoints = [
+                config.camera_mount.pan_max_angle,
+                config.camera_mount.pan_min_angle,
+            ]
+        else:
+            self._face_recovery_waypoints = [
+                config.camera_mount.pan_min_angle,
+                config.camera_mount.pan_max_angle,
+            ]
+
+        self._tracking_face_active = False
+        self._face_lost_deadline_at = None
+
+    def _clear_face_recovery_locked(self) -> None:
+        self._face_recovery_waypoints = []
+        self._face_lost_deadline_at = None
+
+    def _current_face_recovery_step_locked(self) -> dict | None:
+        current_pan = self._current_angle("pan")
+        current_tilt = self._current_angle("tilt")
+        if current_pan is None:
+            current_pan = self._home_angle("pan")
+        if current_tilt is None:
+            current_tilt = self._home_angle("tilt")
+
+        while self._face_recovery_waypoints and abs(current_pan - self._face_recovery_waypoints[0]) < 0.01:
+            self._face_recovery_waypoints.pop(0)
+
+        next_pan_waypoint = self._face_recovery_waypoints[0] if self._face_recovery_waypoints else None
+        pan_target = None
+        if next_pan_waypoint is not None:
+            pan_target = self._step_towards(current_pan, next_pan_waypoint, self._home_step())
+
+        tilt_target = None
+        tilt_home = config.camera_mount.tilt_home_angle
+        if abs(current_tilt - tilt_home) >= 0.01:
+            tilt_target = self._step_towards(current_tilt, tilt_home, self._home_step())
+
+        if pan_target is None and tilt_target is None:
+            return None
+
+        pan_delta = 0.0 if pan_target is None else pan_target - current_pan
+        tilt_delta = 0.0 if tilt_target is None else tilt_target - current_tilt
+        pan_direction = "hold"
+        tilt_direction = "hold"
+        if pan_delta < -0.01:
+            pan_direction = "left"
+        elif pan_delta > 0.01:
+            pan_direction = "right"
+        if tilt_delta < -0.01:
+            tilt_direction = "up"
+        elif tilt_delta > 0.01:
+            tilt_direction = "down"
+
+        return {
+            "pan_target": pan_target,
+            "tilt_target": tilt_target,
+            "pan_direction": pan_direction,
+            "tilt_direction": tilt_direction,
+            "pan_move_angle": abs(pan_delta),
+            "tilt_move_angle": abs(tilt_delta),
+        }
+
+    def _is_face_lost_search_due_locked(self) -> bool:
         if not self._tracking_face_active and self._face_lost_deadline_at is None:
             return False
 
@@ -816,55 +991,3 @@ class CameraMountService:
     @staticmethod
     def _max_angle(axis: str) -> float:
         return config.camera_mount.pan_max_angle if axis == "pan" else config.camera_mount.tilt_max_angle
-
-
-if __name__ == "__main__":
-    mount = CameraMountService()
-    try:
-        print("Starting camera mount angle smoke test...")
-        mount.start()
-
-        status = mount.get_status()
-        if not status["servo_control_enabled"]:
-            raise RuntimeError(
-                f"Camera mount servo control is unavailable: {status['last_error']}"
-            )
-
-        pan_home = config.camera_mount.pan_home_angle
-        tilt_home = config.camera_mount.tilt_home_angle
-        pan_offset = 8.0
-        tilt_offset = 5.0
-
-        print("Move: home")
-        mount.move_home()
-        time.sleep(0.5)
-
-        print("Move: pan right")
-        mount.move_to_angles(pan_angle=pan_home + pan_offset)
-        time.sleep(0.5)
-
-        print("Move: pan left")
-        mount.move_to_angles(pan_angle=pan_home - pan_offset)
-        time.sleep(0.5)
-
-        print("Move: tilt up")
-        mount.move_to_angles(tilt_angle=tilt_home - tilt_offset)
-        time.sleep(0.5)
-
-        print("Move: tilt down")
-        mount.move_to_angles(tilt_angle=tilt_home + tilt_offset)
-        time.sleep(0.5)
-
-        print("Move: home")
-        mount.move_home()
-        time.sleep(0.5)
-
-        print("Move: pan and tilt")
-        mount.move_to_angles(pan_angle=pan_home + pan_offset, tilt_angle=tilt_home - tilt_offset)
-        time.sleep(0.5)
-
-
-
-
-    finally:
-        mount.stop()

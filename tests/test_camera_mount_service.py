@@ -135,7 +135,7 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertLess(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertLess(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
-    def test_missing_face_after_tracking_waits_before_homing(self) -> None:
+    def test_missing_face_after_tracking_waits_before_search(self) -> None:
         service = self.build_service()
 
         service._process_payload(build_payload())
@@ -157,9 +157,79 @@ class CameraMountServiceTests(unittest.TestCase):
         service._face_lost_deadline_at = time.monotonic() - 0.1
         advice = service._process_payload(build_payload(center_x=None, center_y=None))
 
+        self.assertEqual(advice["status"], "searching")
+        self.assertIsNone(advice["home_reason"])
+        self.assertIn(advice["pan"]["direction"], {"left", "right"})
+        self.assertIn(advice["tilt"]["direction"], {"hold", "up", "down"})
+        self.assertNotEqual(service.get_status()["current_angles"]["pan"], pan_before_loss)
+
+    def test_face_recovery_search_moves_toward_max_when_last_pan_is_right_of_home(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=220, center_y=520))
+        pan_before_loss = service.get_status()["current_angles"]["pan"]
+        tilt_before_loss = service.get_status()["current_angles"]["tilt"]
+
+        service._face_lost_deadline_at = time.monotonic() - 0.1
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
+        self.assertGreater(pan_before_loss, config.camera_mount.pan_home_angle)
+        self.assertEqual(advice["status"], "searching")
+        self.assertEqual(advice["pan"]["direction"], "right")
+        self.assertEqual(advice["tilt"]["direction"], "up")
+        self.assertAlmostEqual(advice["pan"]["move_angle"], config.camera_mount.home_step)
+        self.assertAlmostEqual(advice["tilt"]["move_angle"], config.camera_mount.home_step)
+        self.assertGreater(service.get_status()["current_angles"]["pan"], pan_before_loss)
+        self.assertLess(service.get_status()["current_angles"]["tilt"], tilt_before_loss)
+
+    def test_face_recovery_search_moves_toward_min_when_last_pan_is_left_of_home(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=980, center_y=520))
+        pan_before_loss = service.get_status()["current_angles"]["pan"]
+
+        service._face_lost_deadline_at = time.monotonic() - 0.1
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
+        self.assertLess(pan_before_loss, config.camera_mount.pan_home_angle)
+        self.assertEqual(advice["status"], "searching")
+        self.assertEqual(advice["pan"]["direction"], "left")
+        self.assertAlmostEqual(advice["pan"]["move_angle"], config.camera_mount.home_step)
+        self.assertLess(service.get_status()["current_angles"]["pan"], pan_before_loss)
+
+    def test_face_detected_during_recovery_resumes_tracking(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=980, center_y=520))
+        service._face_lost_deadline_at = time.monotonic() - 0.1
+        service._process_payload(build_payload(center_x=None, center_y=None))
+
+        advice = service._process_payload(build_payload(center_x=320, center_y=240))
+
+        self.assertEqual(advice["status"], "tracking")
+        self.assertTrue(advice["has_target"])
+        self.assertEqual(advice["tracking_label"], "face")
+        self.assertEqual(service._face_recovery_waypoints, [])
+
+    def test_face_recovery_scan_finishes_then_returns_home(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=980, center_y=360))
+        service._face_lost_deadline_at = time.monotonic() - 0.1
+        service._process_payload(build_payload(center_x=None, center_y=None))
+
+        service._pan_angle = config.camera_mount.pan_min_angle
+        service._tilt_angle = config.camera_mount.tilt_home_angle
+        service._face_recovery_waypoints = [config.camera_mount.pan_min_angle]
+
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
         self.assertEqual(advice["status"], "returning_home")
         self.assertEqual(advice["home_reason"], "face_lost")
-        self.assertEqual(advice["direction"], "home")
         self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 

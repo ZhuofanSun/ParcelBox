@@ -133,9 +133,8 @@ class VisionService:
             face_boxes = backend.detect_face(frame_bgr)
 
             if face_boxes:
-                self._update_face_track(face_boxes)
+                boxes = self._update_face_track(face_boxes)
                 self._face_miss_count = 0
-                boxes = face_boxes
                 active_mode = "face"
             else:
                 self._face_miss_count += 1
@@ -172,28 +171,53 @@ class VisionService:
             self._backend = build_vision_backend()
         return self._backend
 
-    def _update_face_track(self, face_boxes: list[dict]) -> None:
+    def _update_face_track(self, face_boxes: list[dict]) -> list[dict]:
         if not face_boxes:
-            return
+            return []
 
         primary_box = dict(face_boxes[0])
         if self._tracked_face_box is None:
-            self._tracked_face_box = primary_box
+            smoothed_box = primary_box
             self._tracked_face_velocity = (0.0, 0.0)
-            return
+        else:
+            previous_box = self._tracked_face_box
+            smoothed_box = self._smooth_face_box(previous_box, primary_box)
+            previous_center = self._box_center(previous_box)
+            current_center = self._box_center(smoothed_box)
+            raw_velocity = (
+                current_center[0] - previous_center[0],
+                current_center[1] - previous_center[1],
+            )
+            smoothing = config.vision.face_velocity_smoothing
+            self._tracked_face_velocity = (
+                self._tracked_face_velocity[0] * (1.0 - smoothing) + raw_velocity[0] * smoothing,
+                self._tracked_face_velocity[1] * (1.0 - smoothing) + raw_velocity[1] * smoothing,
+            )
 
-        previous_center = self._box_center(self._tracked_face_box)
-        current_center = self._box_center(primary_box)
-        raw_velocity = (
-            current_center[0] - previous_center[0],
-            current_center[1] - previous_center[1],
+        self._tracked_face_box = smoothed_box
+        smoothed_boxes = [smoothed_box]
+        for box in face_boxes[1:]:
+            smoothed_boxes.append(dict(box))
+        return smoothed_boxes
+
+    def _smooth_face_box(self, previous_box: dict, current_box: dict) -> dict:
+        smoothing = self._clamp(config.vision.face_box_smoothing, 0.0, 1.0)
+        if smoothing >= 1.0:
+            return dict(current_box)
+
+        smoothed_box = dict(current_box)
+        for key in ("x1", "y1", "x2", "y2"):
+            smoothed_box[key] = int(
+                round(previous_box[key] * (1.0 - smoothing) + current_box[key] * smoothing)
+            )
+
+        smoothed_box["x2"] = max(smoothed_box["x1"] + 1, smoothed_box["x2"])
+        smoothed_box["y2"] = max(smoothed_box["y1"] + 1, smoothed_box["y2"])
+        smoothed_box["score"] = round(
+            previous_box["score"] * (1.0 - smoothing) + current_box["score"] * smoothing,
+            3,
         )
-        smoothing = config.vision.face_velocity_smoothing
-        self._tracked_face_velocity = (
-            self._tracked_face_velocity[0] * (1.0 - smoothing) + raw_velocity[0] * smoothing,
-            self._tracked_face_velocity[1] * (1.0 - smoothing) + raw_velocity[1] * smoothing,
-        )
-        self._tracked_face_box = primary_box
+        return smoothed_box
 
     def _predict_face_boxes(self) -> list[dict]:
         if self._tracked_face_box is None:
@@ -230,6 +254,10 @@ class VisionService:
         center_x = (box["x1"] + box["x2"]) / 2
         center_y = (box["y1"] + box["y2"]) / 2
         return center_x, center_y
+
+    @staticmethod
+    def _clamp(value: float, minimum: float, maximum: float) -> float:
+        return max(minimum, min(maximum, value))
 
     def _map_detection_boxes_to_stream(self, detection_boxes: list[dict]) -> list[dict]:
         detection_width, detection_height = config.camera.detection_size

@@ -83,6 +83,28 @@ class VisionServiceFaceOnlyTests(unittest.TestCase):
         self.assertIsNotNone(second_payload["target"])
         self.assertEqual(second_payload["target"]["label"], "face")
 
+    def test_run_detection_cycle_smooths_primary_face_box(self) -> None:
+        config.camera.stream_size = (640, 360)
+        config.camera.detection_size = (640, 360)
+        config.vision.face_box_smoothing = 0.25
+        service = VisionService(FakeVisionCamera())
+        service._backend = FakeFaceBackend(
+            [
+                [build_detection_face_box(100, 80, 220, 220)],
+                [build_detection_face_box(180, 100, 300, 240)],
+            ]
+        )
+
+        first_payload = service._run_detection_cycle()
+        second_payload = service._run_detection_cycle()
+
+        self.assertEqual(first_payload["boxes"][0]["x1"], 100)
+        self.assertEqual(second_payload["active_mode"], "face")
+        self.assertGreater(second_payload["boxes"][0]["x1"], 100)
+        self.assertLess(second_payload["boxes"][0]["x1"], 180)
+        self.assertGreater(second_payload["target"]["center_x"], 160.0)
+        self.assertLess(second_payload["target"]["center_x"], 240.0)
+
 
 if __name__ == "__main__":
     unittest.main()
