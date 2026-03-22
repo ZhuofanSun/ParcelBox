@@ -103,13 +103,14 @@ class CameraMountService:
     ) -> None:
         """Move one or both servos to explicit angles."""
         with self._lock:
+            pan_target = None
+            tilt_target = None
             if pan_angle is not None:
                 pan_target = self._clamp(
                     pan_angle,
                     config.camera_mount.pan_min_angle,
                     config.camera_mount.pan_max_angle,
                 )
-                self._move_axis_to_locked("pan", pan_target)
 
             if tilt_angle is not None:
                 tilt_target = self._clamp(
@@ -117,7 +118,8 @@ class CameraMountService:
                     config.camera_mount.tilt_min_angle,
                     config.camera_mount.tilt_max_angle,
                 )
-                self._move_axis_to_locked("tilt", tilt_target)
+
+            self._move_axes_together_locked(pan_target=pan_target, tilt_target=tilt_target)
 
     def enrich_payload(self, payload: dict) -> dict:
         """Attach the latest mount state to an outgoing vision payload."""
@@ -138,6 +140,10 @@ class CameraMountService:
                 "pins": {
                     "pan_servo_pin": config.gpio.camera_pan_servo_pin,
                     "tilt_servo_pin": config.gpio.camera_tilt_servo_pin,
+                },
+                "servo_backends": {
+                    "pan": getattr(self._pan_servo, "backend_name", None) if self._pan_servo is not None else None,
+                    "tilt": getattr(self._tilt_servo, "backend_name", None) if self._tilt_servo is not None else None,
                 },
                 "home_angles": {
                     "pan": config.camera_mount.pan_home_angle,
@@ -253,14 +259,8 @@ class CameraMountService:
             move_angle=advice["tilt"]["move_angle"],
         )
 
-        pan_moved = False
-        tilt_moved = False
-        if pan_target is not None:
-            pan_moved = self._move_axis_to_locked("pan", pan_target)
-        if tilt_target is not None:
-            tilt_moved = self._move_axis_to_locked("tilt", tilt_target)
-
-        if pan_moved or tilt_moved:
+        moved = self._move_axes_together_locked(pan_target=pan_target, tilt_target=tilt_target)
+        if moved:
             self._last_tracking_move_at = time.monotonic()
             self._last_tracking_move_version = version
 
@@ -295,8 +295,69 @@ class CameraMountService:
         )
 
     def _move_home_locked(self) -> None:
-        self._move_axis_to_locked("pan", config.camera_mount.pan_home_angle)
-        self._move_axis_to_locked("tilt", config.camera_mount.tilt_home_angle)
+        self._move_axes_together_locked(
+            pan_target=config.camera_mount.pan_home_angle,
+            tilt_target=config.camera_mount.tilt_home_angle,
+        )
+
+    def _move_axes_together_locked(
+        self,
+        *,
+        pan_target: float | None = None,
+        tilt_target: float | None = None,
+    ) -> bool:
+        axes = []
+        if pan_target is not None:
+            axes.append({"axis": "pan", "servo": self._pan_servo, "target": pan_target, "current": self._pan_angle})
+        if tilt_target is not None:
+            axes.append({"axis": "tilt", "servo": self._tilt_servo, "target": tilt_target, "current": self._tilt_angle})
+
+        axes = [
+            axis_state
+            for axis_state in axes
+            if axis_state["servo"] is not None
+            and (
+                axis_state["current"] is None
+                or abs(axis_state["target"] - axis_state["current"]) >= 0.01
+            )
+        ]
+        if not axes:
+            return False
+
+        step = self._movement_step()
+        delay = self._movement_delay()
+        settle_time = max(delay, 0.3)
+
+        try:
+            if any(axis_state["current"] is None for axis_state in axes):
+                for axis_state in axes:
+                    axis_state["servo"].set_angle(axis_state["target"], 0, False)
+                time.sleep(settle_time)
+            else:
+                max_delta = max(abs(axis_state["target"] - axis_state["current"]) for axis_state in axes)
+                total_steps = max(1, int(math.ceil(max_delta / step)))
+                for index in range(1, total_steps + 1):
+                    progress = index / total_steps
+                    for axis_state in axes:
+                        interpolated_angle = axis_state["current"] + (
+                            axis_state["target"] - axis_state["current"]
+                        ) * progress
+                        axis_state["servo"].set_angle(interpolated_angle, 0, False)
+                    if delay > 0:
+                        time.sleep(delay)
+
+            for axis_state in axes:
+                axis_state["servo"].release()
+        except Exception as error:
+            self._last_error = str(error)
+            return False
+
+        for axis_state in axes:
+            if axis_state["axis"] == "pan":
+                self._pan_angle = axis_state["target"]
+            else:
+                self._tilt_angle = axis_state["target"]
+        return True
 
     def _move_axis_to_locked(self, axis: str, target_angle: float) -> bool:
         servo = self._pan_servo if axis == "pan" else self._tilt_servo
@@ -309,8 +370,8 @@ class CameraMountService:
         try:
             servo.move_to(
                 target_angle,
-                step=max(config.camera_mount.tracking_step, 1.0),
-                delay=min(max(config.camera_mount.tracking_delay, 0.0), 0.02),
+                step=self._movement_step(),
+                delay=self._movement_delay(),
                 release=True,
             )
         except Exception as error:
@@ -322,6 +383,14 @@ class CameraMountService:
         else:
             self._tilt_angle = target_angle
         return True
+
+    @staticmethod
+    def _movement_step() -> float:
+        return max(config.camera_mount.tracking_step, 1.0)
+
+    @staticmethod
+    def _movement_delay() -> float:
+        return min(max(config.camera_mount.tracking_delay, 0.0), 0.02)
 
     def _build_advice(self, payload: dict, *, started: bool) -> dict:
         frame_width, frame_height = self._extract_frame_size(payload)

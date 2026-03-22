@@ -41,7 +41,8 @@ These, together with [config.py](/Users/sunzhuofan/IOT-project/config.py), are t
 - Language: Python
 - Python version: `3.13`
 - Camera stack: CSI camera with `Picamera2`
-- GPIO library: `RPi.GPIO`
+- Servo PWM stack: `pigpio` daemon + `python3-pigpio` client, with `RPi.GPIO` fallback
+- Other GPIO library usage: `RPi.GPIO`
 - RFID stack: `pi-rc522` + `spidev`
 
 ## Dependency Strategy
@@ -58,6 +59,16 @@ Install OpenCV on the Raspberry Pi when you start the vision pipeline:
 ```bash
 sudo apt install -y python3-opencv
 ```
+
+Install the servo PWM runtime on the Raspberry Pi before using the door servo or
+camera pan / tilt servos:
+
+```bash
+sudo apt install -y pigpio-tools python3-pigpio
+```
+
+On current Debian / Raspberry Pi OS `trixie`, the daemon command comes from
+`pigpio-tools`, not a package named `pigpio`.
 
 Use `pip` / `requirements.txt` for project-level Python packages:
 
@@ -79,6 +90,41 @@ pip install -r requirements.txt
 
 The current repository uses an OpenCV-based vision baseline because it works on the
 Raspberry Pi environment without adding another heavy Python wheel.
+
+## Servo PWM Setup
+
+The project now prefers `pigpio` for servo output because it uses hardware-timed
+pulses and is much more stable than `RPi.GPIO.PWM` under camera + vision CPU load.
+
+Start the daemon before running servo tests or the main app:
+
+```bash
+sudo pigpiod
+```
+
+Quick verification:
+
+```bash
+python drivers/servo.py
+```
+
+Expected output when the hardware-timed backend is active:
+
+```text
+Servo backend: pigpio
+```
+
+If `pigpio` is unavailable, the driver falls back to `RPi.GPIO` and the output will
+show:
+
+```text
+Servo backend: rpi_gpio
+```
+
+The active servo backend is also exposed at runtime:
+
+- `/api/locker/status` -> `door_servo_backend`
+- `/api/stream/meta` -> `camera_mount_status.servo_backends`
 
 ## Raspberry Pi Runtime
 
@@ -136,16 +182,16 @@ These still need direct hardware confirmation or measurement:
 
 ## GPIO Baseline
 
-Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py), matching the current `wire*` files:
+Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
-- `RC522 RST`: `GPIO25`
+- `RC522 RST`: `GPIO22`
 - `Door servo`: `GPIO18`
-- `Camera pan servo`: `GPIO24`
-- `Camera tilt servo`: `GPIO23`
+- `Camera pan servo`: `GPIO13`
+- `Camera tilt servo`: `GPIO12`
 - `Button`: `GPIO27`
-- `Buzzer`: `GPIO12`
-- `RGB LED Red`: `GPIO13`
-- `RGB LED Green`: `GPIO19`
+- `Buzzer`: `GPIO25`
+- `RGB LED Red`: `GPIO5`
+- `RGB LED Green`: `GPIO6`
 - `RGB LED Blue`: `GPIO26`
 - `Ultrasonic trigger`: `GPIO16`
 - `Ultrasonic echo`: `GPIO20`

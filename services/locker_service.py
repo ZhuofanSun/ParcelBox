@@ -210,6 +210,9 @@ class LockerService:
         return {
             "started": self._started,
             "door_servo_enabled": self._door_servo_enabled,
+            "door_servo_backend": (
+                getattr(self._door_servo, "backend_name", None) if self._door_servo is not None else None
+            ),
             "door_state": self._door_state,
             "current_angle": round(self._door_angle, 2) if self._door_angle is not None else None,
             "last_error": self._last_error,

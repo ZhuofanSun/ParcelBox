@@ -1,4 +1,5 @@
 RPi.GPIO
+pigpio
 spidev
 pi-rc522
 fastapi

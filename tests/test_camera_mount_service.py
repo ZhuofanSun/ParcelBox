@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import time
 import unittest
+from unittest.mock import patch
 
 from config import config
 from services.camera_mount_service import CameraMountService
@@ -15,6 +16,8 @@ class FakeServo:
         self.max_angle = max_angle
         self.current_angle = None
         self.moves: list[dict] = []
+        self.set_angle_calls: list[dict] = []
+        self.release_calls = 0
         self.cleaned_up = False
 
     def move_to(self, angle: float, step: float = 1, delay: float = 0.02, release: bool = True) -> None:
@@ -29,6 +32,23 @@ class FakeServo:
                 "release": release,
             }
         )
+
+    def set_angle(self, angle: float, settle_time: float = 0.3, release: bool = True) -> None:
+        if not self.min_angle <= angle <= self.max_angle:
+            raise ValueError("angle out of range")
+        self.current_angle = angle
+        self.set_angle_calls.append(
+            {
+                "angle": angle,
+                "settle_time": settle_time,
+                "release": release,
+            }
+        )
+        if release:
+            self.release()
+
+    def release(self) -> None:
+        self.release_calls += 1
 
     def cleanup(self) -> None:
         self.cleaned_up = True
@@ -65,10 +85,13 @@ def build_payload(
 class CameraMountServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.original_mount_config = copy.deepcopy(config.camera_mount)
+        self.sleep_patcher = patch("services.camera_mount_service.time.sleep", return_value=None)
+        self.sleep_patcher.start()
         config.camera_mount.invert_pan_direction = True
         config.camera_mount.invert_tilt_direction = False
 
     def tearDown(self) -> None:
+        self.sleep_patcher.stop()
         config.camera_mount = self.original_mount_config
 
     def build_service(self) -> CameraMountService:
@@ -220,13 +243,13 @@ class CameraMountServiceTests(unittest.TestCase):
 
         service._process_payload(build_payload(), version=1)
         service._process_payload(build_payload(center_x=980, center_y=200), version=2)
-        first_pan_moves = len(service._pan_servo.moves)
-        first_tilt_moves = len(service._tilt_servo.moves)
+        first_pan_moves = len(service._pan_servo.set_angle_calls)
+        first_tilt_moves = len(service._tilt_servo.set_angle_calls)
 
         service._process_payload(build_payload(center_x=980, center_y=200), version=2)
 
-        self.assertEqual(len(service._pan_servo.moves), first_pan_moves)
-        self.assertEqual(len(service._tilt_servo.moves), first_tilt_moves)
+        self.assertEqual(len(service._pan_servo.set_angle_calls), first_pan_moves)
+        self.assertEqual(len(service._tilt_servo.set_angle_calls), first_tilt_moves)
 
     def test_tracking_cooldown_blocks_immediate_second_move(self) -> None:
         service = self.build_service()
@@ -236,14 +259,14 @@ class CameraMountServiceTests(unittest.TestCase):
         service._process_payload(build_payload(center_x=980, center_y=200), version=2)
         first_pan_angle = service.get_status()["current_angles"]["pan"]
         first_tilt_angle = service.get_status()["current_angles"]["tilt"]
-        first_pan_moves = len(service._pan_servo.moves)
-        first_tilt_moves = len(service._tilt_servo.moves)
+        first_pan_moves = len(service._pan_servo.set_angle_calls)
+        first_tilt_moves = len(service._tilt_servo.set_angle_calls)
 
         advice = service._process_payload(build_payload(center_x=1120, center_y=140), version=3)
 
         self.assertEqual(advice["status"], "tracking")
-        self.assertEqual(len(service._pan_servo.moves), first_pan_moves)
-        self.assertEqual(len(service._tilt_servo.moves), first_tilt_moves)
+        self.assertEqual(len(service._pan_servo.set_angle_calls), first_pan_moves)
+        self.assertEqual(len(service._tilt_servo.set_angle_calls), first_tilt_moves)
         self.assertEqual(service.get_status()["current_angles"]["pan"], first_pan_angle)
         self.assertEqual(service.get_status()["current_angles"]["tilt"], first_tilt_angle)
 
@@ -255,12 +278,32 @@ class CameraMountServiceTests(unittest.TestCase):
         service._process_payload(build_payload())
         service._process_payload(build_payload(center_x=980, center_y=200), version=2)
 
-        self.assertEqual(service._pan_servo.moves[-1]["step"], 1.0)
-        self.assertEqual(service._tilt_servo.moves[-1]["step"], 1.0)
-        self.assertEqual(service._pan_servo.moves[-1]["delay"], 0.02)
-        self.assertEqual(service._tilt_servo.moves[-1]["delay"], 0.02)
-        self.assertTrue(service._pan_servo.moves[-1]["release"])
-        self.assertTrue(service._tilt_servo.moves[-1]["release"])
+        self.assertEqual(service._movement_step(), 1.0)
+        self.assertEqual(service._movement_delay(), 0.02)
+        self.assertGreater(len(service._pan_servo.set_angle_calls), 0)
+        self.assertGreater(len(service._tilt_servo.set_angle_calls), 0)
+        self.assertGreater(service._pan_servo.release_calls, 0)
+        self.assertGreater(service._tilt_servo.release_calls, 0)
+
+    def test_tracking_move_interpolates_pan_and_tilt_together(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        pan_start_count = len(service._pan_servo.set_angle_calls)
+        tilt_start_count = len(service._tilt_servo.set_angle_calls)
+        pan_release_count = service._pan_servo.release_calls
+        tilt_release_count = service._tilt_servo.release_calls
+
+        service._process_payload(build_payload(center_x=1120, center_y=140), version=2)
+
+        pan_calls = service._pan_servo.set_angle_calls[pan_start_count:]
+        tilt_calls = service._tilt_servo.set_angle_calls[tilt_start_count:]
+        self.assertGreater(len(pan_calls), 1)
+        self.assertEqual(len(pan_calls), len(tilt_calls))
+        self.assertEqual(service._pan_servo.release_calls, pan_release_count + 1)
+        self.assertEqual(service._tilt_servo.release_calls, tilt_release_count + 1)
+        self.assertAlmostEqual(pan_calls[-1]["angle"], service._pan_angle)
+        self.assertAlmostEqual(tilt_calls[-1]["angle"], service._tilt_angle)
 
 
 if __name__ == "__main__":

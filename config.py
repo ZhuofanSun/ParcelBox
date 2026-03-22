@@ -28,9 +28,9 @@ class CameraConfig:
 
     camera_index: int = 0
     stream_size: tuple[int, int] = (1280, 720)
-    detection_size: tuple[int, int] = (480, 480)
+    detection_size: tuple[int, int] = (640, 360)
     pixel_format: str = "RGB888"
-    buffer_count: int = 8
+    buffer_count: int = 13
 
     # 镜头接线放上面
     # 和镜头同朝向时：hflip == vflip == True
@@ -60,12 +60,12 @@ class CameraMountConfig:
 
     invert_pan_direction: bool = False
     invert_tilt_direction: bool = False
-    center_deadzone_ratio: float = 0.15
-    pan_max_single_move_angle: float = 3.0
-    tilt_max_single_move_angle: float = 3.0
-    tracking_step: float = 1.0
-    tracking_delay: float = 0.05
-    tracking_cooldown_seconds: float = 0.3
+    center_deadzone_ratio: float = 0.10
+    pan_max_single_move_angle: float = 4.5
+    tilt_max_single_move_angle: float = 4.0
+    tracking_step: float = 0.5
+    tracking_delay: float = 0.025
+    tracking_cooldown_seconds: float = 0.01
     no_face_home_interval_seconds: float = 3.0
 
 
@@ -153,8 +153,8 @@ class VisionConfig:
     # The service searches with person detection, switches to face detection when
     # the largest person box is close enough, and allows short predicted hold frames
     # before returning to person detection.
-    mode: str = "auto"
-    detection_fps: int = 5
+    mode: str = "face"
+    detection_fps: int = 10
 
     # Select which person detector to use under the OpenCV backend.
     # Supported values currently include: hog, mp_persondet, nanodet.
@@ -172,10 +172,10 @@ class VisionConfig:
     # auto mode uses lower fps while searching for a person and higher fps after
     # locking onto a face.
     auto_person_detection_fps: int = 3
-    auto_face_detection_fps: int = 8
+    auto_face_detection_fps: int = 10
     # Keep predicted face boxes alive for a very short time to reduce jitter when
     # face detection misses one or two frames.
-    auto_face_hold_frames: int = 2
+    auto_face_hold_frames: int = 3
     auto_face_velocity_smoothing: float = 0.5
     face_snapshot_trigger_area_ratio: float = 0.08
     mp_persondet_score_threshold: float = 0.5
@@ -206,7 +206,7 @@ class WebConfig:
 
     host: str = "0.0.0.0"
     port: int = 8000
-    stream_fps: int = 15
+    stream_fps: int = 30
     jpeg_quality: int = 70
     access_log: bool = False
 

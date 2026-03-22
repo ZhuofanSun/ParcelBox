@@ -1,17 +1,95 @@
-"""Standard servo driver.
+"""Standard servo driver with hardware-timed pigpio support.
 
 Notes:
-- Raspberry Pi software PWM is good enough for basic control but can still jitter.
+- `pigpio` is preferred because it uses hardware-timed pulses and is much more
+  stable than `RPi.GPIO.PWM` under CPU load.
+- The driver falls back to `RPi.GPIO` software PWM when pigpio is unavailable.
 - Calibrate angle range and pulse range on the real servo before using the end points.
 - Use an external 5V supply for the servo and keep grounds shared with the Pi.
 """
 
+from __future__ import annotations
+
 import time
 
 try:
+    import pigpio
+except ImportError:  # pragma: no cover - optional dependency on Raspberry Pi
+    pigpio = None
+
+try:
     import RPi.GPIO as GPIO
-except ImportError:  # pragma: no cover - only hit off Raspberry Pi
+except ImportError:  # pragma: no cover - optional dependency on Raspberry Pi
     GPIO = None
+
+
+class _PigpioServoBackend:
+    """Drive a servo through pigpio's hardware-timed servo pulses."""
+
+    backend_name = "pigpio"
+
+    def __init__(self, pin: int, *, pigpio_module=None) -> None:
+        module = pigpio_module or pigpio
+        if module is None:
+            raise RuntimeError("pigpio is not available")
+
+        client = module.pi()
+        if client is None or not getattr(client, "connected", False):
+            if client is not None and hasattr(client, "stop"):
+                client.stop()
+            raise RuntimeError("pigpio daemon is unavailable")
+
+        self.pin = pin
+        self._module = module
+        self._client = client
+        self._client.set_mode(self.pin, self._module.OUTPUT)
+
+    def write_pulse_width_ms(self, pulse_width_ms: float) -> None:
+        self._client.set_servo_pulsewidth(self.pin, int(round(pulse_width_ms * 1000)))
+
+    def release(self) -> None:
+        self._client.set_servo_pulsewidth(self.pin, 0)
+
+    def cleanup(self) -> None:
+        try:
+            self.release()
+        finally:
+            self._client.stop()
+
+
+class _RpiGpioServoBackend:
+    """Drive a servo through RPi.GPIO software PWM."""
+
+    backend_name = "rpi_gpio"
+
+    def __init__(self, pin: int, *, frequency: int, gpio_module=None) -> None:
+        module = gpio_module or GPIO
+        if module is None:
+            raise RuntimeError("RPi.GPIO is not available")
+
+        self.pin = pin
+        self._gpio = module
+        self._frequency = frequency
+
+        if self._gpio.getmode() is None:
+            self._gpio.setmode(self._gpio.BCM)
+
+        self._gpio.setup(self.pin, self._gpio.OUT)
+        self._pwm = self._gpio.PWM(self.pin, self._frequency)
+        self._pwm.start(0)
+
+    def write_pulse_width_ms(self, pulse_width_ms: float) -> None:
+        period_ms = 1000 / self._frequency
+        duty_cycle = pulse_width_ms / period_ms * 100
+        self._pwm.ChangeDutyCycle(duty_cycle)
+
+    def release(self) -> None:
+        self._pwm.ChangeDutyCycle(0)
+
+    def cleanup(self) -> None:
+        self.release()
+        self._pwm.stop()
+        self._gpio.cleanup(self.pin)
 
 
 class Servo:
@@ -25,7 +103,9 @@ class Servo:
         min_pulse_width: float = 0.5,
         max_pulse_width: float = 2.5,
         frequency: int = 50,
+        backend: str = "auto",
         gpio_module=None,
+        pigpio_module=None,
     ) -> None:
         """
         Initialize the servo.
@@ -37,7 +117,9 @@ class Servo:
             min_pulse_width: Pulse width in milliseconds for min_angle.
             max_pulse_width: Pulse width in milliseconds for max_angle.
             frequency: PWM frequency in Hz. Standard servos usually use 50 Hz.
+            backend: "auto", "pigpio", or "rpi_gpio".
             gpio_module: Optional GPIO-compatible module for testing or mocking.
+            pigpio_module: Optional pigpio-compatible module for testing or mocking.
         """
         if min_angle >= max_angle:
             raise ValueError("min_angle must be smaller than max_angle")
@@ -48,32 +130,54 @@ class Servo:
         if frequency <= 0:
             raise ValueError("frequency must be > 0")
 
+        normalized_backend = str(backend).strip().lower()
+        if normalized_backend not in {"auto", "pigpio", "rpi_gpio"}:
+            raise ValueError("backend must be one of: auto, pigpio, rpi_gpio")
+
         self.pin = pin
         self.min_angle = min_angle
         self.max_angle = max_angle
         self.min_pulse_width = min_pulse_width
         self.max_pulse_width = max_pulse_width
         self.frequency = frequency
-        self._gpio = gpio_module or GPIO
         self._current_angle = None
-
-        if self._gpio is None:
-            raise RuntimeError(
-                "RPi.GPIO is not available. Install it on the Raspberry Pi or "
-                "pass a compatible gpio_module for testing."
-            )
-
-        if self._gpio.getmode() is None:
-            self._gpio.setmode(self._gpio.BCM)
-
-        self._gpio.setup(self.pin, self._gpio.OUT)
-        self._pwm = self._gpio.PWM(self.pin, self.frequency)
-        self._pwm.start(0)
+        self._backend = self._build_backend(
+            normalized_backend,
+            gpio_module=gpio_module,
+            pigpio_module=pigpio_module,
+        )
 
     @property
     def current_angle(self):
         """Return the last angle sent to the servo."""
         return self._current_angle
+
+    @property
+    def backend_name(self) -> str:
+        """Return the active PWM backend name."""
+        return self._backend.backend_name
+
+    def _build_backend(self, backend: str, *, gpio_module=None, pigpio_module=None):
+        if backend == "pigpio":
+            return _PigpioServoBackend(self.pin, pigpio_module=pigpio_module)
+
+        if backend == "rpi_gpio":
+            return _RpiGpioServoBackend(self.pin, frequency=self.frequency, gpio_module=gpio_module)
+
+        pigpio_error = None
+        try:
+            return _PigpioServoBackend(self.pin, pigpio_module=pigpio_module)
+        except Exception as error:
+            pigpio_error = error
+
+        try:
+            return _RpiGpioServoBackend(self.pin, frequency=self.frequency, gpio_module=gpio_module)
+        except Exception as error:
+            raise RuntimeError(
+                "No usable servo backend is available. "
+                f"pigpio failed with: {pigpio_error}; "
+                f"RPi.GPIO failed with: {error}"
+            ) from error
 
     def _validate_angle(self, angle: float) -> None:
         if not self.min_angle <= angle <= self.max_angle:
@@ -86,13 +190,9 @@ class Servo:
         pulse_range = self.max_pulse_width - self.min_pulse_width
         return self.min_pulse_width + ((angle - self.min_angle) / angle_range) * pulse_range
 
-    def _pulse_width_to_duty_cycle(self, pulse_width: float) -> float:
-        period_ms = 1000 / self.frequency
-        return pulse_width / period_ms * 100
-
     def release(self) -> None:
         """Stop sending PWM to reduce jitter after moving."""
-        self._pwm.ChangeDutyCycle(0)
+        self._backend.release()
 
     def set_angle(self, angle: float, settle_time: float = 0.3, release: bool = True) -> None:
         """
@@ -108,9 +208,7 @@ class Servo:
 
         self._validate_angle(angle)
         pulse_width = self._angle_to_pulse_width(angle)
-        duty_cycle = self._pulse_width_to_duty_cycle(pulse_width)
-
-        self._pwm.ChangeDutyCycle(duty_cycle)
+        self._backend.write_pulse_width_ms(pulse_width)
         self._current_angle = angle
 
         if settle_time > 0:
@@ -235,10 +333,8 @@ class Servo:
         self.move_to(end_angle, step, delay, release)
 
     def cleanup(self) -> None:
-        """Stop PWM and release the GPIO pin."""
-        self.release()
-        self._pwm.stop()
-        self._gpio.cleanup(self.pin)
+        """Stop PWM and release the GPIO resources."""
+        self._backend.cleanup()
 
     def close(self) -> None:
         """Alias of cleanup()."""
@@ -246,27 +342,23 @@ class Servo:
 
 
 if __name__ == "__main__":
-    # door_servo_pin: int | None = 18
-    # camera_pan_servo_pin: int | None = 13
-    # camera_tilt_servo_pin: int | None = 12
     TEST_PIN = 13
 
     servo = Servo(TEST_PIN)
     try:
-        servo.move_min()  # 转到最小角度
+        print(f"Servo backend: {servo.backend_name}")
+        servo.move_min()
         time.sleep(1)
-        servo.center()  # 转到中间位置
+        servo.center()
         time.sleep(1)
-        servo.move_max(settle_time=1.0, release=False)  # 转到最大角度
+        servo.move_max(settle_time=1.0, release=False)
         time.sleep(1)
-        servo.move_to(45, 2, 0.02)  # 平滑移动到 45 度
+        servo.move_to(45, 2, 0.02)
         time.sleep(1)
-        servo.move_to(180, 2, 0.02)  # 平滑移动到 135 度
+        servo.move_to(180, 2, 0.02)
         time.sleep(1)
-        servo.sweep(45, 120, 2, 0.02)  # 低风险扫一段角度
+        servo.sweep(45, 120, 2, 0.02)
         servo.center()
         servo.move_to(120, 1, 0.02)
-
-
     finally:
         servo.cleanup()
