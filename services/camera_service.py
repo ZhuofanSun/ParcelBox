@@ -6,6 +6,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Callable
 
 try:
     import cv2
@@ -28,6 +29,8 @@ class CameraService:
         self._latest_stream_jpeg: bytes | None = None
         self._latest_stream_timestamp: float = 0.0
         self._started = False
+        self._stream_standby_provider: Callable[[], bool] | None = None
+        self._last_applied_stream_fps: int | None = None
 
     @property
     def stream_size(self) -> tuple[int, int]:
@@ -62,6 +65,7 @@ class CameraService:
             self._camera.start()
             self._camera.warmup(2)
             self._started = True
+            self._last_applied_stream_fps = max(config.camera.default_fps, 1)
             self._stream_thread = threading.Thread(
                 target=self._stream_worker,
                 name="camera-stream-worker",
@@ -91,6 +95,17 @@ class CameraService:
                 self._frame_condition.notify_all()
 
             self._started = False
+            self._last_applied_stream_fps = None
+
+    def set_stream_standby_provider(self, provider: Callable[[], bool] | None) -> None:
+        """Set a callback that reports whether the shared stream should run in standby mode."""
+        self._stream_standby_provider = provider
+
+    def get_stream_fps_target(self) -> int:
+        """Return the current stream FPS target."""
+        if self._is_stream_standby_active():
+            return max(config.web.standby_stream_fps, 1)
+        return max(config.web.stream_fps, 1)
 
     def _build_controls(self) -> dict:
         frame_duration_us = int(1_000_000 / config.camera.default_fps)
@@ -117,12 +132,11 @@ class CameraService:
         return encoded.tobytes()
 
     def _stream_worker(self) -> None:
-        interval = 1 / max(config.web.stream_fps, 1)
-
         while not self._stop_event.is_set():
             started_at = time.perf_counter()
 
             try:
+                self._sync_stream_profile()
                 frame = self.get_stream_frame()
                 frame_bytes = self._encode_stream_frame_jpeg(frame, config.web.jpeg_quality)
 
@@ -135,8 +149,32 @@ class CameraService:
                 continue
 
             elapsed = time.perf_counter() - started_at
+            interval = 1 / max(self.get_stream_fps_target(), 1)
             remaining = max(0.0, interval - elapsed)
             self._stop_event.wait(remaining)
+
+    def _is_stream_standby_active(self) -> bool:
+        if self._stream_standby_provider is None:
+            return False
+        try:
+            return bool(self._stream_standby_provider())
+        except Exception:
+            return False
+
+    def _sync_stream_profile(self) -> None:
+        target_fps = self.get_stream_fps_target()
+        with self._lock:
+            if self._camera is None or not self._started:
+                return
+            if self._last_applied_stream_fps == target_fps:
+                return
+            frame_duration_us = int(1_000_000 / max(target_fps, 1))
+            self._camera.set_controls(
+                {
+                    "FrameDurationLimits": (frame_duration_us, frame_duration_us),
+                }
+            )
+            self._last_applied_stream_fps = target_fps
 
     def get_stream_frame(self):
         """Get one frame from the main stream."""

@@ -78,6 +78,8 @@ def build_stream_router(
                     "height": camera_service.detection_size[1],
                 },
                 "stream_fps": config.web.stream_fps,
+                "standby_stream_fps": config.web.standby_stream_fps,
+                "current_stream_fps_target": camera_service.get_stream_fps_target(),
                 "detection_fps": config.vision.detection_fps,
                 "vision_backend": config.vision.backend,
                 "vision_mode": "face",
@@ -164,8 +166,6 @@ def build_stream_router(
 
     @router.get("/api/stream.mjpg")
     def mjpeg_stream() -> StreamingResponse:
-        interval = 1 / max(config.web.stream_fps, 1)
-
         def generate():
             last_timestamp = 0.0
             while not STREAM_SHUTDOWN_EVENT.is_set():
@@ -182,6 +182,7 @@ def build_stream_router(
                     )
                     last_timestamp = timestamp
 
+                interval = 1 / max(camera_service.get_stream_fps_target(), 1)
                 time.sleep(interval)
 
         return StreamingResponse(

@@ -54,6 +54,16 @@ class FakeServo:
         self.cleaned_up = True
 
 
+class FakeVisionService:
+    def __init__(self, payloads: list[dict]) -> None:
+        self._payloads = [copy.deepcopy(item) for item in payloads]
+
+    def get_boxes(self) -> dict:
+        if not self._payloads:
+            return build_payload(center_x=None, center_y=None)
+        return self._payloads.pop(0)
+
+
 def build_payload(
     *,
     center_x: float | None = 640,
@@ -178,10 +188,10 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertEqual(advice["status"], "searching")
         self.assertEqual(advice["pan"]["direction"], "right")
         self.assertEqual(advice["tilt"]["direction"], "up")
-        self.assertAlmostEqual(advice["pan"]["move_angle"], config.camera_mount.home_step)
-        self.assertAlmostEqual(advice["tilt"]["move_angle"], config.camera_mount.home_step)
-        self.assertGreater(service.get_status()["current_angles"]["pan"], pan_before_loss)
-        self.assertLess(service.get_status()["current_angles"]["tilt"], tilt_before_loss)
+        self.assertGreater(advice["pan"]["move_angle"], config.camera_mount.home_step)
+        self.assertGreater(advice["tilt"]["move_angle"], 0.0)
+        self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_max_angle)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
     def test_face_recovery_search_moves_toward_min_when_last_pan_is_left_of_home(self) -> None:
         service = self.build_service()
@@ -196,8 +206,8 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertLess(pan_before_loss, config.camera_mount.pan_home_angle)
         self.assertEqual(advice["status"], "searching")
         self.assertEqual(advice["pan"]["direction"], "left")
-        self.assertAlmostEqual(advice["pan"]["move_angle"], config.camera_mount.home_step)
-        self.assertLess(service.get_status()["current_angles"]["pan"], pan_before_loss)
+        self.assertGreater(advice["pan"]["move_angle"], config.camera_mount.home_step)
+        self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_min_angle)
 
     def test_face_detected_during_recovery_resumes_tracking(self) -> None:
         service = self.build_service()
@@ -213,6 +223,27 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertTrue(advice["has_target"])
         self.assertEqual(advice["tracking_label"], "face")
         self.assertEqual(service._face_recovery_waypoints, [])
+
+    def test_face_detected_mid_search_interrupts_waypoint_move(self) -> None:
+        service = self.build_service()
+        service._vision_service = FakeVisionService(
+            [
+                build_payload(center_x=None, center_y=None),
+                build_payload(center_x=None, center_y=None),
+                build_payload(center_x=320, center_y=240),
+            ]
+        )
+
+        service._process_payload(build_payload())
+        service._process_payload(build_payload(center_x=220, center_y=520))
+        pan_before_loss = service.get_status()["current_angles"]["pan"]
+        service._face_lost_deadline_at = time.monotonic() - 0.1
+
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
+        self.assertEqual(advice["status"], "searching")
+        self.assertGreater(service.get_status()["current_angles"]["pan"], pan_before_loss)
+        self.assertLess(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_max_angle)
 
     def test_face_recovery_scan_finishes_then_returns_home(self) -> None:
         service = self.build_service()
@@ -232,6 +263,7 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertEqual(advice["home_reason"], "face_lost")
         self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
+        self.assertIsNotNone(service.get_standby_anchor_timestamp())
 
     def test_missing_target_returns_waiting_for_face_after_home(self) -> None:
         service = self.build_service()

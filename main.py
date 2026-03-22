@@ -29,6 +29,8 @@ camera_service = CameraService()
 event_store = EventStore()
 vision_service = VisionService(camera_service, event_store=event_store)
 camera_mount_service = CameraMountService(vision_service)
+vision_service.set_standby_anchor_provider(camera_mount_service.get_standby_anchor_timestamp)
+camera_service.set_stream_standby_provider(vision_service.is_standby_active)
 email_service = EmailNotificationService()
 button_service = ButtonService(
     snapshot_callback=camera_service.capture_snapshot,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from config import config
 from services.vision_backends import build_vision_backend
@@ -32,6 +32,7 @@ class VisionService:
         self._face_snapshot_taken = False
         self._last_face_seen_at: float | None = None
         self._standby_active = False
+        self._standby_anchor_provider: Callable[[], float | None] | None = None
 
     def start(self) -> None:
         """Start the background detection loop."""
@@ -102,6 +103,15 @@ class VisionService:
                 self._frame_condition.wait(timeout=remaining)
 
             return self._latest_payload, self._latest_version
+
+    def is_standby_active(self) -> bool:
+        """Return whether detection is currently in low-FPS standby."""
+        with self._frame_condition:
+            return self._standby_active
+
+    def set_standby_anchor_provider(self, provider: Callable[[], float | None] | None) -> None:
+        """Set a callback that returns the monotonic timestamp from which standby should count."""
+        self._standby_anchor_provider = provider
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -361,11 +371,20 @@ class VisionService:
 
     def _update_standby_state(self, now: float) -> None:
         delay = max(config.vision.standby_after_no_face_seconds, 0.0)
-        if delay <= 0 or self._last_face_seen_at is None:
+        anchor = None
+        if self._standby_anchor_provider is not None:
+            try:
+                anchor = self._standby_anchor_provider()
+            except Exception:
+                anchor = None
+        else:
+            anchor = self._last_face_seen_at
+
+        if delay <= 0 or anchor is None:
             self._standby_active = False
             return
 
-        self._standby_active = (now - self._last_face_seen_at) >= delay
+        self._standby_active = (now - anchor) >= delay
 
     def _build_empty_payload(
         self,

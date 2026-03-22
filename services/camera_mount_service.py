@@ -34,6 +34,7 @@ class CameraMountService:
         self._tracking_face_active = False
         self._face_lost_deadline_at: float | None = None
         self._face_recovery_waypoints: list[float] = []
+        self._standby_anchor_at: float | None = None
         self._last_seen_version = 0
         self._last_tracking_move_at = 0.0
         self._last_tracking_move_version: int | None = None
@@ -58,6 +59,7 @@ class CameraMountService:
             self._tracking_face_active = False
             self._face_lost_deadline_at = None
             self._face_recovery_waypoints = []
+            self._standby_anchor_at = None
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
             self._last_tracking_move_version = None
@@ -91,6 +93,7 @@ class CameraMountService:
             self._tracking_face_active = False
             self._face_lost_deadline_at = None
             self._face_recovery_waypoints = []
+            self._standby_anchor_at = None
             self._latest_advice = self._build_idle_advice()
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
@@ -182,8 +185,14 @@ class CameraMountService:
                     "tilt": config.camera_mount.invert_tilt_direction,
                 },
                 "last_error": self._last_error,
+                "standby_anchor_at": self._standby_anchor_at,
                 "latest_advice": copy.deepcopy(self._latest_advice),
             }
+
+    def get_standby_anchor_timestamp(self) -> float | None:
+        """Return the monotonic timestamp after which standby delay should count."""
+        with self._lock:
+            return self._standby_anchor_at
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -270,6 +279,7 @@ class CameraMountService:
                 "tilt_target": config.camera_mount.tilt_home_angle,
                 "step": self._home_step(),
                 "delay": self._home_delay(),
+                "reason": advice.get("home_reason"),
                 "version": None,
             }
 
@@ -283,6 +293,7 @@ class CameraMountService:
                 "tilt_target": search_step["tilt_target"],
                 "step": self._home_step(),
                 "delay": self._home_delay(),
+                "reason": "face_search",
                 "version": None,
             }
 
@@ -309,6 +320,7 @@ class CameraMountService:
             "tilt_target": tilt_target,
             "step": self._movement_step(),
             "delay": self._movement_delay(),
+            "reason": None,
             "version": version,
         }
 
@@ -350,19 +362,27 @@ class CameraMountService:
             with self._lock:
                 if not self._servo_control_enabled:
                     return False
+                request_kind = request.get("kind")
+                request_reason = request.get("reason")
                 axes = self._prepare_axes_locked(
                     pan_target=request.get("pan_target"),
                     tilt_target=request.get("tilt_target"),
                 )
                 if not axes:
+                    if request_kind == "home" and request_reason == "face_lost":
+                        self._standby_anchor_at = time.monotonic()
                     return False
                 step = float(request.get("step", self._movement_step()))
                 delay = float(request.get("delay", self._movement_delay()))
+                interrupt_check = None
+                if request_kind == "search":
+                    interrupt_check = self._should_interrupt_search_move
 
             moved, error = self._move_axes_together(
                 axes,
                 step=step,
                 delay=delay,
+                interrupt_check=interrupt_check,
             )
 
             with self._lock:
@@ -378,11 +398,16 @@ class CameraMountService:
                     else:
                         self._tilt_angle = axis_state["target"]
 
-                if request.get("kind") == "tracking":
+                if request_kind == "tracking":
                     self._last_tracking_move_at = time.monotonic()
                     self._last_tracking_move_version = request.get("version")
-                elif request.get("kind") == "home":
+                    self._standby_anchor_at = None
+                elif request_kind == "search":
+                    self._standby_anchor_at = None
+                elif request_kind == "home":
                     self._last_tracking_move_version = None
+                    if request_reason == "face_lost":
+                        self._standby_anchor_at = time.monotonic()
             return True
 
     def _prepare_axes_locked(
@@ -414,6 +439,7 @@ class CameraMountService:
         *,
         step: float,
         delay: float,
+        interrupt_check=None,
     ) -> tuple[bool, Exception | None]:
         if not axes:
             return False, None
@@ -423,25 +449,44 @@ class CameraMountService:
             if any(axis_state["current"] is None for axis_state in axes):
                 for axis_state in axes:
                     axis_state["servo"].set_angle(axis_state["target"], 0, False)
+                    axis_state["reached"] = axis_state["target"]
                 time.sleep(settle_time)
             else:
                 max_delta = max(abs(axis_state["target"] - axis_state["current"]) for axis_state in axes)
                 total_steps = max(1, int(math.ceil(max_delta / step)))
                 for index in range(1, total_steps + 1):
+                    if interrupt_check is not None and interrupt_check():
+                        break
                     progress = index / total_steps
                     for axis_state in axes:
                         interpolated_angle = axis_state["current"] + (
                             axis_state["target"] - axis_state["current"]
                         ) * progress
                         axis_state["servo"].set_angle(interpolated_angle, 0, False)
+                        axis_state["reached"] = interpolated_angle
                     if delay > 0:
                         time.sleep(delay)
 
             for axis_state in axes:
+                if "reached" not in axis_state:
+                    axis_state["reached"] = axis_state["target"]
+                axis_state["target"] = axis_state["reached"]
                 axis_state["servo"].release()
         except Exception as error:
             return False, error
         return True, None
+
+    def _should_interrupt_search_move(self) -> bool:
+        if self._vision_service is None:
+            return False
+
+        try:
+            payload = self._vision_service.get_boxes()
+        except Exception:
+            return False
+
+        target = self._extract_face_target(payload)
+        return payload.get("status") == "ok" and target is not None
 
     def _move_axis_to_locked(self, axis: str, target_angle: float) -> bool:
         servo = self._pan_servo if axis == "pan" else self._tilt_servo
@@ -561,6 +606,7 @@ class CameraMountService:
         self._tracking_face_active = True
         self._face_lost_deadline_at = None
         self._face_recovery_waypoints = []
+        self._standby_anchor_at = None
 
         return {
             "started": started,
@@ -612,6 +658,8 @@ class CameraMountService:
         self._tracking_face_active = False
         self._face_lost_deadline_at = None
         self._face_recovery_waypoints = []
+        if reason == "startup":
+            self._standby_anchor_at = None
         self._last_home_issue_at = time.monotonic()
         return {
             "started": started,
@@ -926,12 +974,12 @@ class CameraMountService:
         next_pan_waypoint = self._face_recovery_waypoints[0] if self._face_recovery_waypoints else None
         pan_target = None
         if next_pan_waypoint is not None:
-            pan_target = self._step_towards(current_pan, next_pan_waypoint, self._home_step())
+            pan_target = next_pan_waypoint
 
         tilt_target = None
         tilt_home = config.camera_mount.tilt_home_angle
         if abs(current_tilt - tilt_home) >= 0.01:
-            tilt_target = self._step_towards(current_tilt, tilt_home, self._home_step())
+            tilt_target = tilt_home
 
         if pan_target is None and tilt_target is None:
             return None

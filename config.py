@@ -51,7 +51,7 @@ class CameraMountConfig:
 
     enabled: bool = True
     pan_home_angle: float = 90
-    tilt_home_angle: float = 80
+    tilt_home_angle: float = 85
 
     pan_min_angle: float = 20
     pan_max_angle: float = 160
@@ -63,8 +63,8 @@ class CameraMountConfig:
     center_deadzone_ratio: float = 0.10
     pan_max_single_move_angle: float = 10
     tilt_max_single_move_angle: float = 3.5
-    tracking_step: float = 0.5
-    tracking_delay: float = 0.01
+    tracking_step: float = 0.6
+    tracking_delay: float = 0.02
     tracking_cooldown_seconds: float = 0
     face_lost_home_delay_seconds: float = 0.5
     home_step: float = 1.0
@@ -179,6 +179,7 @@ class WebConfig:
     host: str = "0.0.0.0"
     port: int = 8000
     stream_fps: int = 30
+    standby_stream_fps: int = 10
     jpeg_quality: int = 70
     access_log: bool = False
 
