@@ -171,8 +171,8 @@ class RgbLed:
 
 
 if __name__ == "__main__":
-    TEST_RED_PIN = 13
-    TEST_GREEN_PIN = 19
+    TEST_RED_PIN = 5
+    TEST_GREEN_PIN = 6
     TEST_BLUE_PIN = 26
 
     led = RgbLed(TEST_RED_PIN, TEST_GREEN_PIN, TEST_BLUE_PIN)

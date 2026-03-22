@@ -1,63 +1,21 @@
-import os
 from dataclasses import dataclass, field
-
-
-def _env_bool(name: str, default: bool) -> bool:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int) -> int:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    try:
-        return int(raw_value.strip())
-    except ValueError:
-        return default
-
-
-def _env_float(name: str, default: float) -> float:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    try:
-        return float(raw_value.strip())
-    except ValueError:
-        return default
-
-
-def _env_str(name: str, default: str = "") -> str:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    return raw_value.strip()
-
-
-def _env_list(name: str, default: list[str]) -> list[str]:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return list(default)
-    return [part.strip() for part in raw_value.split(",") if part.strip()]
 
 
 @dataclass
 class GPIOConfig:
     """Central place for GPIO pin assignments."""
 
-    rc522_rst_pin: int = 25
+    rc522_rst_pin: int = 22
 
     door_servo_pin: int | None = 18
-    camera_pan_servo_pin: int | None = 23
-    camera_tilt_servo_pin: int | None = 24
+    camera_pan_servo_pin: int | None = 13
+    camera_tilt_servo_pin: int | None = 12
 
     button_pin: int | None = 27
-    buzzer_pin: int | None = 12
+    buzzer_pin: int | None = 25
 
-    rgb_red_pin: int | None = 13
-    rgb_green_pin: int | None = 19
+    rgb_red_pin: int | None = 5
+    rgb_green_pin: int | None = 6
     rgb_blue_pin: int | None = 26
 
     ultrasonic_trigger_pin: int | None = 16
@@ -91,7 +49,7 @@ class CameraConfig:
 class CameraMountConfig:
     """Standby and movement settings for pan / tilt servos."""
 
-    enabled: bool = False
+    enabled: bool = True
     pan_home_angle: float = 90
     tilt_home_angle: float = 80
 
@@ -168,25 +126,19 @@ class StorageConfig:
 class EmailConfig:
     """Outbound email notification settings."""
 
-    enabled: bool = _env_bool("PARCELBOX_EMAIL_ENABLED", True)
-    smtp_host: str = _env_str("PARCELBOX_EMAIL_SMTP_HOST", "smtp.gmail.com")
-    smtp_port: int = _env_int("PARCELBOX_EMAIL_SMTP_PORT", 587)
-    use_tls: bool = _env_bool("PARCELBOX_EMAIL_USE_TLS", True)
-    timeout_seconds: float = _env_float("PARCELBOX_EMAIL_TIMEOUT_SECONDS", 10.0)
-    username: str = _env_str("PARCELBOX_EMAIL_USERNAME")
-    password: str = _env_str("PARCELBOX_EMAIL_PASSWORD")
-    from_address: str = _env_str("PARCELBOX_EMAIL_FROM_ADDRESS")
-    to_addresses: list[str] = field(default_factory=lambda: _env_list("PARCELBOX_EMAIL_TO_ADDRESSES", []))
-    frontend_url: str = _env_str("PARCELBOX_EMAIL_FRONTEND_URL", "http://192.168.0.106:8000/")
-    request_subject: str = _env_str("PARCELBOX_EMAIL_REQUEST_SUBJECT", "ParcelBox door open request")
-    request_message: str = _env_str(
-        "PARCELBOX_EMAIL_REQUEST_MESSAGE",
-        "Someone pressed the ParcelBox request-open button.",
-    )
-    duplicate_request_cooldown_seconds: float = _env_float(
-        "PARCELBOX_EMAIL_DUPLICATE_REQUEST_COOLDOWN_SECONDS",
-        30.0,
-    )
+    enabled: bool = True
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    use_tls: bool = True
+    timeout_seconds: float = 10.0
+    username: str = "yingyingguai71@gmail.com"
+    password: str = "tuky jcwb ncpy omnh"
+    from_address: str = "yinnclja@gmail.com"
+    to_addresses: list[str] = field(default_factory=lambda: ["sunz99@mcmaster.ca"])
+    frontend_url: str = "http://192.168.0.106:8000/"
+    request_subject: str = "ParcelBox door open request"
+    request_message: str = "Someone pressed the ParcelBox request-open button."
+    duplicate_request_cooldown_seconds: float = 30.0
 
 
 @dataclass
