@@ -26,11 +26,13 @@ class CameraMountService:
         self._vision_service = vision_service
         self._servo_factory = servo_factory
         self._lock = threading.Lock()
+        self._move_lock = threading.Lock()
         self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
         self._started = False
         self._home_pending_reason: str | None = None
         self._tracking_face_active = False
+        self._face_lost_deadline_at: float | None = None
         self._last_seen_version = 0
         self._last_tracking_move_at = 0.0
         self._last_tracking_move_version: int | None = None
@@ -53,6 +55,7 @@ class CameraMountService:
             self._started = True
             self._home_pending_reason = "startup"
             self._tracking_face_active = False
+            self._face_lost_deadline_at = None
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
             self._last_tracking_move_version = None
@@ -84,6 +87,7 @@ class CameraMountService:
             self._started = False
             self._home_pending_reason = None
             self._tracking_face_active = False
+            self._face_lost_deadline_at = None
             self._latest_advice = self._build_idle_advice()
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
@@ -92,8 +96,16 @@ class CameraMountService:
 
     def move_home(self) -> None:
         """Move both servos back to the configured home angles."""
-        with self._lock:
-            self._move_home_locked()
+        self._execute_movement_request(
+            {
+                "kind": "home",
+                "pan_target": config.camera_mount.pan_home_angle,
+                "tilt_target": config.camera_mount.tilt_home_angle,
+                "step": self._home_step(),
+                "delay": self._home_delay(),
+                "version": None,
+            }
+        )
 
     def move_to_angles(
         self,
@@ -119,7 +131,16 @@ class CameraMountService:
                     config.camera_mount.tilt_max_angle,
                 )
 
-            self._move_axes_together_locked(pan_target=pan_target, tilt_target=tilt_target)
+        self._execute_movement_request(
+            {
+                "kind": "manual",
+                "pan_target": pan_target,
+                "tilt_target": tilt_target,
+                "step": self._movement_step(),
+                "delay": self._movement_delay(),
+                "version": None,
+            }
+        )
 
     def enrich_payload(self, payload: dict) -> dict:
         """Attach the latest mount state to an outgoing vision payload."""
@@ -183,8 +204,10 @@ class CameraMountService:
         with self._lock:
             advice = self._build_advice(payload, started=self._started)
             self._latest_advice = advice
-            self._apply_advice_locked(advice, version=version)
-            return copy.deepcopy(advice)
+            movement_request = self._build_movement_request_locked(advice, version=version)
+
+        self._execute_movement_request(movement_request)
+        return copy.deepcopy(advice)
 
     def _initialize_servos_locked(self) -> None:
         self._servo_control_enabled = False
@@ -233,20 +256,25 @@ class CameraMountService:
         self._tilt_angle = None
         self._servo_control_enabled = False
 
-    def _apply_advice_locked(self, advice: dict, *, version: int | None = None) -> None:
+    def _build_movement_request_locked(self, advice: dict, *, version: int | None = None) -> dict | None:
         if not self._servo_control_enabled:
-            return
+            return None
 
         if advice.get("should_home"):
-            self._move_home_locked()
-            self._last_tracking_move_version = None
-            return
+            return {
+                "kind": "home",
+                "pan_target": config.camera_mount.pan_home_angle,
+                "tilt_target": config.camera_mount.tilt_home_angle,
+                "step": self._home_step(),
+                "delay": self._home_delay(),
+                "version": None,
+            }
 
         if not advice.get("has_target"):
-            return
+            return None
 
         if not self._can_apply_tracking_move_locked(version):
-            return
+            return None
 
         pan_target = self._target_angle_for_axis(
             axis="pan",
@@ -259,10 +287,14 @@ class CameraMountService:
             move_angle=advice["tilt"]["move_angle"],
         )
 
-        moved = self._move_axes_together_locked(pan_target=pan_target, tilt_target=tilt_target)
-        if moved:
-            self._last_tracking_move_at = time.monotonic()
-            self._last_tracking_move_version = version
+        return {
+            "kind": "tracking",
+            "pan_target": pan_target,
+            "tilt_target": tilt_target,
+            "step": self._movement_step(),
+            "delay": self._movement_delay(),
+            "version": version,
+        }
 
     def _target_angle_for_axis(
         self,
@@ -294,18 +326,55 @@ class CameraMountService:
             self._max_angle(axis),
         )
 
-    def _move_home_locked(self) -> None:
-        self._move_axes_together_locked(
-            pan_target=config.camera_mount.pan_home_angle,
-            tilt_target=config.camera_mount.tilt_home_angle,
-        )
+    def _execute_movement_request(self, request: dict | None) -> bool:
+        if not request:
+            return False
 
-    def _move_axes_together_locked(
+        with self._move_lock:
+            with self._lock:
+                if not self._servo_control_enabled:
+                    return False
+                axes = self._prepare_axes_locked(
+                    pan_target=request.get("pan_target"),
+                    tilt_target=request.get("tilt_target"),
+                )
+                if not axes:
+                    return False
+                step = float(request.get("step", self._movement_step()))
+                delay = float(request.get("delay", self._movement_delay()))
+
+            moved, error = self._move_axes_together(
+                axes,
+                step=step,
+                delay=delay,
+            )
+
+            with self._lock:
+                if error is not None:
+                    self._last_error = str(error)
+                    return False
+                if not moved:
+                    return False
+
+                for axis_state in axes:
+                    if axis_state["axis"] == "pan":
+                        self._pan_angle = axis_state["target"]
+                    else:
+                        self._tilt_angle = axis_state["target"]
+
+                if request.get("kind") == "tracking":
+                    self._last_tracking_move_at = time.monotonic()
+                    self._last_tracking_move_version = request.get("version")
+                elif request.get("kind") == "home":
+                    self._last_tracking_move_version = None
+            return True
+
+    def _prepare_axes_locked(
         self,
         *,
         pan_target: float | None = None,
         tilt_target: float | None = None,
-    ) -> bool:
+    ) -> list[dict]:
         axes = []
         if pan_target is not None:
             axes.append({"axis": "pan", "servo": self._pan_servo, "target": pan_target, "current": self._pan_angle})
@@ -321,13 +390,19 @@ class CameraMountService:
                 or abs(axis_state["target"] - axis_state["current"]) >= 0.01
             )
         ]
+        return axes
+
+    @staticmethod
+    def _move_axes_together(
+        axes: list[dict],
+        *,
+        step: float,
+        delay: float,
+    ) -> tuple[bool, Exception | None]:
         if not axes:
-            return False
+            return False, None
 
-        step = self._movement_step()
-        delay = self._movement_delay()
         settle_time = max(delay, 0.3)
-
         try:
             if any(axis_state["current"] is None for axis_state in axes):
                 for axis_state in axes:
@@ -349,15 +424,8 @@ class CameraMountService:
             for axis_state in axes:
                 axis_state["servo"].release()
         except Exception as error:
-            self._last_error = str(error)
-            return False
-
-        for axis_state in axes:
-            if axis_state["axis"] == "pan":
-                self._pan_angle = axis_state["target"]
-            else:
-                self._tilt_angle = axis_state["target"]
-        return True
+            return False, error
+        return True, None
 
     def _move_axis_to_locked(self, axis: str, target_angle: float) -> bool:
         servo = self._pan_servo if axis == "pan" else self._tilt_servo
@@ -392,6 +460,14 @@ class CameraMountService:
     def _movement_delay() -> float:
         return min(max(config.camera_mount.tracking_delay, 0.0), 0.02)
 
+    @staticmethod
+    def _home_step() -> float:
+        return max(config.camera_mount.home_step, 0.5)
+
+    @staticmethod
+    def _home_delay() -> float:
+        return max(config.camera_mount.home_delay, 0.0)
+
     def _build_advice(self, payload: dict, *, started: bool) -> dict:
         frame_width, frame_height = self._extract_frame_size(payload)
         if not frame_width or not frame_height:
@@ -411,8 +487,7 @@ class CameraMountService:
         frame_center_y = frame_height / 2
         target = self._extract_face_target(payload)
         if payload.get("status") != "ok":
-            if self._tracking_face_active:
-                self._tracking_face_active = False
+            if self._is_face_lost_home_due_locked():
                 return self._build_home_advice(
                     started=started,
                     reason="face_lost",
@@ -427,8 +502,7 @@ class CameraMountService:
             )
 
         if target is None:
-            if self._tracking_face_active:
-                self._tracking_face_active = False
+            if self._is_face_lost_home_due_locked():
                 return self._build_home_advice(
                     started=started,
                     reason="face_lost",
@@ -476,6 +550,7 @@ class CameraMountService:
         overall_direction = self._combine_direction(pan_direction, tilt_direction)
         status = "centered" if overall_direction == "centered" else "tracking"
         self._tracking_face_active = True
+        self._face_lost_deadline_at = None
 
         return {
             "started": started,
@@ -525,6 +600,7 @@ class CameraMountService:
         frame_height: float,
     ) -> dict:
         self._tracking_face_active = False
+        self._face_lost_deadline_at = None
         self._last_home_issue_at = time.monotonic()
         return {
             "started": started,
@@ -701,9 +777,30 @@ class CameraMountService:
         interval = max(config.camera_mount.no_face_home_interval_seconds, 0.0)
         if interval <= 0:
             return False
+        if self._tracking_face_active or self._face_lost_deadline_at is not None:
+            return False
         if self._last_home_issue_at <= 0:
             return True
         return (time.monotonic() - self._last_home_issue_at) >= interval
+
+    def _is_face_lost_home_due_locked(self) -> bool:
+        if not self._tracking_face_active and self._face_lost_deadline_at is None:
+            return False
+
+        if self._face_lost_deadline_at is None:
+            delay = max(config.camera_mount.face_lost_home_delay_seconds, 0.0)
+            if delay <= 0:
+                self._tracking_face_active = False
+                return True
+            self._face_lost_deadline_at = time.monotonic() + delay
+            return False
+
+        if time.monotonic() < self._face_lost_deadline_at:
+            return False
+
+        self._tracking_face_active = False
+        self._face_lost_deadline_at = None
+        return True
 
     def _current_angle(self, axis: str) -> float | None:
         return self._pan_angle if axis == "pan" else self._tilt_angle

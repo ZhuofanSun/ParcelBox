@@ -64,8 +64,11 @@ class CameraMountConfig:
     pan_max_single_move_angle: float = 4.5
     tilt_max_single_move_angle: float = 4.0
     tracking_step: float = 0.5
-    tracking_delay: float = 0.025
+    tracking_delay: float = 0.04
     tracking_cooldown_seconds: float = 0.01
+    face_lost_home_delay_seconds: float = 1.0
+    home_step: float = 1.0
+    home_delay: float = 0.03
     no_face_home_interval_seconds: float = 3.0
 
 
@@ -172,7 +175,7 @@ class VisionConfig:
     # auto mode uses lower fps while searching for a person and higher fps after
     # locking onto a face.
     auto_person_detection_fps: int = 3
-    auto_face_detection_fps: int = 10
+    auto_face_detection_fps: int = 15
     # Keep predicted face boxes alive for a very short time to reduce jitter when
     # face detection misses one or two frames.
     auto_face_hold_frames: int = 3

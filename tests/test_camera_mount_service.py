@@ -135,11 +135,14 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertLess(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertLess(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
-    def test_person_target_after_face_tracking_triggers_home(self) -> None:
+    def test_person_target_after_face_tracking_waits_before_homing(self) -> None:
         service = self.build_service()
 
         service._process_payload(build_payload())
         service._process_payload(build_payload(center_x=980, center_y=200))
+        pan_before_loss = service.get_status()["current_angles"]["pan"]
+        tilt_before_loss = service.get_status()["current_angles"]["tilt"]
+
         advice = service._process_payload(
             {
                 "status": "ok",
@@ -163,12 +166,21 @@ class CameraMountServiceTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(advice["status"], "returning_home")
-        self.assertEqual(advice["home_reason"], "face_lost")
+        self.assertEqual(advice["status"], "waiting_for_face")
+        self.assertIsNone(advice["home_reason"])
         self.assertFalse(advice["has_target"])
-        self.assertEqual(advice["direction"], "home")
+        self.assertEqual(advice["direction"], "hold")
         self.assertEqual(advice["pan"]["move_angle"], 0.0)
         self.assertEqual(advice["tilt"]["move_angle"], 0.0)
+        self.assertEqual(service.get_status()["current_angles"]["pan"], pan_before_loss)
+        self.assertEqual(service.get_status()["current_angles"]["tilt"], tilt_before_loss)
+
+        service._face_lost_deadline_at = time.monotonic() - 0.1
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
+        self.assertEqual(advice["status"], "returning_home")
+        self.assertEqual(advice["home_reason"], "face_lost")
+        self.assertEqual(advice["direction"], "home")
         self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
