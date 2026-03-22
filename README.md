@@ -169,7 +169,8 @@ Current storage baseline:
 
 Current notification baseline:
 
-- Button-triggered email request notifications are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py)
+- Button-triggered email request notifications are configured via environment-backed
+  settings in [config.py](/Users/sunzhuofan/IOT-project/config.py)
 - The email body includes a request-open message and the configured frontend URL
 - Duplicate button-triggered email requests are filtered by a cooldown window
 
@@ -204,6 +205,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 - Provide RFID read polling and write-card actions from the page
 - Show locker status, recent events, card-store snapshot, and latest backend payloads
 - Show hardware button-triggered request notifications in-page when the backend reports them
+- Show standby-aware stream / detection status from backend metadata
 
 ## Current Runtime Status
 
@@ -213,10 +215,12 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 - `/ws/vision` now pushes vision results over WebSocket
 - `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream, detection, locker, camera-mount, and button status
-- Current demo defaults: `720p`, `30 fps` stream, `10 fps` face-detection loop, JPEG quality `70`
+- Current demo defaults: `720p`, `30 fps` active stream, `10 fps` standby stream,
+  `15 fps` active face-detection loop, `3 fps` standby detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
   re-capturing and re-encoding per viewer
-- `CameraService` now recreates the camera cleanly after stop / start
+- `CameraService` now recreates the camera cleanly after stop / start and can lower
+  the main-stream FPS when the vision pipeline enters standby
 - `VisionService` now runs on its own background detection thread and only keeps the
   latest payload instead of queueing stale boxes
 - `VisionService` now uses a pluggable backend and currently defaults to an OpenCV-based
@@ -225,6 +229,10 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
   `Haar` when the model is missing or the OpenCV build does not support it
 - `VisionService` mainline is now face-only and keeps a short `face_hold` prediction
   window for brief misses
+- The primary face box is smoothed before it reaches the frontend overlay and camera
+  mount controller
+- After the mount finishes a face-lost recovery cycle and still sees no face for long
+  enough, vision enters a low-FPS standby mode and exits immediately when a face returns
 - Large enough faces can now trigger one automatic snapshot until the face disappears
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
@@ -243,6 +251,9 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
   person-to-face switching
 - Short face misses can be bridged by a small `face_hold` prediction window to reduce
   visible jitter
+- The primary face box is blended with EMA smoothing before building the frontend / mount target
+- After the post-search / post-home no-face delay expires, detection drops to standby FPS
+  without changing resolution
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
 - Current automatic face snapshot trigger uses face-box area ratio instead of a
   multi-frame sharpness scoring pipeline
@@ -332,7 +343,9 @@ Locker workflow orchestration.
 
 Current implementation note:
 
-- The locker service now runs a background RFID worker, opens the door on authorized scans, rejects unknown or disabled cards, supports manual `/api/locker/open` and `/api/locker/close`, and records an in-memory recent event list.
+- The locker service now runs a background RFID worker, opens the door on authorized scans,
+  rejects unknown or disabled cards, supports manual `/api/locker/open` and `/api/locker/close`,
+  auto-closes after a delay, and records events to SQLite while still exposing a recent-event view.
 
 ### `services/camera_service.py`
 
@@ -344,6 +357,12 @@ Camera device orchestration.
 - raw snapshot capture
 - JPEG encoding for MJPEG output
 - shared cached JPEG frame for multiple viewers
+
+Current implementation note:
+
+- The camera service can switch the live-stream FPS between normal and standby targets.
+- On Raspberry Pi / Picamera2, it also updates `FrameDurationLimits` so the main stream
+  itself slows down instead of only throttling MJPEG output.
 
 ### `services/vision_service.py`
 
@@ -359,6 +378,9 @@ Current implementation note:
 - The current mainline uses real OpenCV-based face detection only.
 - Short face misses can be bridged by a small predicted `face_hold` window before the
   target is cleared.
+- The primary face box is EMA-smoothed before it is mapped to stream coordinates.
+- Standby timing is now anchored to the camera-mount recovery flow, so the detector only
+  drops to low FPS after face-loss search and home have finished and the scene remains empty.
 - Face-triggered automatic snapshots are latched per visible face-presence window and
   reset after faces disappear from the frame.
 
@@ -368,14 +390,18 @@ Pan / tilt servo orchestration for the camera mount.
 
 - standby angles
 - target tracking
-- search pattern when door opens and no face is found
+- face-loss recovery search
 - return-to-home behavior
 
 Current implementation note:
 
 - The current mount service tracks `face` targets only, publishes pan / tilt advice to
-  the frontend, enforces angle limits, and returns home when face tracking is lost or
-  when the no-face idle timer fires.
+  the frontend, enforces angle limits during normal tracking, and returns home when
+  face tracking is lost or when the no-face idle timer fires.
+- On face loss, it now waits briefly, runs an interruptible horizontal recovery sweep
+  with tilt pinned to `tilt_home_angle`, then returns home if no face was recovered.
+- Search and home moves both run with the `home_step` / `home_delay` profile, while
+  normal tracking still uses its own step / delay and single-move angle caps.
 
 ### `services/button_service.py`
 
@@ -511,7 +537,8 @@ iot_locker/
 
 Current implementation note:
 
-- Phase 3 currently wires `RC522 -> access_service -> locker_service -> servo` and keeps card state in a JSON file plus recent door events in memory until the storage layer lands.
+- The current mainline stores RFID cards, event logs, and snapshots in SQLite.
+- `cards.json` is kept only as a fallback path and is not the primary store in the app path.
 
 ### Vision Flow
 
@@ -534,7 +561,7 @@ Current implementation note:
 - saturation
 - camera mount home angles
 - occupancy thresholds
-- email notification settings
+- email notification settings / frontend URL
 
 ## Notes
 
