@@ -30,6 +30,8 @@ class VisionService:
         self._tracked_face_velocity = (0.0, 0.0)
         self._face_miss_count = 0
         self._face_snapshot_taken = False
+        self._last_face_seen_at: float | None = None
+        self._standby_active = False
 
     def start(self) -> None:
         """Start the background detection loop."""
@@ -39,6 +41,8 @@ class VisionService:
 
             self._stop_event.clear()
             self._started = True
+            self._last_face_seen_at = None
+            self._standby_active = False
             self._worker_thread = threading.Thread(
                 target=self._worker_loop,
                 name="vision-worker",
@@ -64,6 +68,8 @@ class VisionService:
 
         self._reset_face_tracking()
         self._face_snapshot_taken = False
+        self._last_face_seen_at = None
+        self._standby_active = False
 
     def get_boxes(self) -> dict:
         """Return the latest detection payload."""
@@ -99,7 +105,6 @@ class VisionService:
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
-            interval = self._current_detection_interval()
             started_at = time.perf_counter()
             payload = self._run_detection_cycle()
 
@@ -109,14 +114,21 @@ class VisionService:
                 self._frame_condition.notify_all()
 
             elapsed = time.perf_counter() - started_at
+            interval = self._current_detection_interval()
             remaining = max(0.0, interval - elapsed)
             self._stop_event.wait(remaining)
 
     def _current_detection_interval(self) -> float:
-        return 1 / max(config.vision.detection_fps, 1)
+        return 1 / max(self._current_detection_fps_target(), 1)
+
+    def _current_detection_fps_target(self) -> int:
+        if self._standby_active:
+            return max(config.vision.standby_detection_fps, 1)
+        return max(config.vision.detection_fps, 1)
 
     def _run_detection_cycle(self) -> dict:
         started_at = time.perf_counter()
+        detected_at = time.monotonic()
 
         try:
             frame_bgr = self._camera_service.get_detection_frame_bgr()
@@ -135,6 +147,8 @@ class VisionService:
             if face_boxes:
                 boxes = self._update_face_track(face_boxes)
                 self._face_miss_count = 0
+                self._last_face_seen_at = detected_at
+                self._standby_active = False
                 active_mode = "face"
             else:
                 self._face_miss_count += 1
@@ -145,7 +159,8 @@ class VisionService:
                 else:
                     self._clear_face_track()
                     boxes = []
-                    active_mode = "face"
+                    self._update_standby_state(detected_at)
+                    active_mode = "standby" if self._standby_active else "face"
 
             mapped_boxes = self._map_detection_boxes_to_stream(boxes)
             self._maybe_capture_face_snapshot(mapped_boxes, active_mode=active_mode)
@@ -305,7 +320,8 @@ class VisionService:
         stream_width, stream_height = config.camera.stream_size
         detection_width, detection_height = config.camera.detection_size
         runtime_info = self._get_backend_runtime_info()
-        runtime_info["current_detection_fps_target"] = config.vision.detection_fps
+        runtime_info["current_detection_fps_target"] = self._current_detection_fps_target()
+        runtime_info["standby_active"] = self._standby_active
 
         return {
             "mode": "face",
@@ -342,6 +358,14 @@ class VisionService:
             return {}
 
         return runtime_info if isinstance(runtime_info, dict) else {}
+
+    def _update_standby_state(self, now: float) -> None:
+        delay = max(config.vision.standby_after_no_face_seconds, 0.0)
+        if delay <= 0 or self._last_face_seen_at is None:
+            self._standby_active = False
+            return
+
+        self._standby_active = (now - self._last_face_seen_at) >= delay
 
     def _build_empty_payload(
         self,

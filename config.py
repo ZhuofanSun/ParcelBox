@@ -61,8 +61,8 @@ class CameraMountConfig:
     invert_pan_direction: bool = False
     invert_tilt_direction: bool = False
     center_deadzone_ratio: float = 0.10
-    pan_max_single_move_angle: float = 4.5
-    tilt_max_single_move_angle: float = 4.0
+    pan_max_single_move_angle: float = 10
+    tilt_max_single_move_angle: float = 3.5
     tracking_step: float = 0.5
     tracking_delay: float = 0.01
     tracking_cooldown_seconds: float = 0
@@ -150,6 +150,8 @@ class VisionConfig:
 
     backend: str = "opencv"
     detection_fps: int = 15
+    standby_detection_fps: int = 3
+    standby_after_no_face_seconds: float = 5.0
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
     face_score_threshold: float = 0.4
     # Keep predicted face boxes alive for a very short time to reduce jitter when

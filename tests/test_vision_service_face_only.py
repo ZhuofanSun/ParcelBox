@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import unittest
+from unittest.mock import patch
 
 from config import config
 from services.vision_service import VisionService
@@ -64,6 +65,7 @@ class VisionServiceFaceOnlyTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertEqual(payload["target"]["label"], "face")
         self.assertEqual(payload["runtime"]["current_detection_fps_target"], config.vision.detection_fps)
+        self.assertFalse(payload["runtime"]["standby_active"])
 
     def test_run_detection_cycle_keeps_short_face_hold(self) -> None:
         config.vision.face_hold_frames = 2
@@ -104,6 +106,42 @@ class VisionServiceFaceOnlyTests(unittest.TestCase):
         self.assertLess(second_payload["boxes"][0]["x1"], 180)
         self.assertGreater(second_payload["target"]["center_x"], 160.0)
         self.assertLess(second_payload["target"]["center_x"], 240.0)
+
+    def test_run_detection_cycle_enters_standby_after_face_missing_long_enough(self) -> None:
+        config.vision.standby_after_no_face_seconds = 5.0
+        config.vision.standby_detection_fps = 3
+        service = VisionService(FakeVisionCamera())
+        service._backend = FakeFaceBackend(
+            [
+                [build_detection_face_box(100, 80, 220, 220)],
+                [],
+            ]
+        )
+
+        service._run_detection_cycle()
+        service._tracked_face_box = None
+        service._face_miss_count = config.vision.face_hold_frames
+        service._last_face_seen_at = 10.0
+
+        with patch("services.vision_service.time.monotonic", return_value=15.2):
+            payload = service._run_detection_cycle()
+
+        self.assertEqual(payload["active_mode"], "standby")
+        self.assertEqual(payload["runtime"]["current_detection_fps_target"], 3)
+        self.assertTrue(payload["runtime"]["standby_active"])
+
+    def test_run_detection_cycle_detecting_face_exits_standby(self) -> None:
+        config.vision.standby_detection_fps = 3
+        service = VisionService(FakeVisionCamera())
+        service._backend = FakeFaceBackend([[build_detection_face_box(100, 80, 220, 220)]])
+        service._standby_active = True
+        service._last_face_seen_at = 1.0
+
+        payload = service._run_detection_cycle()
+
+        self.assertEqual(payload["active_mode"], "face")
+        self.assertEqual(payload["runtime"]["current_detection_fps_target"], config.vision.detection_fps)
+        self.assertFalse(payload["runtime"]["standby_active"])
 
 
 if __name__ == "__main__":
