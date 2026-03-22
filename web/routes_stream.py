@@ -80,7 +80,7 @@ def build_stream_router(
                 "stream_fps": config.web.stream_fps,
                 "detection_fps": config.vision.detection_fps,
                 "vision_backend": config.vision.backend,
-                "vision_mode": config.vision.mode,
+                "vision_mode": "face",
                 "jpeg_quality": config.web.jpeg_quality,
                 "vision_transport": "websocket",
                 "vision_ws_path": "/ws/vision",

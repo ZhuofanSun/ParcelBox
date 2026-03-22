@@ -146,58 +146,23 @@ class EmailConfig:
 
 @dataclass
 class VisionConfig:
-    """Vision runtime configuration."""
+    """Face-detection runtime configuration."""
 
     backend: str = "opencv"
-    # person: only run person detection
-    # face: only run face detection
-    # auto: use a small state machine:
-    # person_search -> face_track -> face_hold -> person_search
-    # The service searches with person detection, switches to face detection when
-    # the largest person box is close enough, and allows short predicted hold frames
-    # before returning to person detection.
-    mode: str = "face"
-    detection_fps: int = 10
-
-    # Select which person detector to use under the OpenCV backend.
-    # Supported values currently include: hog, mp_persondet, nanodet.
-    person_backend: str = "nanodet"
-    person_fallback_to_hog: bool = True
-    # person_model_path should match the selected person_backend.
-    # Current mainline baseline uses NanoDet.
-    person_model_path: str = "models/object_detection_nanodet_2022nov.onnx"
+    detection_fps: int = 15
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
-
-    person_score_threshold: float = 0.4
     face_score_threshold: float = 0.4
-    person_max_results: int = 3
-    face_near_trigger_ratio: float = 0.28
-    # auto mode uses lower fps while searching for a person and higher fps after
-    # locking onto a face.
-    auto_person_detection_fps: int = 3
-    auto_face_detection_fps: int = 15
     # Keep predicted face boxes alive for a very short time to reduce jitter when
     # face detection misses one or two frames.
-    auto_face_hold_frames: int = 3
-    auto_face_velocity_smoothing: float = 0.5
+    face_hold_frames: int = 3
+    face_velocity_smoothing: float = 0.5
     face_snapshot_trigger_area_ratio: float = 0.08
-    mp_persondet_score_threshold: float = 0.5
-    mp_persondet_nms_threshold: float = 0.3
-    mp_persondet_top_k: int = 3
-
-    # NanoDet-specific tuning.
-    nanodet_prob_threshold: float = 0.35
-    nanodet_iou_threshold: float = 0.3
-    nanodet_input_size: tuple[int, int] = (416, 416)
     face_backend: str = "yunet"
     face_fallback_to_haar: bool = True
     yunet_score_threshold: float = 0.7
     yunet_nms_threshold: float = 0.3
     yunet_top_k: int = 20
 
-    opencv_person_stride: int = 8
-    opencv_person_padding: int = 8
-    opencv_person_scale: float = 1.05
     opencv_face_scale_factor: float = 1.1
     opencv_face_min_neighbors: int = 5
     opencv_face_min_size: int = 40

@@ -135,7 +135,7 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertLess(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertLess(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
 
-    def test_person_target_after_face_tracking_waits_before_homing(self) -> None:
+    def test_missing_face_after_tracking_waits_before_homing(self) -> None:
         service = self.build_service()
 
         service._process_payload(build_payload())
@@ -143,28 +143,7 @@ class CameraMountServiceTests(unittest.TestCase):
         pan_before_loss = service.get_status()["current_angles"]["pan"]
         tilt_before_loss = service.get_status()["current_angles"]["tilt"]
 
-        advice = service._process_payload(
-            {
-                "status": "ok",
-                "frame_size": {"width": 1280, "height": 720},
-                "target": {
-                    "id": "person-1",
-                    "label": "person",
-                    "center_x": 900,
-                    "center_y": 360,
-                },
-                "boxes": [
-                    {
-                        "id": "person-1",
-                        "label": "person",
-                        "x1": 700,
-                        "y1": 100,
-                        "x2": 1100,
-                        "y2": 650,
-                    }
-                ],
-            }
-        )
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
 
         self.assertEqual(advice["status"], "waiting_for_face")
         self.assertIsNone(advice["home_reason"])

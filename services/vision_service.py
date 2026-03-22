@@ -1,4 +1,4 @@
-"""Phase 2 vision service with a pluggable backend."""
+"""Face-detection service with a pluggable backend."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 class VisionService:
-    """Background vision service for person / face detection."""
+    """Background face-detection service."""
 
     def __init__(self, camera_service: CameraService, event_store=None) -> None:
         self._camera_service = camera_service
@@ -26,7 +26,6 @@ class VisionService:
         self._latest_version = 0
         self._started = False
         self._backend = None
-        self._auto_state = "person_search"
         self._tracked_face_box: dict | None = None
         self._tracked_face_velocity = (0.0, 0.0)
         self._face_miss_count = 0
@@ -63,7 +62,7 @@ class VisionService:
             self._latest_version = 0
             self._frame_condition.notify_all()
 
-        self._reset_auto_tracking()
+        self._reset_face_tracking()
         self._face_snapshot_taken = False
 
     def get_boxes(self) -> dict:
@@ -71,7 +70,6 @@ class VisionService:
         with self._frame_condition:
             if self._latest_payload is None:
                 return self._build_empty_payload(
-                    configured_mode=self._normalized_mode(),
                     active_mode="warming_up",
                     status="warming_up",
                     error=None,
@@ -84,13 +82,7 @@ class VisionService:
         last_seen_version: int = 0,
         timeout: float = 2.0,
     ) -> tuple[dict, int]:
-        """
-        Wait until a newer detection payload is available.
-
-        Args:
-            last_seen_version: The last payload version already sent to the client.
-            timeout: Maximum wait time in seconds.
-        """
+        """Wait until a newer detection payload is available."""
         if timeout <= 0:
             raise ValueError("timeout must be > 0")
 
@@ -121,27 +113,15 @@ class VisionService:
             self._stop_event.wait(remaining)
 
     def _current_detection_interval(self) -> float:
-        fps = self._current_detection_fps_target()
-        return 1 / max(fps, 1)
-
-    def _current_detection_fps_target(self) -> int:
-        configured_mode = self._normalized_mode()
-        if configured_mode != "auto":
-            return config.vision.detection_fps
-
-        if self._auto_state in {"face_track", "face_hold"}:
-            return config.vision.auto_face_detection_fps
-        return config.vision.auto_person_detection_fps
+        return 1 / max(config.vision.detection_fps, 1)
 
     def _run_detection_cycle(self) -> dict:
-        configured_mode = self._normalized_mode()
         started_at = time.perf_counter()
 
         try:
             frame_bgr = self._camera_service.get_detection_frame_bgr()
         except Exception as error:
             return self._build_empty_payload(
-                configured_mode=configured_mode,
                 active_mode="camera_error",
                 status="camera_error",
                 error=str(error),
@@ -150,24 +130,29 @@ class VisionService:
 
         try:
             backend = self._ensure_backend()
+            face_boxes = backend.detect_face(frame_bgr)
 
-            if configured_mode == "person":
-                self._reset_auto_tracking()
-                boxes = backend.detect_person(frame_bgr)
-                active_mode = "person"
-            elif configured_mode == "face":
-                self._reset_auto_tracking()
-                boxes = backend.detect_face(frame_bgr)
+            if face_boxes:
+                self._update_face_track(face_boxes)
+                self._face_miss_count = 0
+                boxes = face_boxes
                 active_mode = "face"
             else:
-                boxes, active_mode = self._detect_auto_boxes(backend, frame_bgr)
+                self._face_miss_count += 1
+                predicted_boxes = self._predict_face_boxes()
+                if predicted_boxes and self._face_miss_count <= config.vision.face_hold_frames:
+                    boxes = predicted_boxes
+                    active_mode = "face_hold"
+                else:
+                    self._clear_face_track()
+                    boxes = []
+                    active_mode = "face"
 
             mapped_boxes = self._map_detection_boxes_to_stream(boxes)
-            self._maybe_capture_face_snapshot(mapped_boxes)
+            self._maybe_capture_face_snapshot(mapped_boxes, active_mode=active_mode)
             latency_ms = (time.perf_counter() - started_at) * 1000
 
             return self._build_payload(
-                configured_mode=configured_mode,
                 active_mode=active_mode,
                 boxes=mapped_boxes,
                 status="ok",
@@ -176,7 +161,6 @@ class VisionService:
             )
         except Exception as error:
             return self._build_empty_payload(
-                configured_mode=configured_mode,
                 active_mode="detector_error",
                 status="detector_error",
                 error=str(error),
@@ -187,43 +171,6 @@ class VisionService:
         if self._backend is None:
             self._backend = build_vision_backend()
         return self._backend
-
-    def _normalized_mode(self) -> str:
-        mode = config.vision.mode.lower().strip()
-        if mode not in {"person", "face", "auto"}:
-            return "person"
-        return mode
-
-    def _detect_auto_boxes(self, backend, frame_bgr) -> tuple[list[dict], str]:
-        if self._auto_state == "person_search":
-            person_boxes = backend.detect_person(frame_bgr)
-            if self._is_person_near(person_boxes):
-                self._auto_state = "face_track"
-                self._face_miss_count = 0
-            else:
-                self._clear_face_track()
-            return person_boxes, "person"
-
-        face_boxes = backend.detect_face(frame_bgr)
-        if face_boxes:
-            self._update_face_track(face_boxes)
-            self._auto_state = "face_track"
-            self._face_miss_count = 0
-            return face_boxes, "face"
-
-        self._face_miss_count += 1
-        predicted_boxes = self._predict_face_boxes()
-        if predicted_boxes and self._face_miss_count <= config.vision.auto_face_hold_frames:
-            self._auto_state = "face_hold"
-            return predicted_boxes, "face"
-
-        self._clear_face_track()
-        self._auto_state = "person_search"
-        person_boxes = backend.detect_person(frame_bgr)
-        if self._is_person_near(person_boxes):
-            self._auto_state = "face_track"
-            self._face_miss_count = 0
-        return person_boxes, "person"
 
     def _update_face_track(self, face_boxes: list[dict]) -> None:
         if not face_boxes:
@@ -241,7 +188,7 @@ class VisionService:
             current_center[0] - previous_center[0],
             current_center[1] - previous_center[1],
         )
-        smoothing = config.vision.auto_face_velocity_smoothing
+        smoothing = config.vision.face_velocity_smoothing
         self._tracked_face_velocity = (
             self._tracked_face_velocity[0] * (1.0 - smoothing) + raw_velocity[0] * smoothing,
             self._tracked_face_velocity[1] * (1.0 - smoothing) + raw_velocity[1] * smoothing,
@@ -275,23 +222,14 @@ class VisionService:
         self._tracked_face_velocity = (0.0, 0.0)
         self._face_miss_count = 0
 
-    def _reset_auto_tracking(self) -> None:
-        self._auto_state = "person_search"
+    def _reset_face_tracking(self) -> None:
         self._clear_face_track()
 
-    def _box_center(self, box: dict) -> tuple[float, float]:
+    @staticmethod
+    def _box_center(box: dict) -> tuple[float, float]:
         center_x = (box["x1"] + box["x2"]) / 2
         center_y = (box["y1"] + box["y2"]) / 2
         return center_x, center_y
-
-    def _is_person_near(self, detection_boxes: list[dict]) -> bool:
-        if not detection_boxes:
-            return False
-
-        detection_height = config.camera.detection_size[1]
-        largest_box = detection_boxes[0]
-        height_ratio = (largest_box["y2"] - largest_box["y1"]) / max(detection_height, 1)
-        return height_ratio >= config.vision.face_near_trigger_ratio
 
     def _map_detection_boxes_to_stream(self, detection_boxes: list[dict]) -> list[dict]:
         detection_width, detection_height = config.camera.detection_size
@@ -329,7 +267,7 @@ class VisionService:
 
     def _build_payload(
         self,
-        configured_mode: str,
+        *,
         active_mode: str,
         boxes: list[dict],
         status: str,
@@ -339,12 +277,10 @@ class VisionService:
         stream_width, stream_height = config.camera.stream_size
         detection_width, detection_height = config.camera.detection_size
         runtime_info = self._get_backend_runtime_info()
-        if configured_mode == "auto":
-            runtime_info["auto_state"] = self._auto_state
-            runtime_info["current_detection_fps_target"] = self._current_detection_fps_target()
+        runtime_info["current_detection_fps_target"] = config.vision.detection_fps
 
         return {
-            "mode": configured_mode,
+            "mode": "face",
             "active_mode": active_mode,
             "status": status,
             "backend": config.vision.backend,
@@ -381,14 +317,13 @@ class VisionService:
 
     def _build_empty_payload(
         self,
-        configured_mode: str,
+        *,
         active_mode: str,
         status: str,
         error: str | None,
         latency_ms: float,
     ) -> dict:
         return self._build_payload(
-            configured_mode=configured_mode,
             active_mode=active_mode,
             boxes=[],
             status=status,
@@ -396,7 +331,8 @@ class VisionService:
             latency_ms=latency_ms,
         )
 
-    def _build_target(self, boxes: list[dict]) -> dict | None:
+    @staticmethod
+    def _build_target(boxes: list[dict]) -> dict | None:
         if not boxes:
             return None
 
@@ -411,7 +347,7 @@ class VisionService:
             "center_y": round(center_y, 1),
         }
 
-    def _maybe_capture_face_snapshot(self, boxes: list[dict]) -> None:
+    def _maybe_capture_face_snapshot(self, boxes: list[dict], *, active_mode: str = "face") -> None:
         face_box = self._largest_face_box(boxes)
         if face_box is None:
             self._face_snapshot_taken = False
@@ -431,15 +367,15 @@ class VisionService:
 
         if isinstance(snapshot, dict):
             snapshot.setdefault("trigger", "vision_face")
-            snapshot.setdefault("source", "vision_auto_face")
+            snapshot.setdefault("source", "vision_face")
             if self._event_store is not None:
                 self._event_store.record_event(
                     "vision",
                     {
-                        "type": "auto_face_snapshot_captured",
-                        "source": "vision_auto_face",
+                        "type": "face_snapshot_captured",
+                        "source": "vision_face",
                         "timestamp": time.time(),
-                        "active_mode": self._auto_state,
+                        "active_mode": active_mode,
                         "face_area_ratio": round(area_ratio, 4),
                         "snapshot": snapshot,
                     },
@@ -447,7 +383,8 @@ class VisionService:
 
         self._face_snapshot_taken = True
 
-    def _largest_face_box(self, boxes: list[dict]) -> dict | None:
+    @staticmethod
+    def _largest_face_box(boxes: list[dict]) -> dict | None:
         face_boxes = [box for box in boxes if box.get("label") == "face"]
         if not face_boxes:
             return None
@@ -457,7 +394,8 @@ class VisionService:
             key=lambda box: (box["x2"] - box["x1"]) * (box["y2"] - box["y1"]),
         )
 
-    def _box_area_ratio(self, box: dict) -> float:
+    @staticmethod
+    def _box_area_ratio(box: dict) -> float:
         stream_width, stream_height = config.camera.stream_size
         frame_area = max(stream_width * stream_height, 1)
         box_area = max(box["x2"] - box["x1"], 0) * max(box["y2"] - box["y1"], 0)

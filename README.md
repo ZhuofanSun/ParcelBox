@@ -9,7 +9,7 @@ The project simulates a parcel locker workflow with:
 - RFID-based door access and card permission management
 - A servo-driven locker door
 - A CSI camera with a continuous video stream
-- Vision-based human / face detection
+- Vision-based face detection
 - Manual, RFID, face-triggered, and button-triggered snapshots
 - An ultrasonic sensor for in-box occupancy detection
 - A hardware request button with email notification
@@ -165,7 +165,7 @@ Current storage baseline:
 
 - Local SQLite database via `sqlite:///iot_locker.db`
 - Snapshot directory at `data/snapshots`
-- Card store at `data/cards.json`
+- RFID cards stored in SQLite, with `data/cards.json` retained only as a fallback path
 
 Current notification baseline:
 
@@ -213,18 +213,18 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 - `/ws/vision` now pushes vision results over WebSocket
 - `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream, detection, locker, camera-mount, and button status
-- Current demo defaults: `720p`, `30 fps` stream, `5 fps` detection loop, JPEG quality `70`
+- Current demo defaults: `720p`, `30 fps` stream, `10 fps` face-detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
   re-capturing and re-encoding per viewer
 - `CameraService` now recreates the camera cleanly after stop / start
 - `VisionService` now runs on its own background detection thread and only keeps the
   latest payload instead of queueing stale boxes
 - `VisionService` now uses a pluggable backend and currently defaults to an OpenCV-based
-  person / face detection baseline
+  face-detection baseline
 - Current face baseline prefers `YuNet` when the ONNX model is present, and falls back to
   `Haar` when the model is missing or the OpenCV build does not support it
-- `VisionService` now supports `person`, `face`, and `auto` mode with
-  `person_search -> face_track -> face_hold`
+- `VisionService` mainline is now face-only and keeps a short `face_hold` prediction
+  window for brief misses
 - Large enough faces can now trigger one automatic snapshot until the face disappears
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
@@ -236,21 +236,13 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 ## Vision Baseline
 
 - Current demo uses a `1280x720` stream for frontend display
-- Use a separate `480x480` inference resolution for vision tasks
+- Use a separate `640x360` inference resolution for vision tasks
 - Current detection backend is `OpenCV`
-- Current config supports `person`, `face`, and `auto` mode
-- Current recommended person detector is `OpenCV Zoo NanoDet`
 - Current recommended face detector is `YuNet`
-- Use person detection at longer distance
-- Only switch to face detection when the target is near enough
-- Current `auto` mode now uses a small state machine:
-  - `person_search`
-  - `face_track`
-  - `face_hold`
-- After a face is locked, `auto` mode prefers face detection and can use a higher
-  face-stage detection fps than person search
-- Short face misses can now be bridged by `1-2` predicted frames to reduce visible
-  jitter before the system falls back to person search
+- Current vision mainline is face-only; it no longer runs person detection or `auto`
+  person-to-face switching
+- Short face misses can be bridged by a small `face_hold` prediction window to reduce
+  visible jitter
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
 - Current automatic face snapshot trigger uses face-box area ratio instead of a
   multi-frame sharpness scoring pipeline
@@ -259,33 +251,20 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
 Default local model paths are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
-- `models/object_detection_nanodet_2022nov.onnx`
 - `models/face_detection_yunet_2023mar.onnx`
 
-The current OpenCV backend can already use:
+The current OpenCV backend can use:
 
 - `YuNet` for face detection
-- `NanoDet` for person detection
-
-Current recommended person model choice on Raspberry Pi 4B:
-
-- use `object_detection_nanodet_2022nov.onnx` first to judge accuracy and behavior
-- if the full model is too heavy, switch `config.vision.person_model_path`
-  to `object_detection_nanodet_2022nov_int8bq.onnx`
-
-This branch starts with the full NanoDet ONNX model because it is a cleaner first
-baseline for accuracy. The `int8bq` variant remains the lighter follow-up experiment.
 See [models/README.md](/Users/sunzhuofan/IOT-project/models/README.md).
 
 ## Detection Notes
 
-The current mainline keeps `NanoDet` for person detection and `YuNet` for face
-detection because this combination gave the best balance of accuracy, speed, and
-dependency simplicity on Raspberry Pi 4.
+The current mainline keeps `YuNet` for face detection because it gives a good balance
+of accuracy, speed, and dependency simplicity on Raspberry Pi 4.
 
 Other routes were not enabled in the mainline:
 
-- `MP-PersonDet` worked but tended to focus too much on head / upper-body cues for this project
 - `YOLO` / `YOLOX` added more runtime and dependency cost than value for the current Raspberry Pi setup
 - `TFLite` added Python runtime friction on the current environment and was not kept on the main path
 
@@ -339,7 +318,7 @@ RFID and permission logic only.
 
 Current implementation note:
 
-- Cards now persist to a local JSON store as a Phase 3 bridge before the storage layer is built.
+- Cards now persist to SQLite in the mainline app.
 - The access service can enroll cards, rename / rebind them, enable or disable them, and apply simple weekday + time-window checks.
 
 ### `services/locker_service.py`
@@ -370,7 +349,6 @@ Camera device orchestration.
 
 Vision understanding only.
 
-- person detection
 - face detection
 - tracking target state
 - clear-frame scoring
@@ -378,8 +356,9 @@ Vision understanding only.
 
 Current implementation note:
 
-- The current mainline uses real OpenCV-based person / face detection with an `auto`
-  switching state machine.
+- The current mainline uses real OpenCV-based face detection only.
+- Short face misses can be bridged by a small predicted `face_hold` window before the
+  target is cleared.
 - Face-triggered automatic snapshots are latched per visible face-presence window and
   reset after faces disappear from the frame.
 
