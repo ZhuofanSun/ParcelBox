@@ -17,10 +17,12 @@ class ButtonService:
         self,
         snapshot_callback=None,
         notification_callback=None,
+        event_store=None,
         button_factory=Button,
     ) -> None:
         self._snapshot_callback = snapshot_callback
         self._notification_callback = notification_callback
+        self._event_store = event_store
         self._button_factory = button_factory
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -182,6 +184,8 @@ class ButtonService:
                 event["snapshot_error"] = snapshot_error
             if notification_error is not None:
                 event["notification_error"] = notification_error
+            if self._event_store is not None:
+                event = self._event_store.record_event("button", event)
             if snapshot_error is not None:
                 self._last_error = snapshot_error
             elif notification_error is not None:

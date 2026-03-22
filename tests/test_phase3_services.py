@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import json
 import tempfile
 import time
 import unittest
@@ -12,6 +11,7 @@ from config import config
 from services.access_service import AccessService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
+from storage.event_store import EventStore
 
 
 class FakeServo:
@@ -101,6 +101,29 @@ class FakeReader:
         self.cleaned_up = True
 
 
+class FlakyReadTextReader(FakeReader):
+    def __init__(self) -> None:
+        super().__init__()
+        self.remaining_failures = 1
+
+    def read_text(
+        self,
+        start_block: int = 1,
+        block_count: int = 1,
+        timeout: float = None,
+        poll_interval: float = 0.1,
+    ) -> str:
+        if self.remaining_failures > 0:
+            self.remaining_failures -= 1
+            raise RuntimeError("temporary read failure")
+        return super().read_text(
+            start_block=start_block,
+            block_count=block_count,
+            timeout=timeout,
+            poll_interval=poll_interval,
+        )
+
+
 class FakeLockerBridge:
     def __init__(self) -> None:
         self.processed_uids: list[dict] = []
@@ -135,6 +158,7 @@ class Phase3ServiceTests(unittest.TestCase):
         self.original_config = copy.deepcopy(config)
         self.temp_dir = tempfile.TemporaryDirectory()
         config.storage.card_store_path = str(Path(self.temp_dir.name) / "cards.json")
+        config.storage.database_url = f"sqlite:///{Path(self.temp_dir.name) / 'events.db'}"
 
     def tearDown(self) -> None:
         config.gpio = self.original_config.gpio
@@ -148,15 +172,33 @@ class Phase3ServiceTests(unittest.TestCase):
         config.web = self.original_config.web
         self.temp_dir.cleanup()
 
-    def build_access_service(self) -> AccessService:
-        return AccessService(reader_factory=lambda **kwargs: None, store_path=config.storage.card_store_path)
+    def build_access_service(self, event_store: EventStore | None = None) -> AccessService:
+        return AccessService(
+            reader_factory=lambda **kwargs: None,
+            store_path=config.storage.card_store_path,
+            event_store=event_store or self.build_event_store(),
+        )
 
-    def build_reader_access_service(self) -> tuple[AccessService, FakeReader]:
+    def build_reader_access_service(self, event_store: EventStore | None = None) -> tuple[AccessService, FakeReader]:
         reader = FakeReader()
-        service = AccessService(reader_factory=lambda **kwargs: reader, store_path=config.storage.card_store_path)
+        service = AccessService(
+            reader_factory=lambda **kwargs: reader,
+            store_path=config.storage.card_store_path,
+            event_store=event_store or self.build_event_store(),
+        )
         service.start()
         self.addCleanup(service.stop)
         return service, reader
+
+    def build_custom_reader_access_service(self, reader, event_store: EventStore | None = None) -> AccessService:
+        service = AccessService(
+            reader_factory=lambda **kwargs: reader,
+            store_path=config.storage.card_store_path,
+            event_store=event_store or self.build_event_store(),
+        )
+        service.start()
+        self.addCleanup(service.stop)
+        return service
 
     def build_occupancy_service(self) -> OccupancyService:
         service = OccupancyService(sensor_factory=FakeUltrasonicSensor)
@@ -169,16 +211,24 @@ class Phase3ServiceTests(unittest.TestCase):
         access_service: AccessService,
         occupancy_service: OccupancyService | None = None,
         snapshot_callback=None,
+        event_store: EventStore | None = None,
     ) -> LockerService:
         service = LockerService(
             access_service,
             occupancy_service,
             servo_factory=FakeServo,
             snapshot_callback=snapshot_callback,
+            event_store=event_store,
         )
         service.start()
         self.addCleanup(service.stop)
         return service
+
+    def build_event_store(self) -> EventStore:
+        store = EventStore()
+        store.start()
+        self.addCleanup(store.stop)
+        return store
 
     def test_enrolled_card_is_authorized(self) -> None:
         access_service = self.build_access_service()
@@ -270,6 +320,19 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(status["door_state"], "open")
         self.assertEqual(status["current_angle"], config.door.open_angle)
 
+    def test_locker_events_are_persisted_to_sqlite_store(self) -> None:
+        access_service = self.build_access_service()
+        access_service.enroll_card("CAFE01", name="Tester")
+        event_store = self.build_event_store()
+        locker_service = self.build_locker_service(access_service, event_store=event_store)
+
+        event = locker_service.process_scanned_uid("CAFE01", source="rfid")
+        persisted_events = event_store.list_events(limit=10, category="locker")
+
+        self.assertIsInstance(event["storage_id"], int)
+        self.assertEqual(persisted_events[0]["type"], "door_opened")
+        self.assertEqual(persisted_events[0]["uid"], "CAFE01")
+
     def test_rfid_scan_captures_snapshot_once_until_card_removed(self) -> None:
         access_service = self.build_access_service()
         access_service.enroll_card("CAFE01", name="Tester")
@@ -359,8 +422,24 @@ class Phase3ServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             access_service.write_card_text("x" * (config.rfid.text_block_count * 16 + 1))
 
+    def test_read_card_error_does_not_break_future_read_or_write(self) -> None:
+        reader = FlakyReadTextReader()
+        access_service = self.build_custom_reader_access_service(reader)
+
+        with self.assertRaises(RuntimeError):
+            access_service.read_card_text()
+
+        read_result = access_service.read_card_text()
+        write_result = access_service.write_card_text("hello")
+
+        self.assertEqual(read_result["uid"], reader.uid)
+        self.assertEqual(read_result["text"], reader.text)
+        self.assertEqual(write_result["uid"], reader.uid)
+        self.assertEqual(write_result["text"], "hello")
+
     def test_ensure_card_authorized_persists_card_record(self) -> None:
-        access_service, reader = self.build_reader_access_service()
+        event_store = self.build_event_store()
+        access_service, reader = self.build_reader_access_service(event_store=event_store)
 
         card = access_service.ensure_card_authorized(reader.uid, name="courier-1")
 
@@ -368,9 +447,19 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertTrue(card["enabled"])
         self.assertEqual(card["name"], "courier-1")
         self.assertEqual(access_service.get_card(reader.uid)["uid"], reader.uid)
+        persisted_card = event_store.get_card(reader.uid)
+        self.assertEqual(persisted_card["uid"], reader.uid)
+        self.assertIsNone(access_service.get_status()["store_path"])
+        self.assertEqual(access_service.get_status()["store_backend"], "sqlite")
 
-        store_payload = json.loads(Path(config.storage.card_store_path).read_text(encoding="utf-8"))
-        self.assertEqual(store_payload["cards"][0]["uid"], reader.uid)
+    def test_access_service_reloads_cards_from_sqlite_store(self) -> None:
+        event_store = self.build_event_store()
+        first_service = self.build_access_service(event_store=event_store)
+
+        first_service.ensure_card_authorized("CAFE01", name="courier-1")
+
+        reloaded_service = self.build_access_service(event_store=self.build_event_store())
+        self.assertEqual(reloaded_service.get_card("CAFE01")["name"], "courier-1")
 
     def test_read_card_flow_opens_door_for_authorized_card(self) -> None:
         access_service, reader = self.build_reader_access_service()

@@ -10,8 +10,9 @@ The project simulates a parcel locker workflow with:
 - A servo-driven locker door
 - A CSI camera with a continuous video stream
 - Vision-based human / face detection
-- Clear-frame capture and event-linked snapshots
+- Manual, RFID, face-triggered, and button-triggered snapshots
 - An ultrasonic sensor for in-box occupancy detection
+- A hardware request button with email notification
 - A web dashboard for monitoring and control
 
 ## Hardware Summary
@@ -109,6 +110,7 @@ It already includes placeholders for:
 - camera orientation defaults (`hflip` / `vflip`)
 - camera mount home angles
 - ultrasonic thresholds
+- email notification settings
 - storage path / database URL
 
 Known baseline values have been filled in `config.py`. GPIO assignments are now present there and should be treated as the current baseline until hardware verification says otherwise.
@@ -117,6 +119,13 @@ Current storage baseline:
 
 - Local SQLite database via `sqlite:///iot_locker.db`
 - Snapshot directory at `data/snapshots`
+- Card store at `data/cards.json`
+
+Current notification baseline:
+
+- Button-triggered email request notifications are configured in [config.py](/Users/sunzhuofan/IOT-project/config.py)
+- The email body includes a request-open message and the configured frontend URL
+- Duplicate button-triggered email requests are filtered by a cooldown window
 
 ## Hardware Inputs Still Needed
 
@@ -143,29 +152,21 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 
 ## Current Frontend Direction
 
-- Show a continuous live video stream
-- Current demo keeps frontend display at `1280x720` for smoother delivery on Raspberry Pi
-- Draw detection boxes on the frontend using backend-provided box data
-- Provide manual snapshot capture
-- Provide card management, device testing, alarm, and log viewing
-- Provide camera pan / tilt / home controls
-- Provide RGB LED state control
-- Provide a limited set of video settings:
-  - resolution
-  - frame rate
-  - brightness
-  - sharpness
-  - saturation
-- Persist video settings and restore them on next startup
+- Show a continuous live video stream at `1280x720`
+- Draw detection boxes, frame-center / target-center markers, and tracking hints
+- Provide manual door open / close and manual snapshot capture
+- Provide RFID read polling and write-card actions from the page
+- Show locker status, recent events, card-store snapshot, and latest backend payloads
+- Show hardware button-triggered request notifications in-page when the backend reports them
 
-## Current Phase 2 Demo
+## Current Runtime Status
 
 - `main.py` starts a minimal FastAPI app
 - `frontend/index.html` shows the live stream and draws boxes on a canvas overlay
 - `/api/stream.mjpg` provides the MJPEG stream
 - `/ws/vision` now pushes vision results over WebSocket
 - `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
-- `/api/stream/meta` returns stream and detection sizes
+- `/api/stream/meta` returns stream, detection, locker, camera-mount, and button status
 - Current demo defaults: `720p`, `30 fps` stream, `5 fps` detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
   re-capturing and re-encoding per viewer
@@ -176,13 +177,20 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
   person / face detection baseline
 - Current face baseline prefers `YuNet` when the ONNX model is present, and falls back to
   `Haar` when the model is missing or the OpenCV build does not support it
+- `VisionService` now supports `person`, `face`, and `auto` mode with
+  `person_search -> face_track -> face_hold`
+- Large enough faces can now trigger one automatic snapshot until the face disappears
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
+- `LockerService` now supports RFID read / write / authorize, door open / close,
+  auto-close, occupancy checks after close, and snapshot attachment on RFID scans
+- `ButtonService` now watches the request button, saves a local snapshot, and triggers an
+  email open-request notification with duplicate filtering
 
 ## Vision Baseline
 
 - Current demo uses a `1280x720` stream for frontend display
-- Use a separate `640x480` inference resolution for vision tasks
+- Use a separate `480x480` inference resolution for vision tasks
 - Current detection backend is `OpenCV`
 - Current config supports `person`, `face`, and `auto` mode
 - Current recommended person detector is `OpenCV Zoo NanoDet`
@@ -198,6 +206,8 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py),
 - Short face misses can now be bridged by `1-2` predicted frames to reduce visible
   jitter before the system falls back to person search
 - Save clear snapshots from the higher-quality camera output, not from the low-resolution inference frames
+- Current automatic face snapshot trigger uses face-box area ratio instead of a
+  multi-frame sharpness scoring pipeline
 
 ## Vision Models
 
@@ -322,8 +332,10 @@ Vision understanding only.
 
 Current implementation note:
 
-- Phase 2 currently uses a fake moving box so the frontend overlay pipeline can be validated before a real detector is added
-- Fake box coordinates now read the current configured stream size each time, so later stream-size changes will not require a process restart
+- The current mainline uses real OpenCV-based person / face detection with an `auto`
+  switching state machine.
+- Face-triggered automatic snapshots are latched per visible face-presence window and
+  reset after faces disappear from the frame.
 
 ### `services/camera_mount_service.py`
 
@@ -333,6 +345,30 @@ Pan / tilt servo orchestration for the camera mount.
 - target tracking
 - search pattern when door opens and no face is found
 - return-to-home behavior
+
+Current implementation note:
+
+- The current mount service tracks `face` targets only, publishes pan / tilt advice to
+  the frontend, enforces angle limits, and returns home when face tracking is lost or
+  when the no-face idle timer fires.
+
+### `services/button_service.py`
+
+Hardware request-button orchestration.
+
+- watch button presses
+- capture a local snapshot on press
+- trigger open-request notification callbacks
+- expose the latest button event to the frontend / API
+
+### `services/email_service.py`
+
+Outbound request-notification logic only.
+
+- build open-request email content
+- include frontend dashboard URL in the message body
+- filter duplicate requests with a cooldown
+- keep last send result / error for inspection
 
 ### `services/occupancy_service.py`
 
@@ -346,15 +382,10 @@ Locker occupancy logic based on ultrasonic readings.
 Current implementation note:
 
 - Closing the door now triggers an immediate occupancy measurement when the ultrasonic sensor is available.
-
-### `services/alert_service.py`
-
-Local status feedback.
-
-- button event handling
-- buzzer states
-- RGB LED states
-- remote alarm trigger
+- The current rule is:
+  - `distance <= occupied_threshold_cm` -> `occupied`
+  - `distance > occupied_threshold_cm` and door `closed` -> `empty`
+  - `distance > occupied_threshold_cm` and door `open` -> `door_not_closed`
 
 ### `web/`
 
@@ -415,10 +446,12 @@ iot_locker/
 │  └─ camera.py
 ├─ services/
 │  ├─ access_service.py
+│  ├─ button_service.py
 │  ├─ locker_service.py
 │  ├─ camera_service.py
 │  ├─ vision_service.py
 │  ├─ camera_mount_service.py
+│  ├─ email_service.py
 │  ├─ occupancy_service.py
 │  └─ alert_service.py
 ├─ web/
@@ -459,6 +492,10 @@ Current implementation note:
 
 `camera -> vision_service -> camera_mount_service -> frontend overlays / snapshots`
 
+### Button Request Flow
+
+`button -> button_service -> snapshot + email_service -> frontend notification`
+
 ### Occupancy Flow
 
 `ultrasonic_sensor -> occupancy_service -> locker_service -> storage`
@@ -472,6 +509,7 @@ Current implementation note:
 - saturation
 - camera mount home angles
 - occupancy thresholds
+- email notification settings
 
 ## Notes
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from config import config
 from drivers.rc522 import RC522Reader
+from storage.event_store import EventStore
 
 
 class AccessService:
@@ -21,10 +22,13 @@ class AccessService:
         reader_factory=RC522Reader,
         *,
         store_path: str | Path | None = None,
+        event_store: EventStore | None = None,
     ) -> None:
         self._reader_factory = reader_factory
+        self._event_store = event_store
         self._store_path = Path(store_path) if store_path is not None else Path(config.storage.card_store_path)
         self._lock = threading.Lock()
+        self._io_lock = threading.Lock()
         self._started = False
         self._reader = None
         self._reader_enabled = False
@@ -62,13 +66,19 @@ class AccessService:
     def get_status(self) -> dict:
         """Return reader and card-store status."""
         with self._lock:
+            store_backend = "sqlite" if self._event_store is not None else "json"
+            database_path = None
+            if self._event_store is not None:
+                database_path = self._event_store.get_status().get("database_path")
             return {
                 "started": self._started,
                 "enabled": config.rfid.enabled,
                 "reader_enabled": self._reader_enabled,
                 "card_count": len(self._cards),
                 "last_error": self._last_error,
-                "store_path": str(self._store_path),
+                "store_backend": store_backend,
+                "store_path": str(self._store_path) if self._event_store is None else None,
+                "database_path": database_path,
             }
 
     def list_cards(self) -> list[dict]:
@@ -114,8 +124,8 @@ class AccessService:
                 "updated_at": now,
             }
             self._cards[normalized_uid] = card
-            self._save_cards_locked()
-            return copy.deepcopy(card)
+            self._persist_card_locked(card)
+            return copy.deepcopy(self._cards[normalized_uid])
 
     def update_card(
         self,
@@ -145,8 +155,8 @@ class AccessService:
 
             card["updated_at"] = time.time()
             self._cards[normalized_uid] = card
-            self._save_cards_locked()
-            return copy.deepcopy(card)
+            self._persist_card_locked(card)
+            return copy.deepcopy(self._cards[normalized_uid])
 
     def ensure_card_authorized(
         self,
@@ -183,8 +193,8 @@ class AccessService:
                 card["updated_at"] = now
 
             self._cards[normalized_uid] = card
-            self._save_cards_locked()
-            return copy.deepcopy(card)
+            self._persist_card_locked(card)
+            return copy.deepcopy(self._cards[normalized_uid])
 
     def scan_uid(self, timeout: float | None = None) -> str | None:
         """Read one RFID UID in hex."""
@@ -194,7 +204,8 @@ class AccessService:
             reader = self._reader
             poll_interval = config.rfid.poll_interval_seconds
 
-        uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
+        with self._io_lock:
+            uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
         if uid is None:
             return None
         return self._normalize_uid(uid)
@@ -215,16 +226,17 @@ class AccessService:
 
         resolved_start_block = config.rfid.text_start_block if start_block is None else int(start_block)
         resolved_block_count = config.rfid.text_block_count if block_count is None else int(block_count)
-        uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-        if uid is None:
-            return None
+        with self._io_lock:
+            uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
+            if uid is None:
+                return None
 
-        text = reader.read_text(
-            start_block=resolved_start_block,
-            block_count=resolved_block_count,
-            timeout=timeout,
-            poll_interval=poll_interval,
-        )
+            text = reader.read_text(
+                start_block=resolved_start_block,
+                block_count=resolved_block_count,
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
         return {
             "uid": self._normalize_uid(uid),
             "text": text,
@@ -254,16 +266,17 @@ class AccessService:
             reader = self._reader
             poll_interval = config.rfid.poll_interval_seconds
 
-        uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-        if uid is None:
-            return None
+        with self._io_lock:
+            uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
+            if uid is None:
+                return None
 
-        blocks = reader.write_text(
-            payload,
-            start_block=resolved_start_block,
-            timeout=timeout,
-            poll_interval=poll_interval,
-        )
+            blocks = reader.write_text(
+                payload,
+                start_block=resolved_start_block,
+                timeout=timeout,
+                poll_interval=poll_interval,
+            )
         return {
             "uid": self._normalize_uid(uid),
             "text": payload,
@@ -349,6 +362,19 @@ class AccessService:
 
     def _load_cards_locked(self) -> None:
         self._cards = {}
+
+        if self._event_store is not None:
+            raw_cards = self._event_store.list_cards()
+            for raw_card in raw_cards:
+                if not isinstance(raw_card, dict):
+                    continue
+                try:
+                    normalized_card = self._normalize_card_record(raw_card)
+                except Exception:
+                    continue
+                self._cards[normalized_card["uid"]] = normalized_card
+            return
+
         if self._store_path is None or not self._store_path.exists():
             return
 
@@ -365,19 +391,20 @@ class AccessService:
             if not isinstance(raw_card, dict):
                 continue
             try:
-                uid = self._normalize_uid(raw_card["uid"])
+                normalized_card = self._normalize_card_record(raw_card)
             except Exception:
                 continue
 
-            self._cards[uid] = {
-                "uid": uid,
-                "name": self._normalize_optional_text(raw_card.get("name")),
-                "user_name": self._normalize_optional_text(raw_card.get("user_name")),
-                "enabled": bool(raw_card.get("enabled", True)),
-                "access_windows": self._normalize_access_windows(raw_card.get("access_windows") or []),
-                "created_at": float(raw_card.get("created_at", time.time())),
-                "updated_at": float(raw_card.get("updated_at", time.time())),
-            }
+            self._cards[normalized_card["uid"]] = normalized_card
+
+    def _persist_card_locked(self, card: dict) -> None:
+        if self._event_store is not None:
+            stored_card = self._event_store.upsert_card(card)
+            normalized_card = self._normalize_card_record(stored_card)
+            self._cards[normalized_card["uid"]] = normalized_card
+            return
+
+        self._save_cards_locked()
 
     def _save_cards_locked(self) -> None:
         if self._store_path is None:
@@ -392,6 +419,18 @@ class AccessService:
             json.dumps(payload, indent=2, ensure_ascii=True),
             encoding="utf-8",
         )
+
+    def _normalize_card_record(self, raw_card: dict) -> dict:
+        uid = self._normalize_uid(raw_card["uid"])
+        return {
+            "uid": uid,
+            "name": self._normalize_optional_text(raw_card.get("name")),
+            "user_name": self._normalize_optional_text(raw_card.get("user_name")),
+            "enabled": bool(raw_card.get("enabled", True)),
+            "access_windows": self._normalize_access_windows(raw_card.get("access_windows") or []),
+            "created_at": float(raw_card.get("created_at", time.time())),
+            "updated_at": float(raw_card.get("updated_at", time.time())),
+        }
 
     @staticmethod
     def _normalize_uid(uid: str) -> str:

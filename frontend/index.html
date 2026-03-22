@@ -391,6 +391,7 @@
     let readPollTimer = null;
     let readPollInFlight = false;
     let readPollingActive = false;
+    let readPollingSessionId = 0;
     let buttonToastTimer = null;
     let lastHandledButtonEventId = 0;
 
@@ -398,6 +399,7 @@
     const LOCKER_EVENTS_REFRESH_MS = 6000;
     const READ_POLL_TIMEOUT_SECONDS = 0.75;
     const READ_POLL_INTERVAL_MS = 250;
+    const READ_POLL_ERROR_RETRY_MS = 1500;
 
     function resizeOverlay() {
       const rect = streamImage.getBoundingClientRect();
@@ -704,6 +706,7 @@
 
     function stopReadPolling(statusMessage = null) {
       readPollingActive = false;
+      readPollingSessionId += 1;
       if (readPollTimer) {
         window.clearTimeout(readPollTimer);
         readPollTimer = null;
@@ -714,20 +717,26 @@
       }
     }
 
-    function scheduleReadPoll(delayMs = READ_POLL_INTERVAL_MS) {
+    function scheduleReadPoll(delayMs = READ_POLL_INTERVAL_MS, sessionId = readPollingSessionId) {
       if (!readPollingActive) return;
       if (readPollTimer) {
         window.clearTimeout(readPollTimer);
       }
       readPollTimer = window.setTimeout(() => {
         readPollTimer = null;
-        pollReadCardOnce().catch(() => {});
+        pollReadCardOnce(sessionId).catch(() => {});
       }, delayMs);
+    }
+
+    async function waitForReadPollIdle() {
+      while (readPollInFlight) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+      }
     }
 
     function applyCardIoMode(mode = cardIoMode) {
       if (mode !== "read" && readPollingActive) {
-        stopReadPolling();
+        stopReadPolling("Read polling paused");
       }
       cardIoMode = mode;
       const isReadMode = cardIoMode === "read";
@@ -768,8 +777,8 @@
       return payload;
     }
 
-    async function pollReadCardOnce() {
-      if (!readPollingActive || readPollInFlight) return;
+    async function pollReadCardOnce(sessionId = readPollingSessionId) {
+      if (!readPollingActive || readPollInFlight || cardIoMode !== "read") return;
       readPollInFlight = true;
 
       try {
@@ -778,9 +787,13 @@
           body: JSON.stringify({ scan_timeout_seconds: READ_POLL_TIMEOUT_SECONDS }),
         });
 
+        if (!readPollingActive || cardIoMode !== "read" || sessionId !== readPollingSessionId) {
+          return payload;
+        }
+
         if (payload.status === "waiting_for_card") {
           setControlStatus("Read polling: waiting for card");
-          scheduleReadPoll();
+          scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
           return payload;
         }
 
@@ -793,15 +806,19 @@
           setControlStatus("Card detected: not authorized");
         }
         await Promise.allSettled([refreshLockerStatus(), refreshLockerEvents(), refreshCards()]);
-        scheduleReadPoll();
+        scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
         return payload;
       } catch (error) {
+        if (!readPollingActive || cardIoMode !== "read" || sessionId !== readPollingSessionId) {
+          return null;
+        }
         setControlLog("read_card_error", {
           mode: "read",
           error: error.message,
         });
-        stopReadPolling(`Read polling failed: ${error.message}`);
-        throw error;
+        setControlStatus(`Read polling error: ${error.message}; retrying...`);
+        scheduleReadPoll(READ_POLL_ERROR_RETRY_MS, sessionId);
+        return null;
       } finally {
         readPollInFlight = false;
       }
@@ -818,6 +835,7 @@
         }
 
         readPollingActive = true;
+        readPollingSessionId += 1;
         updateCardIoActionLabel();
         setControlStatus("Read polling started");
         setControlLog(
@@ -827,7 +845,7 @@
             status: "polling_started",
           },
         );
-        await pollReadCardOnce();
+        await pollReadCardOnce(readPollingSessionId);
         return;
       }
 
@@ -837,6 +855,10 @@
       }
 
       setControlButtonsDisabled(true);
+      if (readPollInFlight) {
+        setControlStatus("Waiting for active read poll to finish...");
+        await waitForReadPollIdle();
+      }
       setControlStatus("Write card...");
       setControlLog("write_card", { status: "in_progress" });
 

@@ -20,6 +20,11 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
     """Create card-management endpoints."""
     router = APIRouter()
 
+    def frontend_card_io_pause_seconds(timeout_seconds: float | None) -> float:
+        timeout = 0.0 if timeout_seconds is None else max(float(timeout_seconds), 0.0)
+        settle = max(config.rfid.same_card_cooldown_seconds, 0.5)
+        return timeout + settle
+
     def ensure_reader_available() -> None:
         if not access_service.get_status()["reader_enabled"]:
             raise HTTPException(status_code=503, detail="RFID reader is unavailable")
@@ -45,7 +50,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
         if uid is None:
             ensure_reader_available()
             timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
-            locker_service.pause_rfid_polling(timeout + 0.5)
+            locker_service.pause_rfid_polling(frontend_card_io_pause_seconds(timeout))
             uid = access_service.scan_uid(timeout=timeout)
             if uid is None:
                 raise HTTPException(status_code=408, detail="Timed out waiting for card")
@@ -75,7 +80,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
     def read_card(payload: CardReadPayload) -> dict:
         ensure_reader_available()
         timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
-        locker_service.pause_rfid_polling(timeout + 0.5)
+        locker_service.pause_rfid_polling(frontend_card_io_pause_seconds(timeout))
 
         try:
             result = access_service.read_card_text(
@@ -121,7 +126,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
     def write_card(payload: CardWritePayload) -> dict:
         ensure_reader_available()
         timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
-        locker_service.pause_rfid_polling(timeout + 0.5)
+        locker_service.pause_rfid_polling(frontend_card_io_pause_seconds(timeout))
 
         try:
             result = access_service.write_card_text(

@@ -1,4 +1,46 @@
+import os
 from dataclasses import dataclass, field
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value.strip())
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        return float(raw_value.strip())
+    except ValueError:
+        return default
+
+
+def _env_str(name: str, default: str = "") -> str:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip()
+
+
+def _env_list(name: str, default: list[str]) -> list[str]:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return list(default)
+    return [part.strip() for part in raw_value.split(",") if part.strip()]
 
 
 @dataclass
@@ -93,7 +135,7 @@ class RFIDConfig:
     irq_pin: int | None = None
     scan_timeout_seconds: float = 0.25
     poll_interval_seconds: float = 0.08
-    same_card_cooldown_seconds: float = 1.5
+    same_card_cooldown_seconds: float = 3.0
     enroll_scan_timeout_seconds: float = 10.0
     text_start_block: int = 4
     text_block_count: int = 4
@@ -118,6 +160,7 @@ class StorageConfig:
 
     database_url: str = "sqlite:///iot_locker.db"
     snapshot_dir: str = "data/snapshots"
+    # Retained as a JSON fallback path; the mainline app now stores RFID cards in sqlite.
     card_store_path: str = "data/cards.json"
 
 
@@ -125,19 +168,25 @@ class StorageConfig:
 class EmailConfig:
     """Outbound email notification settings."""
 
-    enabled: bool = True
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    use_tls: bool = True
-    timeout_seconds: float = 10.0
-    username: str = "yinnclja@gmail.com"
-    password: str = "wzsm atzm dwlj dfqd"
-    from_address: str = "yinnclja@gmail.com"
-    to_addresses: list[str] = field(default_factory=lambda: ["yinnclja@gmail.com"])
-    frontend_url: str = "http://192.168.0.106:8000/"
-    request_subject: str = "ParcelBox door open request"
-    request_message: str = "Someone pressed the ParcelBox request-open button."
-    duplicate_request_cooldown_seconds: float = 30.0
+    enabled: bool = _env_bool("PARCELBOX_EMAIL_ENABLED", True)
+    smtp_host: str = _env_str("PARCELBOX_EMAIL_SMTP_HOST", "smtp.gmail.com")
+    smtp_port: int = _env_int("PARCELBOX_EMAIL_SMTP_PORT", 587)
+    use_tls: bool = _env_bool("PARCELBOX_EMAIL_USE_TLS", True)
+    timeout_seconds: float = _env_float("PARCELBOX_EMAIL_TIMEOUT_SECONDS", 10.0)
+    username: str = _env_str("PARCELBOX_EMAIL_USERNAME")
+    password: str = _env_str("PARCELBOX_EMAIL_PASSWORD")
+    from_address: str = _env_str("PARCELBOX_EMAIL_FROM_ADDRESS")
+    to_addresses: list[str] = field(default_factory=lambda: _env_list("PARCELBOX_EMAIL_TO_ADDRESSES", []))
+    frontend_url: str = _env_str("PARCELBOX_EMAIL_FRONTEND_URL", "http://192.168.0.106:8000/")
+    request_subject: str = _env_str("PARCELBOX_EMAIL_REQUEST_SUBJECT", "ParcelBox door open request")
+    request_message: str = _env_str(
+        "PARCELBOX_EMAIL_REQUEST_MESSAGE",
+        "Someone pressed the ParcelBox request-open button.",
+    )
+    duplicate_request_cooldown_seconds: float = _env_float(
+        "PARCELBOX_EMAIL_DUPLICATE_REQUEST_COOLDOWN_SECONDS",
+        30.0,
+    )
 
 
 @dataclass

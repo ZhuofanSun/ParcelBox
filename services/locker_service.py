@@ -21,11 +21,13 @@ class LockerService:
         occupancy_service: OccupancyService | None = None,
         servo_factory=Servo,
         snapshot_callback=None,
+        event_store=None,
     ) -> None:
         self._access_service = access_service
         self._occupancy_service = occupancy_service
         self._servo_factory = servo_factory
         self._snapshot_callback = snapshot_callback
+        self._event_store = event_store
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
@@ -115,7 +117,12 @@ class LockerService:
         if measurement is not None:
             with self._lock:
                 event["occupancy"] = measurement
-                self._events[0] = copy.deepcopy(event)
+                if self._events:
+                    self._events[0] = copy.deepcopy(event)
+                if self._event_store is not None:
+                    event = self._event_store.update_event(event)
+                    if self._events:
+                        self._events[0] = copy.deepcopy(event)
                 return copy.deepcopy(event)
 
         return copy.deepcopy(event)
@@ -186,6 +193,10 @@ class LockerService:
 
     def list_events(self, limit: int = 30) -> list[dict]:
         """Return recent locker events."""
+        if self._event_store is not None:
+            stored_events = self._event_store.list_events(limit=limit, category="locker")
+            if stored_events:
+                return stored_events
         with self._lock:
             return copy.deepcopy(self._events[: max(limit, 0)])
 
@@ -321,9 +332,12 @@ class LockerService:
         self._door_state = state
 
     def _record_event_locked(self, event: dict) -> dict:
-        self._events.insert(0, copy.deepcopy(event))
+        stored_event = event
+        if self._event_store is not None:
+            stored_event = self._event_store.record_event("locker", event)
+        self._events.insert(0, copy.deepcopy(stored_event))
         del self._events[50:]
-        return event
+        return stored_event
 
     def _is_duplicate_scan_locked(self, uid: str) -> bool:
         return self._last_scanned_uid == uid

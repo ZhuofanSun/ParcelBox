@@ -15,6 +15,7 @@ from services.camera_mount_service import CameraMountService
 from services.button_service import ButtonService
 from services.locker_service import LockerService
 from services.vision_service import VisionService
+from storage.event_store import EventStore
 
 
 ACTIVE_VISION_WEBSOCKETS: set[WebSocket] = set()
@@ -47,6 +48,7 @@ def build_stream_router(
     camera_mount_service: CameraMountService | None = None,
     locker_service: LockerService | None = None,
     button_service: ButtonService | None = None,
+    event_store: EventStore | None = None,
 ) -> APIRouter:
     """Create the router for stream and vision endpoints."""
     router = APIRouter()
@@ -97,6 +99,11 @@ def build_stream_router(
                     if button_service is not None
                     else None
                 ),
+                "storage_status": (
+                    event_store.get_status()
+                    if event_store is not None
+                    else None
+                ),
             }
         )
 
@@ -111,7 +118,23 @@ def build_stream_router(
         except RuntimeError as error:
             return JSONResponse({"detail": str(error)}, status_code=503)
 
-        return JSONResponse({"snapshot": payload})
+        if isinstance(payload, dict):
+            payload.setdefault("trigger", "manual")
+            payload.setdefault("source", "frontend_manual")
+
+        event = None
+        if event_store is not None:
+            event = event_store.record_event(
+                "snapshot",
+                {
+                    "type": "manual_snapshot_captured",
+                    "source": "frontend_manual",
+                    "timestamp": time.time(),
+                    "snapshot": payload,
+                },
+            )
+
+        return JSONResponse({"snapshot": payload, "event": event})
 
     @router.websocket("/ws/vision")
     async def vision_websocket(websocket: WebSocket) -> None:

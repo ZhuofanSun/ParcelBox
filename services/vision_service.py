@@ -16,8 +16,9 @@ if TYPE_CHECKING:
 class VisionService:
     """Background vision service for person / face detection."""
 
-    def __init__(self, camera_service: CameraService) -> None:
+    def __init__(self, camera_service: CameraService, event_store=None) -> None:
         self._camera_service = camera_service
+        self._event_store = event_store
         self._frame_condition = threading.Condition()
         self._stop_event = threading.Event()
         self._worker_thread: threading.Thread | None = None
@@ -424,9 +425,25 @@ class VisionService:
             return
 
         try:
-            self._camera_service.capture_snapshot()
+            snapshot = self._camera_service.capture_snapshot()
         except Exception:
             return
+
+        if isinstance(snapshot, dict):
+            snapshot.setdefault("trigger", "vision_face")
+            snapshot.setdefault("source", "vision_auto_face")
+            if self._event_store is not None:
+                self._event_store.record_event(
+                    "vision",
+                    {
+                        "type": "auto_face_snapshot_captured",
+                        "source": "vision_auto_face",
+                        "timestamp": time.time(),
+                        "active_mode": self._auto_state,
+                        "face_area_ratio": round(area_ratio, 4),
+                        "snapshot": snapshot,
+                    },
+                )
 
         self._face_snapshot_taken = True
 
