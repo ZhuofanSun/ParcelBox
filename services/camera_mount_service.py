@@ -454,11 +454,11 @@ class CameraMountService:
 
     @staticmethod
     def _movement_step() -> float:
-        return max(config.camera_mount.tracking_step, 1.0)
+        return float(config.camera_mount.tracking_step)
 
     @staticmethod
     def _movement_delay() -> float:
-        return min(max(config.camera_mount.tracking_delay, 0.0), 0.02)
+        return float(config.camera_mount.tracking_delay)
 
     @staticmethod
     def _home_step() -> float:

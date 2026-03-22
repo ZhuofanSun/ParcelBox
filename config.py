@@ -64,7 +64,7 @@ class CameraMountConfig:
     pan_max_single_move_angle: float = 4.5
     tilt_max_single_move_angle: float = 4.0
     tracking_step: float = 0.5
-    tracking_delay: float = 0.04
+    tracking_delay: float = 0.01
     tracking_cooldown_seconds: float = 0.01
     face_lost_home_delay_seconds: float = 1.0
     home_step: float = 1.0

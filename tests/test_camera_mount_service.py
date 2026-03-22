@@ -282,7 +282,7 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertEqual(service.get_status()["current_angles"]["pan"], first_pan_angle)
         self.assertEqual(service.get_status()["current_angles"]["tilt"], first_tilt_angle)
 
-    def test_tracking_move_uses_minimum_step_and_maximum_delay(self) -> None:
+    def test_tracking_move_uses_configured_step_and_delay(self) -> None:
         service = self.build_service()
         config.camera_mount.tracking_step = 0.2
         config.camera_mount.tracking_delay = 0.3
@@ -290,8 +290,8 @@ class CameraMountServiceTests(unittest.TestCase):
         service._process_payload(build_payload())
         service._process_payload(build_payload(center_x=980, center_y=200), version=2)
 
-        self.assertEqual(service._movement_step(), 1.0)
-        self.assertEqual(service._movement_delay(), 0.02)
+        self.assertEqual(service._movement_step(), 0.2)
+        self.assertEqual(service._movement_delay(), 0.3)
         self.assertGreater(len(service._pan_servo.set_angle_calls), 0)
         self.assertGreater(len(service._tilt_servo.set_angle_calls), 0)
         self.assertGreater(service._pan_servo.release_calls, 0)
