@@ -29,9 +29,9 @@ The project simulates a parcel locker workflow with:
 
 Current wiring references in the repo:
 
-- [wire.pdf](/Users/sunzhuofan/IOT-project/wire.pdf)
-- [wire_schem.pdf](/Users/sunzhuofan/IOT-project/wire_schem.pdf)
-- [wire.fzz](/Users/sunzhuofan/IOT-project/wire.fzz)
+- [wire.pdf](docs/reference/wire.pdf)
+- [wire_schem.pdf](docs/reference/wire_schem.pdf)
+- [wire.fzz](docs/reference/wire.fzz)
 
 These, together with [config.py](/Users/sunzhuofan/IOT-project/config.py), are the current baseline wiring sources.
 
@@ -173,6 +173,203 @@ Current notification baseline:
   settings in [config.py](/Users/sunzhuofan/IOT-project/config.py)
 - The email body includes a request-open message and the configured frontend URL
 - Duplicate button-triggered email requests are filtered by a cooldown window
+
+## Simplified Database ER Draft
+
+This section is the current recommended business-entity draft for a single-device
+deployment. It is intentionally simpler than the current SQLite implementation in
+[data/event_store.py](/Users/sunzhuofan/IOT-project/data/event_store.py):
+
+- no separate `device` table because the project currently assumes one physical box
+- no separate `user` / `principal` table because there is no account system yet
+- no separate `notification_delivery` or `occupancy_measurement` tables in the first pass
+- snapshot relations are kept simple with nullable foreign keys instead of a generic link table
+- JSON fields are avoided unless a future requirement really needs them
+- `access_window` is kept as one compact `TEXT` field instead of being split into multiple columns
+- `button_session_id` is not kept because there is no separate `button_session` entity in this model
+- `button_request_id` is the only button-side relation field needed on `snapshot`
+- `snapshot.source` is omitted in the simplified model; `trigger` is the main snapshot-origin field
+
+![Simplified ERD](docs/reference/ERD.png)
+
+### Database Rewrite Flow
+
+The current rewrite assumption is:
+
+- old SQLite files do not need to be migrated
+- deleting the old database is acceptable
+- the main app should recreate an empty database automatically on startup
+
+Current rewrite sequence:
+
+1. Keep the target schema in [data/schema.sql](/Users/sunzhuofan/IOT-project/data/schema.sql).
+2. Let [data/event_store.py](/Users/sunzhuofan/IOT-project/data/event_store.py) create the database from that schema when startup sees no database file.
+3. Keep the main runtime writing through the event store so `main.py` can still boot against an empty database.
+4. Move any remaining old generic event-style writes toward explicit `rfid_card`, `access_attempt`, `door_session`, `button_request`, and `snapshot` writes as follow-up cleanup.
+
+Current status:
+
+- `storage/` has been merged into `data/`
+- schema creation now comes from `data/schema.sql`
+- the mainline app path can build a fresh SQLite database automatically
+
+### `rfid_card`
+
+Represents one physical RFID card known to the system.
+
+| Attribute | SQLite type | Meaning | Notes |
+| --- | --- | --- | --- |
+| `uid` | `TEXT` | Physical RFID UID | Primary key |
+| `name` | `TEXT` | Human-readable card label | For example `Front Desk Test Card` |
+| `enabled` | `INTEGER` | Whether the card is allowed to be used | Store as `0` / `1` |
+| `access_window` | `TEXT` | Allowed time-window rule | Keep as one compact serialized field |
+| `created_at` | `TEXT` | Record creation time | Recommended format: UTC ISO-8601 |
+| `updated_at` | `TEXT` | Last update time | Recommended format: UTC ISO-8601 |
+
+### `access_attempt`
+
+Represents one card-present event and its authorization result.
+
+| Attribute | SQLite type | Meaning | Notes |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | Access-attempt id | Primary key |
+| `card_uid` | `TEXT` | Which card UID was presented | Keep as scanned UID text |
+| `source` | `TEXT` | Where the attempt came from | Usually `rfid` |
+| `allowed` | `INTEGER` | Authorization result | Store as `0` / `1` |
+| `reason` | `TEXT` | Why it was allowed or denied | Examples: `granted`, `unknown_card`, `outside_schedule` |
+| `checked_at` | `TEXT` | When the decision was made | Recommended format: UTC ISO-8601 |
+
+### `door_session`
+
+Represents one open-to-close door cycle.
+
+| Attribute | SQLite type | Meaning | Notes |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | Door-session id | Primary key |
+| `access_attempt_id` | `INTEGER` | Attempt that opened the door | Nullable for manual open |
+| `open_source` | `TEXT` | How the door was opened | `rfid`, `api`, `auto_close`, etc. |
+| `opened_at` | `TEXT` | Door-open timestamp | Start of the session |
+| `close_source` | `TEXT` | How the door was closed | Nullable until the door closes |
+| `closed_at` | `TEXT` | Door-close timestamp | Nullable until the door closes |
+| `auto_closed` | `INTEGER` | Whether the close was automatic | Store as `0` / `1` |
+| `occupancy_state` | `TEXT` | Post-close occupancy result | `occupied`, `empty`, or `door_not_closed` |
+| `occupancy_distance_cm` | `REAL` | Average measured distance after close | Nullable if no reading was taken |
+| `occupancy_measured_at` | `TEXT` | Measurement timestamp | Nullable |
+
+### `snapshot`
+
+Represents one image saved to disk, regardless of what triggered it.
+
+| Attribute | SQLite type | Meaning | Notes |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | Snapshot id | Primary key |
+| `path` | `TEXT` | Absolute or project-relative saved path | Should point to the local file |
+| `filename` | `TEXT` | Snapshot filename | Usually time-based |
+| `trigger` | `TEXT` | Why the snapshot was taken | Examples: `manual`, `rfid`, `button`, `vision_face` |
+| `captured_at` | `TEXT` | Snapshot timestamp | Business timestamp for the image |
+| `access_attempt_id` | `INTEGER` | Related card-attempt id | Nullable |
+| `button_request_id` | `INTEGER` | Related button-request id | Nullable |
+
+Extra note:
+
+- Manual snapshots or face-triggered snapshots may legitimately have both relation fields empty.
+- `button_session_id` is intentionally omitted here because it would duplicate `button_request_id`.
+- `door_session_id` is intentionally omitted in the simplified design because the current
+  mainline does not need a separate door-session-to-snapshot link.
+- A single snapshot may be attached to an access attempt, a button request, or neither.
+
+### `button_request`
+
+Represents one hardware request-button press.
+
+| Attribute | SQLite type | Meaning | Notes |
+| --- | --- | --- | --- |
+| `id` | `INTEGER` | Button-request id | Primary key |
+| `pressed_at` | `TEXT` | When the button was pressed | Core business timestamp |
+| `email_sent` | `INTEGER` | Whether an email was actually sent | Store as `0` / `1` |
+| `email_duplicated` | `INTEGER` | Whether sending was suppressed by duplicate filtering | Store as `0` / `1` |
+| `email_sent_at` | `TEXT` | Email-send timestamp | Nullable |
+| `email_error` | `TEXT` | Last send error | Nullable |
+
+### Relationship Meanings
+
+- `RFID_CARD o|--o{ ACCESS_ATTEMPT`
+  - One known RFID card can appear in zero or many access attempts.
+  - One access attempt may correspond to zero or one known RFID card row if you keep `unknown_card` scans in the database.
+- `ACCESS_ATTEMPT o|--o| DOOR_SESSION`
+  - One access attempt may open zero or one door session.
+  - One door session may come from zero or one access attempt.
+  - The `zero` side exists because manual open is possible.
+- `ACCESS_ATTEMPT o|--o| SNAPSHOT`
+  - One access attempt may have zero or one snapshot.
+  - One snapshot may belong to zero or one access attempt.
+- `BUTTON_REQUEST o|--o| SNAPSHOT`
+  - One button request may have zero or one snapshot.
+  - One snapshot may belong to zero or one button request.
+
+### Design Notes
+
+- Timestamps are recommended as `TEXT` in UTC ISO-8601 format such as
+  `2026-03-22T14:30:05Z`.
+- SQLite booleans should be stored as `INTEGER` with `0` / `1`.
+- `occupancy_distance_cm` is the only field here that clearly benefits from `REAL`.
+- `card_uid` on `access_attempt` is intentionally plain `TEXT` instead of a strict foreign key
+  if you want to keep denied `unknown_card` scans in the database.
+- The simplified first-pass design does not need `payload_json`, `meta_json`, or
+  `button_session_id`.
+- `access_window` can be JSON text, a compact rule string, or another serialized format,
+  but it should stay one application-level field in this simplified model.
+- `snapshot.trigger` is intentionally kept even though `snapshot.source` is removed, because
+  the current business flow still needs to distinguish manual, RFID, button, and face-triggered captures.
+
+### Recommended SQLite Constraints
+
+- Add `CHECK(enabled IN (0, 1))` to `rfid_card.enabled`.
+- Add `CHECK(allowed IN (0, 1))` to `access_attempt.allowed`.
+- Add `CHECK(auto_closed IN (0, 1))` to `door_session.auto_closed`.
+- Add `CHECK(email_sent IN (0, 1))` and `CHECK(email_duplicated IN (0, 1))`
+  to `button_request`.
+- Add `UNIQUE(access_attempt_id)` on `door_session` if one access attempt should
+  open at most one door session.
+- Add `UNIQUE(access_attempt_id)` and `UNIQUE(button_request_id)` on `snapshot`
+  if each business action should have
+  at most one main snapshot.
+- If you want each snapshot to belong to at most one parent, add a `CHECK` that
+  no more than one of `access_attempt_id` and `button_request_id`
+  is non-null.
+- If you want to preserve denied `unknown_card` attempts, keep `access_attempt.card_uid`
+  as plain `TEXT` without a strict foreign key.
+
+### How To Read The ER Symbols
+
+Mermaid ER diagrams use endpoint symbols to show cardinality.
+
+- `--`
+  - The middle line is just the relationship connector itself.
+  - The real meaning comes from the symbols at both ends.
+- `|`
+  - Means `one`.
+- `o`
+  - Means `zero` or `optional`.
+- The crow's-foot end, rendered like three short lines
+  - Means `many`.
+  - In Mermaid source this is written as `{` or `}` depending on direction.
+
+Common combinations:
+
+- `||`
+  - Exactly one.
+- `o|`
+  - Zero or one.
+- `|{`
+  - One or more.
+- `o{`
+  - Zero or more.
+
+If you read a line like `A ||--o{ B`, it means:
+
+- one `A` can relate to zero or many `B`
+- each `B` must relate to exactly one `A`
 
 ## Hardware Inputs Still Needed
 

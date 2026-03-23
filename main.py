@@ -18,7 +18,7 @@ from services.email_service import EmailNotificationService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
 from services.vision_service import VisionService
-from storage.event_store import EventStore
+from data.event_store import EventStore
 from web.routes_cards import build_cards_router
 from web.routes_control import build_control_router
 from web.routes_logs import build_logs_router

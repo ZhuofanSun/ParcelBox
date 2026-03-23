@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from config import config
-from storage.event_store import EventStore
+from data.event_store import EventStore
 
 
 class EventStoreTests(unittest.TestCase):
@@ -98,7 +98,6 @@ class EventStoreTests(unittest.TestCase):
             {
                 "uid": "CAFE01",
                 "name": "Courier Card",
-                "user_name": "Alice",
                 "enabled": True,
                 "access_windows": [{"days": [0, 1, 2, 3, 4], "start": "09:00", "end": "18:00"}],
                 "created_at": 1774128429.0,
@@ -108,7 +107,7 @@ class EventStoreTests(unittest.TestCase):
 
         self.assertEqual(stored_card["uid"], "CAFE01")
         self.assertEqual(store.get_card("CAFE01")["name"], "Courier Card")
-        self.assertEqual(store.list_cards()[0]["user_name"], "Alice")
+        self.assertEqual(store.list_cards()[0]["access_windows"][0]["start"], "09:00")
         self.assertEqual(store.get_status()["card_count"], 1)
 
 

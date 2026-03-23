@@ -11,7 +11,7 @@ from config import config
 from services.access_service import AccessService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
-from storage.event_store import EventStore
+from data.event_store import EventStore
 
 
 class FakeServo:

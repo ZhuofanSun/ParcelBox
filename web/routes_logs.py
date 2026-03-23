@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from storage.event_store import EventStore
+from data.event_store import EventStore
 
 
 def build_logs_router(event_store: EventStore) -> APIRouter:

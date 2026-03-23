@@ -15,7 +15,7 @@ from services.camera_mount_service import CameraMountService
 from services.button_service import ButtonService
 from services.locker_service import LockerService
 from services.vision_service import VisionService
-from storage.event_store import EventStore
+from data.event_store import EventStore
 
 
 ACTIVE_VISION_WEBSOCKETS: set[WebSocket] = set()

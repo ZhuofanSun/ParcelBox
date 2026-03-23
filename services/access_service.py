@@ -11,7 +11,7 @@ from pathlib import Path
 
 from config import config
 from drivers.rc522 import RC522Reader
-from storage.event_store import EventStore
+from data.event_store import EventStore
 
 
 class AccessService:
