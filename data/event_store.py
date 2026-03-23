@@ -392,6 +392,90 @@ class EventStore:
 
         return stored_snapshot
 
+    def get_table_snapshot(self) -> dict:
+        """Return all persisted business tables for live UI inspection."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    card_rows = connection.execute(
+                        """
+                        SELECT uid, name, enabled, access_window, created_at, updated_at
+                        FROM rfid_card
+                        ORDER BY updated_at DESC, uid ASC
+                        """
+                    ).fetchall()
+                    access_attempt_rows = connection.execute(
+                        """
+                        SELECT id, card_uid, source, allowed, reason, checked_at
+                        FROM access_attempt
+                        ORDER BY id DESC
+                        """
+                    ).fetchall()
+                    door_session_rows = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            access_attempt_id,
+                            open_source,
+                            opened_at,
+                            close_source,
+                            closed_at,
+                            auto_closed,
+                            occupancy_state,
+                            occupancy_distance_cm,
+                            occupancy_measured_at
+                        FROM door_session
+                        ORDER BY id DESC
+                        """
+                    ).fetchall()
+                    button_request_rows = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            pressed_at,
+                            email_sent,
+                            email_duplicated,
+                            email_sent_at,
+                            email_error
+                        FROM button_request
+                        ORDER BY id DESC
+                        """
+                    ).fetchall()
+                    snapshot_rows = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            path,
+                            filename,
+                            trigger,
+                            captured_at,
+                            access_attempt_id,
+                            button_request_id
+                        FROM snapshot
+                        ORDER BY id DESC
+                        """
+                    ).fetchall()
+            except Exception as error:
+                self._last_error = str(error)
+                return {
+                    "rfid_card": [],
+                    "access_attempt": [],
+                    "door_session": [],
+                    "button_request": [],
+                    "snapshot": [],
+                }
+
+            self._last_error = None
+
+        return {
+            "rfid_card": [self._row_to_card(row) for row in card_rows],
+            "access_attempt": [self._row_to_access_attempt(row) for row in access_attempt_rows],
+            "door_session": [self._row_to_door_session(row) for row in door_session_rows],
+            "button_request": [self._row_to_button_request(row) for row in button_request_rows],
+            "snapshot": [self._row_to_snapshot_table_entry(row) for row in snapshot_rows],
+        }
+
     def list_events(self, limit: int = 50, *, category: str | None = None) -> list[dict]:
         """Return recent synthesized events."""
         self._ensure_started()
@@ -845,6 +929,55 @@ class EventStore:
             "trigger": row["trigger"],
             "saved_at": row["captured_at"],
             "captured_at": row["captured_at"],
+        }
+
+    @staticmethod
+    def _row_to_access_attempt(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "card_uid": row["card_uid"],
+            "source": row["source"],
+            "allowed": bool(row["allowed"]),
+            "reason": row["reason"],
+            "checked_at": row["checked_at"],
+        }
+
+    @staticmethod
+    def _row_to_door_session(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "access_attempt_id": row["access_attempt_id"],
+            "open_source": row["open_source"],
+            "opened_at": row["opened_at"],
+            "close_source": row["close_source"],
+            "closed_at": row["closed_at"],
+            "auto_closed": bool(row["auto_closed"]),
+            "occupancy_state": row["occupancy_state"],
+            "occupancy_distance_cm": row["occupancy_distance_cm"],
+            "occupancy_measured_at": row["occupancy_measured_at"],
+        }
+
+    @staticmethod
+    def _row_to_button_request(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "pressed_at": row["pressed_at"],
+            "email_sent": bool(row["email_sent"]),
+            "email_duplicated": bool(row["email_duplicated"]),
+            "email_sent_at": row["email_sent_at"],
+            "email_error": row["email_error"],
+        }
+
+    @staticmethod
+    def _row_to_snapshot_table_entry(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "path": row["path"],
+            "filename": row["filename"],
+            "trigger": row["trigger"],
+            "captured_at": row["captured_at"],
+            "access_attempt_id": row["access_attempt_id"],
+            "button_request_id": row["button_request_id"],
         }
 
     def _row_to_card(self, row) -> dict:

@@ -64,12 +64,11 @@
 
     .content {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 320px;
+      grid-template-columns: minmax(0, 1fr);
       gap: 18px;
     }
 
-    .stream-card,
-    .meta-card {
+    .stream-card {
       border: 1px solid var(--border);
       border-radius: 22px;
       background: var(--panel);
@@ -131,10 +130,11 @@
       pointer-events: none;
     }
 
-    .meta-body {
+    .database-section {
       padding: 16px 18px 20px;
       display: grid;
       gap: 14px;
+      border-top: 1px solid var(--border);
     }
 
     .info-row {
@@ -215,23 +215,58 @@
       background: rgba(255, 255, 255, 0.7);
     }
 
-    .action-status {
-      padding: 10px 12px;
-      border-radius: 12px;
-      background: rgba(26, 38, 34, 0.06);
-      color: var(--muted);
+    .table-card {
+      display: grid;
+      gap: 8px;
+    }
+
+    .table-wrap {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(26, 38, 34, 0.04);
+      overflow: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
       font-size: 13px;
       line-height: 1.45;
     }
 
-    pre {
-      margin: 0;
-      padding: 14px;
-      border-radius: 14px;
-      background: rgba(26, 38, 34, 0.06);
-      overflow: auto;
-      font-size: 13px;
-      line-height: 1.45;
+    th,
+    td {
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid rgba(33, 44, 39, 0.08);
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: rgba(237, 244, 239, 0.96);
+      color: var(--text);
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      z-index: 1;
+    }
+
+    td {
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    td.cell-wrap {
+      white-space: normal;
+      min-width: 220px;
+    }
+
+    td.cell-empty {
+      color: var(--muted);
+      font-style: italic;
     }
 
     .toast {
@@ -257,8 +292,8 @@
     }
 
     @media (max-width: 920px) {
-      .content {
-        grid-template-columns: 1fr;
+      table {
+        min-width: 640px;
       }
     }
   </style>
@@ -290,9 +325,6 @@
               <button id="open-door-btn" type="button">Open Door</button>
               <button id="close-door-btn" type="button">Close Door</button>
               <button id="capture-snapshot-btn" type="button">Capture Photo</button>
-              <button id="refresh-locker-btn" type="button">Refresh Locker</button>
-              <button id="refresh-events-btn" type="button">Refresh Events</button>
-              <button id="refresh-cards-btn" type="button">Refresh Cards</button>
             </div>
           </div>
           <div class="info-row">
@@ -310,10 +342,106 @@
             </div>
             <button id="card-io-action-btn" class="single-action" type="button">Start Polling</button>
           </div>
-          <div class="info-row">
-            <div class="label">Latest Update</div>
-            <div class="action-status" id="control-status">Waiting for action...</div>
-            <pre id="control-log-json">Waiting for manual update...</pre>
+        </div>
+        <div class="database-section">
+          <div class="card-header">
+          <h2 class="card-title">Database Tables</h2>
+          <span class="badge" id="db-badge">Syncing</span>
+          </div>
+          <div class="table-card">
+            <div class="label">RFID Card</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>uid</th>
+                    <th>name</th>
+                    <th>enabled</th>
+                    <th>access_window</th>
+                    <th>created_at</th>
+                    <th>updated_at</th>
+                  </tr>
+                </thead>
+                <tbody id="table-rfid-card-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="label">Access Attempt</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>id</th>
+                    <th>card_uid</th>
+                    <th>source</th>
+                    <th>allowed</th>
+                    <th>reason</th>
+                    <th>checked_at</th>
+                  </tr>
+                </thead>
+                <tbody id="table-access-attempt-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="label">Door Session</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>id</th>
+                    <th>access_attempt_id</th>
+                    <th>open_source</th>
+                    <th>opened_at</th>
+                    <th>close_source</th>
+                    <th>closed_at</th>
+                    <th>auto_closed</th>
+                    <th>occupancy_state</th>
+                    <th>occupancy_distance_cm</th>
+                    <th>occupancy_measured_at</th>
+                  </tr>
+                </thead>
+                <tbody id="table-door-session-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="label">Button Request</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>id</th>
+                    <th>pressed_at</th>
+                    <th>email_sent</th>
+                    <th>email_duplicated</th>
+                    <th>email_sent_at</th>
+                    <th>email_error</th>
+                  </tr>
+                </thead>
+                <tbody id="table-button-request-body"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="label">Snapshot</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>id</th>
+                    <th>path</th>
+                    <th>filename</th>
+                    <th>trigger</th>
+                    <th>captured_at</th>
+                    <th>access_attempt_id</th>
+                    <th>button_request_id</th>
+                  </tr>
+                </thead>
+                <tbody id="table-snapshot-body"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -325,17 +453,18 @@
     const streamImage = document.getElementById("stream");
     const overlay = document.getElementById("overlay");
     const streamBadge = document.getElementById("stream-badge");
-    const controlLogPre = document.getElementById("control-log-json");
+    const dbBadge = document.getElementById("db-badge");
+    const rfidCardBody = document.getElementById("table-rfid-card-body");
+    const accessAttemptBody = document.getElementById("table-access-attempt-body");
+    const doorSessionBody = document.getElementById("table-door-session-body");
+    const buttonRequestBody = document.getElementById("table-button-request-body");
+    const snapshotBody = document.getElementById("table-snapshot-body");
     const cardIoHelper = document.getElementById("card-io-helper");
     const cardWriteFields = document.getElementById("card-write-fields");
     const cardTextInput = document.getElementById("card-text-input");
-    const controlStatus = document.getElementById("control-status");
     const openDoorButton = document.getElementById("open-door-btn");
     const closeDoorButton = document.getElementById("close-door-btn");
     const captureSnapshotButton = document.getElementById("capture-snapshot-btn");
-    const refreshLockerButton = document.getElementById("refresh-locker-btn");
-    const refreshEventsButton = document.getElementById("refresh-events-btn");
-    const refreshCardsButton = document.getElementById("refresh-cards-btn");
     const cardReadModeButton = document.getElementById("card-read-mode-btn");
     const cardWriteModeButton = document.getElementById("card-write-mode-btn");
     const cardIoActionButton = document.getElementById("card-io-action-btn");
@@ -345,6 +474,7 @@
     let latestPayload = null;
     let visionSocket = null;
     let reconnectTimer = null;
+    let databasePollTimer = null;
     let cardIoMode = "read";
     let readPollTimer = null;
     let readPollInFlight = false;
@@ -356,6 +486,7 @@
     const READ_POLL_TIMEOUT_SECONDS = 0.75;
     const READ_POLL_INTERVAL_MS = 250;
     const READ_POLL_ERROR_RETRY_MS = 1500;
+    const DATABASE_POLL_INTERVAL_MS = 2000;
 
     function resizeOverlay() {
       const rect = streamImage.getBoundingClientRect();
@@ -508,16 +639,9 @@
       openDoorButton.disabled = disabled;
       closeDoorButton.disabled = disabled;
       captureSnapshotButton.disabled = disabled;
-      refreshLockerButton.disabled = disabled;
-      refreshEventsButton.disabled = disabled;
-      refreshCardsButton.disabled = disabled;
       cardReadModeButton.disabled = disabled;
       cardWriteModeButton.disabled = disabled;
       cardIoActionButton.disabled = disabled;
-    }
-
-    function setControlStatus(message) {
-      controlStatus.textContent = message;
     }
 
     function formatDateTime(value) {
@@ -568,21 +692,71 @@
       return formatTimestampField(key, value);
     }
 
-    function stringifyForDisplay(value) {
-      return JSON.stringify(formatPayloadForDisplay(value), null, 2);
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
     }
 
-    function setControlLog(action, payload) {
-      controlLogPre.textContent = stringifyForDisplay(
-        {
-          updated_at: new Date().toISOString(),
-          action,
-          payload,
-        },
-      );
+    function formatTableValue(key, value) {
+      const formatted = formatPayloadForDisplay(value, key);
+      if (formatted === null || formatted === undefined || formatted === "") {
+        return { text: "—", empty: true, wrap: false };
+      }
+
+      if (key === "access_windows" && Array.isArray(formatted)) {
+        if (formatted.length === 0) {
+          return { text: "Always", empty: false, wrap: false };
+        }
+        const text = formatted
+          .map((window) => {
+            const days = Array.isArray(window.days) ? window.days.join(",") : "";
+            return `${days} ${window.start}-${window.end}`.trim();
+          })
+          .join(" | ");
+        return { text, empty: false, wrap: true };
+      }
+
+      if (Array.isArray(formatted)) {
+        return { text: formatted.join(", "), empty: false, wrap: true };
+      }
+
+      if (typeof formatted === "object") {
+        return { text: Object.entries(formatted).map(([k, v]) => `${k}: ${v}`).join(", "), empty: false, wrap: true };
+      }
+
+      return { text: String(formatted), empty: false, wrap: String(formatted).length > 48 };
     }
 
-    function showButtonToast(message) {
+    function renderTableRows(tbody, rows, columns) {
+      if (!rows.length) {
+        tbody.innerHTML = `<tr><td class="cell-empty" colspan="${columns.length}">No rows</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = rows
+        .map((row) => {
+          const cells = columns
+            .map((column) => {
+              const { text, empty, wrap } = formatTableValue(column.key, row[column.key]);
+              const classes = [
+                empty ? "cell-empty" : "",
+                wrap ? "cell-wrap" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
+              return `<td${classes ? ` class="${classes}"` : ""}>${escapeHtml(text)}</td>`;
+            })
+            .join("");
+          return `<tr>${cells}</tr>`;
+        })
+        .join("");
+    }
+
+    function showToast(message) {
       if (!message) return;
       buttonToast.textContent = message;
       buttonToast.classList.add("toast-visible");
@@ -593,6 +767,67 @@
         buttonToast.classList.remove("toast-visible");
         buttonToastTimer = null;
       }, 4200);
+    }
+
+    async function refreshDatabaseTables() {
+      const payload = await fetchJson("/api/logs/tables", { headers: {} });
+      const tables = payload.tables || {};
+      renderTableRows(rfidCardBody, tables.rfid_card || [], [
+        { key: "uid" },
+        { key: "name" },
+        { key: "enabled" },
+        { key: "access_windows" },
+        { key: "created_at" },
+        { key: "updated_at" },
+      ]);
+      renderTableRows(accessAttemptBody, tables.access_attempt || [], [
+        { key: "id" },
+        { key: "card_uid" },
+        { key: "source" },
+        { key: "allowed" },
+        { key: "reason" },
+        { key: "checked_at" },
+      ]);
+      renderTableRows(doorSessionBody, tables.door_session || [], [
+        { key: "id" },
+        { key: "access_attempt_id" },
+        { key: "open_source" },
+        { key: "opened_at" },
+        { key: "close_source" },
+        { key: "closed_at" },
+        { key: "auto_closed" },
+        { key: "occupancy_state" },
+        { key: "occupancy_distance_cm" },
+        { key: "occupancy_measured_at" },
+      ]);
+      renderTableRows(buttonRequestBody, tables.button_request || [], [
+        { key: "id" },
+        { key: "pressed_at" },
+        { key: "email_sent" },
+        { key: "email_duplicated" },
+        { key: "email_sent_at" },
+        { key: "email_error" },
+      ]);
+      renderTableRows(snapshotBody, tables.snapshot || [], [
+        { key: "id" },
+        { key: "path" },
+        { key: "filename" },
+        { key: "trigger" },
+        { key: "captured_at" },
+        { key: "access_attempt_id" },
+        { key: "button_request_id" },
+      ]);
+      dbBadge.textContent = `Live ${formatDateTime(Date.now())}`;
+      return payload;
+    }
+
+    function startDatabasePolling() {
+      if (databasePollTimer) return;
+      databasePollTimer = window.setInterval(() => {
+        refreshDatabaseTables().catch(() => {
+          dbBadge.textContent = "Sync Error";
+        });
+      }, DATABASE_POLL_INTERVAL_MS);
     }
 
     function snapshotLabel(snapshot) {
@@ -642,13 +877,7 @@
         notificationMessage = `email failed (${notification.error})`;
       }
       const message = `Button pressed: ${photoMessage}; ${notificationMessage}`;
-      setControlStatus(message);
-      setControlLog("button_press", buttonEvent);
-      showButtonToast(message);
-    }
-
-    function actionKey(label) {
-      return String(label).toLowerCase().replace(/\s+/g, "_");
+      showToast(message);
     }
 
     function updateCardIoActionLabel() {
@@ -669,7 +898,7 @@
       }
       updateCardIoActionLabel();
       if (statusMessage) {
-        setControlStatus(statusMessage);
+        showToast(statusMessage);
       }
     }
 
@@ -706,18 +935,6 @@
       updateCardIoActionLabel();
     }
 
-    async function refreshLockerStatus() {
-      return fetchJson("/api/locker/status", { headers: {} });
-    }
-
-    async function refreshLockerEvents() {
-      return fetchJson("/api/locker/events?limit=10", { headers: {} });
-    }
-
-    async function refreshCards() {
-      return fetchJson("/api/cards", { headers: {} });
-    }
-
     async function pollReadCardOnce(sessionId = readPollingSessionId) {
       if (!readPollingActive || readPollInFlight || cardIoMode !== "read") return;
       readPollInFlight = true;
@@ -733,30 +950,25 @@
         }
 
         if (payload.status === "waiting_for_card") {
-          setControlStatus("Read polling: waiting for card");
           scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
           return payload;
         }
 
-        setControlLog("read_card", payload);
         if (payload.status === "duplicate_scan_ignored") {
-          setControlStatus("Read polling: duplicate card ignored");
+          showToast("Read polling: duplicate card ignored");
         } else if (payload.door_event) {
-          setControlStatus("Authorized card detected: door opened");
+          showToast("Authorized card detected: door opened");
         } else {
-          setControlStatus("Card detected: not authorized");
+          showToast("Card detected: not authorized");
         }
+        await refreshDatabaseTables().catch(() => {});
         scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
         return payload;
       } catch (error) {
         if (!readPollingActive || cardIoMode !== "read" || sessionId !== readPollingSessionId) {
           return null;
         }
-        setControlLog("read_card_error", {
-          mode: "read",
-          error: error.message,
-        });
-        setControlStatus(`Read polling error: ${error.message}; retrying...`);
+        showToast(`Read polling error: ${error.message}; retrying...`);
         scheduleReadPoll(READ_POLL_ERROR_RETRY_MS, sessionId);
         return null;
       } finally {
@@ -777,49 +989,36 @@
         readPollingActive = true;
         readPollingSessionId += 1;
         updateCardIoActionLabel();
-        setControlStatus("Read polling started");
-        setControlLog(
-          "read_polling",
-          {
-            mode: "read",
-            status: "polling_started",
-          },
-        );
+        showToast("Read polling started");
         await pollReadCardOnce(readPollingSessionId);
         return;
       }
 
       if (!text) {
-        setControlStatus("Write card failed: text is required");
+        showToast("Write card failed: text is required");
         return;
       }
 
       setControlButtonsDisabled(true);
       if (readPollInFlight) {
-        setControlStatus("Waiting for active read poll to finish...");
+        showToast("Waiting for active read poll to finish...");
         await waitForReadPollIdle();
       }
-      setControlStatus("Write card...");
-      setControlLog("write_card", { status: "in_progress" });
 
       try {
         const payload = await fetchJson("/api/cards/write", {
           method: "POST",
           body: JSON.stringify({ text }),
         });
-        setControlLog("write_card", payload);
         if (payload.authorized_card) {
-          setControlStatus("Write card succeeded: card saved as authorized");
+          showToast("Write card succeeded: card saved as authorized");
         } else {
-          setControlStatus("Write card succeeded");
+          showToast("Write card succeeded");
         }
+        await refreshDatabaseTables().catch(() => {});
         return payload;
       } catch (error) {
-        setControlLog("write_card_error", {
-          mode: "write",
-          error: error.message,
-        });
-        setControlStatus(`Write card failed: ${error.message}`);
+        showToast(`Write card failed: ${error.message}`);
         throw error;
       } finally {
         setControlButtonsDisabled(false);
@@ -828,26 +1027,16 @@
 
     async function runLockerAction(path, label) {
       setControlButtonsDisabled(true);
-      setControlStatus(`${label}...`);
       try {
         const payload = await fetchJson(path, {
           method: "POST",
           body: JSON.stringify({ source: "frontend" }),
         });
-        setControlStatus(`${label} succeeded`);
-        const [lockerStatus, lockerEvents] = await Promise.all([
-          refreshLockerStatus(),
-          refreshLockerEvents(),
-        ]);
-        setControlLog(actionKey(label), {
-          event: payload,
-          locker_status: lockerStatus,
-          locker_events: lockerEvents,
-        });
+        showToast(`${label} succeeded`);
+        await refreshDatabaseTables().catch(() => {});
         return payload;
       } catch (error) {
-        setControlStatus(`${label} failed: ${error.message}`);
-        setControlLog(`${actionKey(label)}_error`, { error: error.message });
+        showToast(`${label} failed: ${error.message}`);
         throw error;
       } finally {
         setControlButtonsDisabled(false);
@@ -856,18 +1045,16 @@
 
     async function runSnapshotAction() {
       setControlButtonsDisabled(true);
-      setControlStatus("Capturing photo...");
       try {
         const payload = await fetchJson("/api/camera/snapshot", {
           method: "POST",
           body: JSON.stringify({ source: "frontend" }),
         });
-        setControlStatus("Photo captured");
-        setControlLog("capture_snapshot", payload);
+        showToast("Photo captured");
+        await refreshDatabaseTables().catch(() => {});
         return payload;
       } catch (error) {
-        setControlStatus(`Capture photo failed: ${error.message}`);
-        setControlLog("capture_snapshot_error", { error: error.message });
+        showToast(`Capture photo failed: ${error.message}`);
         throw error;
       } finally {
         setControlButtonsDisabled(false);
@@ -931,51 +1118,6 @@
       runSnapshotAction().catch(() => {});
     });
 
-    refreshLockerButton.addEventListener("click", async () => {
-      setControlButtonsDisabled(true);
-      setControlStatus("Refreshing locker status...");
-      try {
-        const payload = await refreshLockerStatus();
-        setControlStatus("Locker status refreshed");
-        setControlLog("refresh_locker", payload);
-      } catch (error) {
-        setControlStatus(`Locker refresh failed: ${error.message}`);
-        setControlLog("refresh_locker_error", { error: error.message });
-      } finally {
-        setControlButtonsDisabled(false);
-      }
-    });
-
-    refreshEventsButton.addEventListener("click", async () => {
-      setControlButtonsDisabled(true);
-      setControlStatus("Refreshing recent events...");
-      try {
-        const payload = await refreshLockerEvents();
-        setControlStatus("Recent events refreshed");
-        setControlLog("refresh_events", payload);
-      } catch (error) {
-        setControlStatus(`Event refresh failed: ${error.message}`);
-        setControlLog("refresh_events_error", { error: error.message });
-      } finally {
-        setControlButtonsDisabled(false);
-      }
-    });
-
-    refreshCardsButton.addEventListener("click", async () => {
-      setControlButtonsDisabled(true);
-      setControlStatus("Refreshing cards...");
-      try {
-        const payload = await refreshCards();
-        setControlStatus("Cards refreshed");
-        setControlLog("refresh_cards", payload);
-      } catch (error) {
-        setControlStatus(`Card refresh failed: ${error.message}`);
-        setControlLog("refresh_cards_error", { error: error.message });
-      } finally {
-        setControlButtonsDisabled(false);
-      }
-    });
-
     cardReadModeButton.addEventListener("click", () => {
       applyCardIoMode("read");
     });
@@ -992,6 +1134,9 @@
     streamImage.addEventListener("load", resizeOverlay);
     window.addEventListener("beforeunload", () => {
       stopReadPolling();
+      if (databasePollTimer) {
+        window.clearInterval(databasePollTimer);
+      }
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
@@ -1006,7 +1151,13 @@
     async function bootstrap() {
       connectVisionSocket();
       applyCardIoMode("read");
-      setControlStatus("Controls ready");
+      try {
+        await refreshDatabaseTables();
+      } catch (error) {
+        dbBadge.textContent = "Sync Error";
+        showToast(`Initial database load failed: ${error.message}`);
+      }
+      startDatabasePolling();
     }
 
     bootstrap();

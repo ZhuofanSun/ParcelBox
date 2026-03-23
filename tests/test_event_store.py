@@ -130,6 +130,60 @@ class EventStoreTests(unittest.TestCase):
         self.assertEqual(store.list_cards()[0]["access_windows"][0]["start"], "09:00")
         self.assertEqual(store.get_status()["card_count"], 1)
 
+    def test_get_table_snapshot_returns_all_business_tables(self) -> None:
+        store = self.build_store()
+
+        card = store.upsert_card(
+            {
+                "uid": "CAFE01",
+                "name": "Courier Card",
+                "enabled": True,
+                "access_windows": [],
+                "created_at": 1774128429.0,
+                "updated_at": 1774128429.0,
+            }
+        )
+        attempt = store.record_access_attempt(
+            card_uid=card["uid"],
+            source="rfid",
+            allowed=True,
+            reason="granted",
+            checked_at=1774128429.0,
+        )
+        store.open_door_session(
+            access_attempt_id=attempt["id"],
+            open_source="rfid",
+            opened_at=1774128429.0,
+        )
+        store.record_button_request(
+            pressed_at=1774128430.0,
+            notification={"status": "duplicate_filtered"},
+            snapshot={
+                "path": "/tmp/button.jpg",
+                "filename": "button.jpg",
+                "saved_at": "2026-03-21T12:00:00",
+                "trigger": "button",
+            },
+        )
+        store.record_snapshot(
+            {
+                "path": "/tmp/manual.jpg",
+                "filename": "manual.jpg",
+                "saved_at": "2026-03-21T12:00:01",
+                "trigger": "manual",
+            },
+            default_trigger="manual",
+            default_timestamp=1774128431.0,
+        )
+
+        snapshot = store.get_table_snapshot()
+
+        self.assertEqual(snapshot["rfid_card"][0]["uid"], "CAFE01")
+        self.assertEqual(snapshot["access_attempt"][0]["card_uid"], "CAFE01")
+        self.assertEqual(snapshot["door_session"][0]["access_attempt_id"], attempt["id"])
+        self.assertTrue(snapshot["button_request"][0]["email_duplicated"])
+        self.assertEqual(snapshot["snapshot"][0]["trigger"], "manual")
+
 
 if __name__ == "__main__":
     unittest.main()
