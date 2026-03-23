@@ -241,19 +241,33 @@ class AccessService:
         resolved_start_block = config.rfid.text_start_block if start_block is None else int(start_block)
         resolved_block_count = config.rfid.text_block_count if block_count is None else int(block_count)
         with self._io_lock:
-            uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-            if uid is None:
-                self._clear_detected_uid_latch()
-                return None
+            read_with_uid = getattr(reader, "read_text_with_uid_hex", None)
+            if callable(read_with_uid):
+                result = read_with_uid(
+                    start_block=resolved_start_block,
+                    block_count=resolved_block_count,
+                    timeout=timeout,
+                    poll_interval=poll_interval,
+                )
+                if result is None:
+                    self._clear_detected_uid_latch()
+                    return None
+                uid, text = result
+                normalized_uid = self._normalize_uid(uid)
+            else:
+                uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
+                if uid is None:
+                    self._clear_detected_uid_latch()
+                    return None
 
-            normalized_uid = self._normalize_uid(uid)
-            self._notify_card_detected(normalized_uid)
-            text = reader.read_text(
-                start_block=resolved_start_block,
-                block_count=resolved_block_count,
-                timeout=timeout,
-                poll_interval=poll_interval,
-            )
+                normalized_uid = self._normalize_uid(uid)
+                text = reader.read_text(
+                    start_block=resolved_start_block,
+                    block_count=resolved_block_count,
+                    timeout=timeout,
+                    poll_interval=poll_interval,
+                )
+        self._notify_card_detected(normalized_uid)
         logger.info(
             "RFID text read: uid=%s start_block=%s block_count=%s text_length=%s",
             normalized_uid,
@@ -292,26 +306,44 @@ class AccessService:
             poll_interval = config.rfid.poll_interval_seconds
 
         with self._io_lock:
-            uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-            if uid is None:
-                self._clear_detected_uid_latch()
-                return None
+            write_with_uid = getattr(reader, "write_text_with_uid_hex", None)
+            if callable(write_with_uid):
+                result = write_with_uid(
+                    payload,
+                    start_block=resolved_start_block,
+                    timeout=timeout,
+                    poll_interval=poll_interval,
+                )
+                if result is None:
+                    self._clear_detected_uid_latch()
+                    return None
+                uid, blocks = result
+                normalized_uid = self._normalize_uid(uid)
+            else:
+                uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
+                if uid is None:
+                    self._clear_detected_uid_latch()
+                    return None
 
-            normalized_uid = self._normalize_uid(uid)
-            self._notify_card_detected(normalized_uid)
-            blocks = reader.write_text(
-                payload,
-                start_block=resolved_start_block,
-                timeout=timeout,
-                poll_interval=poll_interval,
-            )
+                normalized_uid = self._normalize_uid(uid)
+                blocks = reader.write_text(
+                    payload,
+                    start_block=resolved_start_block,
+                    timeout=timeout,
+                    poll_interval=poll_interval,
+                )
+            settle_seconds = max(config.rfid.post_write_settle_seconds, 0.0)
+            if settle_seconds > 0:
+                time.sleep(settle_seconds)
+        self._notify_card_detected(normalized_uid)
         logger.info(
-            "RFID text written: uid=%s start_block=%s block_count=%s blocks=%s text_length=%s",
+            "RFID text written: uid=%s start_block=%s block_count=%s blocks=%s text_length=%s settle_seconds=%s",
             normalized_uid,
             resolved_start_block,
             resolved_block_count,
             blocks,
             len(payload),
+            max(config.rfid.post_write_settle_seconds, 0.0),
         )
         return {
             "uid": normalized_uid,

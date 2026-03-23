@@ -97,6 +97,7 @@ class RFIDConfig:
     scan_timeout_seconds: float = 0.25
     poll_interval_seconds: float = 0.08
     same_card_cooldown_seconds: float = 3.0
+    post_write_settle_seconds: float = 0.2
     enroll_scan_timeout_seconds: float = 10.0
     text_start_block: int = 4
     text_block_count: int = 4

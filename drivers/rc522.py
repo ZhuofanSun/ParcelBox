@@ -270,7 +270,7 @@ class RC522Reader:
         if uid is None:
             return None
 
-        return "".join(f"{byte:02X}" for byte in uid)
+        return self._uid_to_hex(uid)
 
     def read_uid_number(self, timeout: float = None, poll_interval: float = 0.1) -> int | None:
         """
@@ -289,6 +289,10 @@ class RC522Reader:
             value = (value << 8) | byte
 
         return value
+
+    @staticmethod
+    def _uid_to_hex(uid: list[int]) -> str:
+        return "".join(f"{byte:02X}" for byte in uid)
 
     def read_block(
         self,
@@ -490,6 +494,37 @@ class RC522Reader:
         finally:
             self._reader.stop_crypto()
 
+    def read_text_with_uid_hex(
+        self,
+        start_block: int = 1,
+        block_count: int = 1,
+        key=None,
+        auth_mode: str = "A",
+        timeout: float = None,
+        poll_interval: float = 0.1,
+    ) -> tuple[str, str] | None:
+        """
+        Read text data and return the selected UID hex in one reader transaction.
+
+        This avoids re-requesting the same card twice from the service layer.
+        """
+        uid = self.read_uid(timeout, poll_interval)
+        if uid is None:
+            return None
+
+        uid_hex = self._uid_to_hex(uid)
+        self._select_card(uid)
+        blocks = self._next_writable_blocks(start_block, block_count)
+        data = []
+
+        try:
+            for block_addr in blocks:
+                data.extend(self._read_block_selected(uid, block_addr, key, auth_mode))
+            text = bytes(data).rstrip(b"\x00").decode("utf-8", errors="ignore")
+            return uid_hex, text
+        finally:
+            self._reader.stop_crypto()
+
     def write_text(
         self,
         text: str,
@@ -527,6 +562,41 @@ class RC522Reader:
                 chunk = raw_data[index * 16:(index + 1) * 16]
                 self._write_block_selected(uid, block_addr, chunk, key, auth_mode)
             return blocks
+        finally:
+            self._reader.stop_crypto()
+
+    def write_text_with_uid_hex(
+        self,
+        text: str,
+        start_block: int = 1,
+        key=None,
+        auth_mode: str = "A",
+        timeout: float = None,
+        poll_interval: float = 0.1,
+    ) -> tuple[str, list[int]] | None:
+        """
+        Write text data and return the selected UID hex in one reader transaction.
+
+        This avoids re-requesting the same card twice from the service layer.
+        """
+        uid = self.read_uid(timeout, poll_interval)
+        if uid is None:
+            return None
+
+        raw_data = text.encode("utf-8")
+        if len(raw_data) == 0:
+            raw_data = b"\x00"
+
+        block_count = (len(raw_data) + 15) // 16
+        blocks = self._next_writable_blocks(start_block, block_count)
+        uid_hex = self._uid_to_hex(uid)
+        self._select_card(uid)
+
+        try:
+            for index, block_addr in enumerate(blocks):
+                chunk = raw_data[index * 16:(index + 1) * 16]
+                self._write_block_selected(uid, block_addr, chunk, key, auth_mode)
+            return uid_hex, blocks
         finally:
             self._reader.stop_crypto()
 

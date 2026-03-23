@@ -137,6 +137,52 @@ class SequencedUidReader(FakeReader):
         return None
 
 
+class CombinedIoReader(FakeReader):
+    def __init__(self) -> None:
+        super().__init__()
+        self.direct_uid_reads = 0
+        self.combined_reads: list[dict] = []
+        self.combined_writes: list[dict] = []
+
+    def read_uid_hex(self, timeout: float = None, poll_interval: float = 0.1) -> str | None:
+        self.direct_uid_reads += 1
+        return super().read_uid_hex(timeout=timeout, poll_interval=poll_interval)
+
+    def read_text_with_uid_hex(
+        self,
+        start_block: int = 1,
+        block_count: int = 1,
+        timeout: float = None,
+        poll_interval: float = 0.1,
+    ) -> tuple[str, str] | None:
+        self.combined_reads.append(
+            {
+                "start_block": start_block,
+                "block_count": block_count,
+                "timeout": timeout,
+                "poll_interval": poll_interval,
+            }
+        )
+        return self.uid, self.text
+
+    def write_text_with_uid_hex(
+        self,
+        text: str,
+        start_block: int = 1,
+        timeout: float = None,
+        poll_interval: float = 0.1,
+    ) -> tuple[str, list[int]] | None:
+        self.combined_writes.append(
+            {
+                "text": text,
+                "start_block": start_block,
+                "timeout": timeout,
+                "poll_interval": poll_interval,
+            }
+        )
+        return self.uid, [start_block]
+
+
 class FakeLockerBridge:
     def __init__(self) -> None:
         self.processed_uids: list[dict] = []
@@ -172,6 +218,7 @@ class Phase3ServiceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         config.storage.card_store_path = str(Path(self.temp_dir.name) / "cards.json")
         config.storage.database_url = f"sqlite:///{Path(self.temp_dir.name) / 'events.db'}"
+        config.rfid.post_write_settle_seconds = 0.0
 
     def tearDown(self) -> None:
         config.gpio = self.original_config.gpio
@@ -545,6 +592,19 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(first["uid"], reader.uid)
         self.assertEqual(second["uid"], reader.uid)
         self.assertEqual(beeps, ["beep", "beep"])
+
+    def test_interactive_card_io_prefers_single_pass_reader_methods(self) -> None:
+        reader = CombinedIoReader()
+        access_service = self.build_custom_reader_access_service(reader)
+
+        read_result = access_service.read_card_text()
+        write_result = access_service.write_card_text("hello")
+
+        self.assertEqual(read_result["uid"], reader.uid)
+        self.assertEqual(write_result["uid"], reader.uid)
+        self.assertEqual(reader.direct_uid_reads, 0)
+        self.assertEqual(len(reader.combined_reads), 1)
+        self.assertEqual(len(reader.combined_writes), 1)
 
 
 if __name__ == "__main__":
