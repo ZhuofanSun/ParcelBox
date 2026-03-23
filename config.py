@@ -103,6 +103,31 @@ class RFIDConfig:
 
 
 @dataclass
+class BuzzerConfig:
+    """Active buzzer runtime settings."""
+
+    enabled: bool = True
+    card_detect_beep_duration: float = 0.05
+    card_detect_beep_repeat: int = 1
+    card_detect_beep_interval: float = 0.0
+
+
+@dataclass
+class LedConfig:
+    """RGB LED runtime settings."""
+
+    enabled: bool = True
+    common_anode: bool = True
+    pwm_frequency: int = 1000
+    update_interval_seconds: float = 0.05
+    button_pending_seconds: float = 5.0
+    denied_flash_seconds: float = 2.0
+    standby_breath_cycle_seconds: float = 2.4
+    slow_blink_cycle_seconds: float = 1.0
+    fast_blink_cycle_seconds: float = 0.3
+
+
+@dataclass
 class UltrasonicConfig:
     """Baseline thresholds for locker occupancy detection."""
 
@@ -193,6 +218,8 @@ class AppConfig:
     camera_mount: CameraMountConfig = field(default_factory=CameraMountConfig)
     door: DoorConfig = field(default_factory=DoorConfig)
     rfid: RFIDConfig = field(default_factory=RFIDConfig)
+    buzzer: BuzzerConfig = field(default_factory=BuzzerConfig)
+    led: LedConfig = field(default_factory=LedConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     email: EmailConfig = field(default_factory=EmailConfig)

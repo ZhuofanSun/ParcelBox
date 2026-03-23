@@ -229,6 +229,15 @@ class LockerService:
             "recent_events": self.list_events(limit=10),
         }
 
+    def get_indicator_state(self) -> dict:
+        """Return lightweight state for LED / buzzer indicator logic."""
+        with self._lock:
+            return {
+                "door_state": self._door_state,
+                "last_error": self._last_error,
+                "last_access_result": copy.deepcopy(self._last_access_result),
+            }
+
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             pause_seconds = self._rfid_pause_remaining()

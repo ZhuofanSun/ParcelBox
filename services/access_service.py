@@ -23,9 +23,11 @@ class AccessService:
         *,
         store_path: str | Path | None = None,
         event_store: EventStore | None = None,
+        card_detect_callback=None,
     ) -> None:
         self._reader_factory = reader_factory
         self._event_store = event_store
+        self._card_detect_callback = card_detect_callback
         self._store_path = Path(store_path) if store_path is not None else Path(config.storage.card_store_path)
         self._lock = threading.Lock()
         self._io_lock = threading.Lock()
@@ -34,6 +36,7 @@ class AccessService:
         self._reader_enabled = False
         self._last_error: str | None = None
         self._cards: dict[str, dict] = {}
+        self._last_detected_uid: str | None = None
         self._load_cards_locked()
 
     def start(self) -> None:
@@ -197,8 +200,11 @@ class AccessService:
         with self._io_lock:
             uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
         if uid is None:
+            self._clear_detected_uid_latch()
             return None
-        return self._normalize_uid(uid)
+        normalized_uid = self._normalize_uid(uid)
+        self._notify_card_detected(normalized_uid)
+        return normalized_uid
 
     def read_card_text(
         self,
@@ -219,8 +225,11 @@ class AccessService:
         with self._io_lock:
             uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
             if uid is None:
+                self._clear_detected_uid_latch()
                 return None
 
+            normalized_uid = self._normalize_uid(uid)
+            self._notify_card_detected(normalized_uid)
             text = reader.read_text(
                 start_block=resolved_start_block,
                 block_count=resolved_block_count,
@@ -228,7 +237,7 @@ class AccessService:
                 poll_interval=poll_interval,
             )
         return {
-            "uid": self._normalize_uid(uid),
+            "uid": normalized_uid,
             "text": text,
             "start_block": resolved_start_block,
             "block_count": resolved_block_count,
@@ -259,8 +268,11 @@ class AccessService:
         with self._io_lock:
             uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
             if uid is None:
+                self._clear_detected_uid_latch()
                 return None
 
+            normalized_uid = self._normalize_uid(uid)
+            self._notify_card_detected(normalized_uid)
             blocks = reader.write_text(
                 payload,
                 start_block=resolved_start_block,
@@ -268,7 +280,7 @@ class AccessService:
                 poll_interval=poll_interval,
             )
         return {
-            "uid": self._normalize_uid(uid),
+            "uid": normalized_uid,
             "text": payload,
             "start_block": resolved_start_block,
             "block_count": resolved_block_count,
@@ -324,6 +336,24 @@ class AccessService:
         if uid is None:
             return None
         return self.authorize_uid(uid)
+
+    def _notify_card_detected(self, uid: str) -> None:
+        callback = None
+        with self._lock:
+            if uid == self._last_detected_uid:
+                return
+            self._last_detected_uid = uid
+            callback = self._card_detect_callback
+
+        if callable(callback):
+            try:
+                callback()
+            except Exception:
+                pass
+
+    def _clear_detected_uid_latch(self) -> None:
+        with self._lock:
+            self._last_detected_uid = None
 
     def _initialize_reader_locked(self) -> None:
         self._reader = None

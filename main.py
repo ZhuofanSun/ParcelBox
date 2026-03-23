@@ -12,9 +12,11 @@ from fastapi.staticfiles import StaticFiles
 from config import config
 from services.access_service import AccessService
 from services.button_service import ButtonService
+from services.buzzer_service import BuzzerService
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
 from services.email_service import EmailNotificationService
+from services.led_service import LedService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
 from services.vision_service import VisionService
@@ -32,12 +34,16 @@ camera_mount_service = CameraMountService(vision_service)
 vision_service.set_standby_anchor_provider(camera_mount_service.get_standby_anchor_timestamp)
 camera_service.set_stream_standby_provider(vision_service.is_standby_active)
 email_service = EmailNotificationService()
+buzzer_service = BuzzerService()
 button_service = ButtonService(
     snapshot_callback=camera_service.capture_snapshot,
     notification_callback=email_service.send_open_request_email,
     event_store=event_store,
 )
-access_service = AccessService(event_store=event_store)
+access_service = AccessService(
+    event_store=event_store,
+    card_detect_callback=buzzer_service.beep_card_detected,
+)
 occupancy_service = OccupancyService()
 locker_service = LockerService(
     access_service,
@@ -45,11 +51,18 @@ locker_service = LockerService(
     snapshot_callback=camera_service.capture_snapshot,
     event_store=event_store,
 )
+led_service = LedService(
+    vision_service=vision_service,
+    camera_mount_service=camera_mount_service,
+    locker_service=locker_service,
+    button_service=button_service,
+)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     reset_stream_shutdown_state()
+    buzzer_service.start()
     access_service.start()
     occupancy_service.start()
     event_store.start()
@@ -58,10 +71,12 @@ async def lifespan(app: FastAPI):
     vision_service.start()
     locker_service.start()
     camera_mount_service.start()
+    led_service.start()
     try:
         yield
     finally:
         await begin_stream_shutdown()
+        led_service.stop()
         camera_mount_service.stop()
         locker_service.stop()
         vision_service.stop()
@@ -70,6 +85,7 @@ async def lifespan(app: FastAPI):
         event_store.stop()
         occupancy_service.stop()
         access_service.stop()
+        buzzer_service.stop()
 
 
 app = FastAPI(title="ParcelBox", lifespan=lifespan)
@@ -81,6 +97,8 @@ app.include_router(
         locker_service,
         button_service,
         event_store,
+        led_service,
+        buzzer_service,
     )
 )
 app.include_router(build_control_router(locker_service))

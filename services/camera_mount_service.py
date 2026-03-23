@@ -194,6 +194,11 @@ class CameraMountService:
         with self._lock:
             return self._standby_anchor_at
 
+    def get_latest_advice(self) -> dict:
+        """Return the latest tracking / search advice without the full service status payload."""
+        with self._lock:
+            return copy.deepcopy(self._latest_advice)
+
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             try:

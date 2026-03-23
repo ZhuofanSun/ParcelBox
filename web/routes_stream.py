@@ -13,7 +13,9 @@ from config import config
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
 from services.button_service import ButtonService
+from services.buzzer_service import BuzzerService
 from services.locker_service import LockerService
+from services.led_service import LedService
 from services.vision_service import VisionService
 from data.event_store import EventStore
 
@@ -49,6 +51,8 @@ def build_stream_router(
     locker_service: LockerService | None = None,
     button_service: ButtonService | None = None,
     event_store: EventStore | None = None,
+    led_service: LedService | None = None,
+    buzzer_service: BuzzerService | None = None,
 ) -> APIRouter:
     """Create the router for stream and vision endpoints."""
     router = APIRouter()
@@ -99,6 +103,16 @@ def build_stream_router(
                 "button_status": (
                     button_service.get_status()
                     if button_service is not None
+                    else None
+                ),
+                "led_status": (
+                    led_service.get_status()
+                    if led_service is not None
+                    else None
+                ),
+                "buzzer_status": (
+                    buzzer_service.get_status()
+                    if buzzer_service is not None
                     else None
                 ),
                 "storage_status": (

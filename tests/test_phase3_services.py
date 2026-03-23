@@ -124,6 +124,19 @@ class FlakyReadTextReader(FakeReader):
         )
 
 
+class SequencedUidReader(FakeReader):
+    def __init__(self, sequence: list[str | None]) -> None:
+        super().__init__()
+        self._sequence = list(sequence)
+
+    def read_uid_hex(self, timeout: float = None, poll_interval: float = 0.1) -> str | None:
+        self.read_requests.append({"type": "uid", "timeout": timeout, "poll_interval": poll_interval})
+        if self._sequence:
+            next_uid = self._sequence.pop(0)
+            return next_uid
+        return None
+
+
 class FakeLockerBridge:
     def __init__(self) -> None:
         self.processed_uids: list[dict] = []
@@ -179,22 +192,35 @@ class Phase3ServiceTests(unittest.TestCase):
             event_store=event_store or self.build_event_store(),
         )
 
-    def build_reader_access_service(self, event_store: EventStore | None = None) -> tuple[AccessService, FakeReader]:
+    def build_reader_access_service(
+        self,
+        event_store: EventStore | None = None,
+        *,
+        card_detect_callback=None,
+    ) -> tuple[AccessService, FakeReader]:
         reader = FakeReader()
         service = AccessService(
             reader_factory=lambda **kwargs: reader,
             store_path=config.storage.card_store_path,
             event_store=event_store or self.build_event_store(),
+            card_detect_callback=card_detect_callback,
         )
         service.start()
         self.addCleanup(service.stop)
         return service, reader
 
-    def build_custom_reader_access_service(self, reader, event_store: EventStore | None = None) -> AccessService:
+    def build_custom_reader_access_service(
+        self,
+        reader,
+        event_store: EventStore | None = None,
+        *,
+        card_detect_callback=None,
+    ) -> AccessService:
         service = AccessService(
             reader_factory=lambda **kwargs: reader,
             store_path=config.storage.card_store_path,
             event_store=event_store or self.build_event_store(),
+            card_detect_callback=card_detect_callback,
         )
         service.start()
         self.addCleanup(service.stop)
@@ -490,6 +516,20 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(door_event["type"], "door_opened")
         self.assertEqual(door_event["source"], "frontend_read")
         self.assertEqual(locker_bridge.processed_uids[0]["uid"], reader.uid)
+
+    def test_card_detect_callback_fires_once_until_reader_sees_no_card(self) -> None:
+        beeps: list[str] = []
+        reader = SequencedUidReader(["CAFE01", "CAFE01", None, "CAFE01"])
+        access_service = self.build_custom_reader_access_service(
+            reader,
+            card_detect_callback=lambda: beeps.append("beep"),
+        )
+
+        self.assertEqual(access_service.scan_uid(), "CAFE01")
+        self.assertEqual(access_service.scan_uid(), "CAFE01")
+        self.assertIsNone(access_service.scan_uid())
+        self.assertEqual(access_service.scan_uid(), "CAFE01")
+        self.assertEqual(beeps, ["beep", "beep"])
 
 
 if __name__ == "__main__":
