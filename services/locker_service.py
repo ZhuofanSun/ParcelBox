@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 import time
 
@@ -10,6 +11,8 @@ from config import config
 from drivers.servo import Servo
 from services.access_service import AccessService
 from services.occupancy_service import OccupancyService
+
+logger = logging.getLogger(__name__)
 
 
 class LockerService:
@@ -63,6 +66,11 @@ class LockerService:
                     daemon=True,
                 )
                 self._worker_thread.start()
+            logger.info(
+                "Locker service started: servo_enabled=%s reader_enabled=%s",
+                self._door_servo_enabled,
+                access_status["reader_enabled"],
+            )
 
     def stop(self) -> None:
         """Stop the RFID worker and release servo resources."""
@@ -90,6 +98,7 @@ class LockerService:
                 cleanup()
             except Exception:
                 pass
+        logger.info("Locker service stopped")
 
     def pause_rfid_polling(self, duration_seconds: float) -> None:
         """Temporarily pause background RFID scans."""
@@ -103,6 +112,11 @@ class LockerService:
         """Open the door and record an event."""
         with self._lock:
             event = self._open_door_locked(source=source, access_result=access_result)
+            logger.info(
+                "Door opened: source=%s access_uid=%s",
+                source,
+                None if access_result is None else access_result.get("uid"),
+            )
             return copy.deepcopy(event)
 
     def close_door(self, *, source: str = "api") -> dict:
@@ -128,6 +142,13 @@ class LockerService:
 
         with self._lock:
             recorded_event = self._persist_door_closed_event_locked(event)
+            logger.info(
+                "Door closed: source=%s auto_closed=%s occupancy=%s distance_cm=%s",
+                source,
+                source == "auto_close",
+                None if measurement is None else measurement.get("state"),
+                None if measurement is None else measurement.get("distance_cm"),
+            )
             return copy.deepcopy(recorded_event)
 
     def process_scanned_uid(
@@ -141,8 +162,16 @@ class LockerService:
         access_result = copy.deepcopy(access_result) if access_result is not None else self._access_service.authorize_uid(uid)
         with self._lock:
             if self._is_duplicate_scan_locked(access_result["uid"]):
+                logger.info("RFID duplicate scan ignored: uid=%s source=%s", access_result["uid"], source)
                 return None
             self._remember_scan_locked(access_result["uid"])
+        logger.info(
+            "RFID scan accepted for processing: uid=%s source=%s allowed=%s reason=%s",
+            access_result["uid"],
+            source,
+            access_result["allowed"],
+            access_result["reason"],
+        )
         snapshot = self.capture_snapshot_for_card_action(source=source, uid=access_result["uid"])
         with self._lock:
             self._last_access_result = copy.deepcopy(access_result)
@@ -167,13 +196,22 @@ class LockerService:
                 event["snapshot"] = snapshot
 
             event = self._persist_access_denied_event_locked(event)
+            logger.info(
+                "Access denied event recorded: uid=%s source=%s reason=%s",
+                access_result["uid"],
+                source,
+                access_result["reason"],
+            )
             return copy.deepcopy(event)
 
     def note_no_card_present(self) -> None:
         """Clear duplicate-scan latch after the reader sees no card."""
         with self._lock:
+            had_latch = self._last_scanned_uid is not None
             self._last_scanned_uid = None
             self._last_scanned_at = 0.0
+        if had_latch:
+            logger.info("RFID duplicate-scan latch cleared after no-card read")
 
     def capture_snapshot_for_card_action(self, *, source: str, uid: str | None = None) -> dict | None:
         """Capture one snapshot for a card-present event if camera capture is available."""
@@ -185,6 +223,7 @@ class LockerService:
         except Exception as error:
             with self._lock:
                 self._last_error = str(error)
+            logger.warning("Card-action snapshot failed: source=%s uid=%s error=%s", source, uid, error)
             return None
 
         if isinstance(snapshot, dict):
@@ -192,6 +231,12 @@ class LockerService:
             snapshot.setdefault("source", source)
             if uid is not None:
                 snapshot.setdefault("uid", uid)
+        logger.info(
+            "Card-action snapshot captured: source=%s uid=%s filename=%s",
+            source,
+            uid,
+            None if snapshot is None else snapshot.get("filename"),
+        )
         return snapshot
 
     def list_events(self, limit: int = 30) -> list[dict]:
@@ -252,6 +297,7 @@ class LockerService:
             except Exception as error:
                 with self._lock:
                     self._last_error = str(error)
+                logger.warning("RFID worker loop error: %s", error)
                 self._stop_event.wait(0.1)
                 continue
 
@@ -285,10 +331,16 @@ class LockerService:
             )
             self._door_servo_enabled = True
             self._last_error = None
+            logger.info(
+                "Door servo initialized on pin %s using backend %s",
+                config.gpio.door_servo_pin,
+                getattr(self._door_servo, "backend_name", None),
+            )
         except Exception as error:
             self._door_servo = None
             self._door_servo_enabled = False
             self._last_error = str(error)
+            logger.warning("Door servo initialization failed: %s", error)
 
     def _open_door_locked(
         self,
@@ -327,10 +379,12 @@ class LockerService:
                 )
             except Exception as error:
                 self._last_error = str(error)
+                logger.warning("Door servo move failed: target=%s state=%s error=%s", clamped_target, state, error)
                 return
 
         self._door_angle = clamped_target
         self._door_state = state
+        logger.info("Door state set: state=%s angle=%.2f", state, clamped_target)
 
     def _persist_access_denied_event_locked(self, event: dict) -> dict:
         stored_event = copy.deepcopy(event)

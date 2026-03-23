@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import math
 import threading
 import time
@@ -13,6 +14,8 @@ from drivers.servo import Servo
 
 if TYPE_CHECKING:
     from services.vision_service import VisionService
+
+logger = logging.getLogger(__name__)
 
 
 class CameraMountService:
@@ -46,6 +49,7 @@ class CameraMountService:
         self._servo_control_enabled = False
         self._last_error: str | None = None
         self._latest_advice = self._build_idle_advice()
+        self._last_logged_status: tuple[str | None, str | None] | None = None
 
     def start(self) -> None:
         """Start the mount-control worker and initialize the servos."""
@@ -69,6 +73,7 @@ class CameraMountService:
             self._initialize_servos_locked()
 
             if self._vision_service is None:
+                logger.info("Camera mount started without vision worker")
                 return
 
             self._worker_thread = threading.Thread(
@@ -77,6 +82,7 @@ class CameraMountService:
                 daemon=True,
             )
             self._worker_thread.start()
+            logger.info("Camera mount service started")
 
     def stop(self) -> None:
         """Stop the mount-control worker and release servo resources."""
@@ -99,6 +105,8 @@ class CameraMountService:
             self._last_tracking_move_at = 0.0
             self._last_tracking_move_version = None
             self._last_home_issue_at = 0.0
+            self._last_logged_status = None
+        logger.info("Camera mount service stopped")
 
     def move_home(self) -> None:
         """Move both servos back to the configured home angles."""
@@ -221,6 +229,7 @@ class CameraMountService:
         with self._lock:
             advice = self._build_advice(payload, started=self._started)
             self._latest_advice = advice
+            self._log_advice_change_locked(advice)
             movement_request = self._build_movement_request_locked(advice, version=version)
 
         self._execute_movement_request(movement_request)
@@ -254,9 +263,17 @@ class CameraMountService:
             )
             self._servo_control_enabled = True
             self._last_error = None
+            logger.info(
+                "Camera mount servos initialized: pan_pin=%s tilt_pin=%s pan_backend=%s tilt_backend=%s",
+                pan_pin,
+                tilt_pin,
+                getattr(self._pan_servo, "backend_name", None),
+                getattr(self._tilt_servo, "backend_name", None),
+            )
         except Exception as error:
             self._cleanup_servos_locked()
             self._last_error = str(error)
+            logger.warning("Camera mount servo initialization failed: %s", error)
 
     def _cleanup_servos_locked(self) -> None:
         for servo in (self._pan_servo, self._tilt_servo):
@@ -383,6 +400,15 @@ class CameraMountService:
                 if request_kind == "search":
                     interrupt_check = self._should_interrupt_search_move
 
+            logger.info(
+                "Camera mount move request: kind=%s reason=%s pan_target=%s tilt_target=%s step=%s delay=%s",
+                request_kind,
+                request_reason,
+                request.get("pan_target"),
+                request.get("tilt_target"),
+                step,
+                delay,
+            )
             moved, error = self._move_axes_together(
                 axes,
                 step=step,
@@ -393,6 +419,7 @@ class CameraMountService:
             with self._lock:
                 if error is not None:
                     self._last_error = str(error)
+                    logger.warning("Camera mount move failed: %s", error)
                     return False
                 if not moved:
                     return False
@@ -413,6 +440,12 @@ class CameraMountService:
                     self._last_tracking_move_version = None
                     if request_reason == "face_lost":
                         self._standby_anchor_at = time.monotonic()
+                logger.info(
+                    "Camera mount move complete: kind=%s pan=%s tilt=%s",
+                    request_kind,
+                    self._pan_angle,
+                    self._tilt_angle,
+                )
             return True
 
     def _prepare_axes_locked(
@@ -491,7 +524,10 @@ class CameraMountService:
             return False
 
         target = self._extract_face_target(payload)
-        return payload.get("status") == "ok" and target is not None
+        interrupted = payload.get("status") == "ok" and target is not None
+        if interrupted:
+            logger.info("Camera mount search interrupted by recovered face target")
+        return interrupted
 
     def _move_axis_to_locked(self, axis: str, target_angle: float) -> bool:
         servo = self._pan_servo if axis == "pan" else self._tilt_servo
@@ -894,6 +930,8 @@ class CameraMountService:
             or self._face_recovery_waypoints
         ):
             return False
+        if self._is_at_home_locked():
+            return False
         if self._last_home_issue_at <= 0:
             return True
         return (time.monotonic() - self._last_home_issue_at) >= interval
@@ -1033,6 +1071,16 @@ class CameraMountService:
     def _current_angle(self, axis: str) -> float | None:
         return self._pan_angle if axis == "pan" else self._tilt_angle
 
+    def _is_at_home_locked(self) -> bool:
+        pan_angle = self._pan_angle
+        tilt_angle = self._tilt_angle
+        if pan_angle is None or tilt_angle is None:
+            return False
+        return (
+            abs(pan_angle - config.camera_mount.pan_home_angle) < 0.01
+            and abs(tilt_angle - config.camera_mount.tilt_home_angle) < 0.01
+        )
+
     @staticmethod
     def _home_angle(axis: str) -> float:
         return config.camera_mount.pan_home_angle if axis == "pan" else config.camera_mount.tilt_home_angle
@@ -1044,3 +1092,18 @@ class CameraMountService:
     @staticmethod
     def _max_angle(axis: str) -> float:
         return config.camera_mount.pan_max_angle if axis == "pan" else config.camera_mount.tilt_max_angle
+
+    def _log_advice_change_locked(self, advice: dict) -> None:
+        state = (advice.get("status"), advice.get("direction"))
+        if state == self._last_logged_status:
+            return
+        self._last_logged_status = state
+        logger.info(
+            "Camera mount state changed: status=%s direction=%s has_target=%s home_reason=%s pan_move=%s tilt_move=%s",
+            advice.get("status"),
+            advice.get("direction"),
+            advice.get("has_target"),
+            advice.get("home_reason"),
+            advice.get("pan", {}).get("move_angle"),
+            advice.get("tilt", {}).get("move_angle"),
+        )

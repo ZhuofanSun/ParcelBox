@@ -277,7 +277,7 @@
       <div class="stream-card">
         <div class="card-header">
           <h2 class="card-title">Live Stream</h2>
-          <span class="badge">Overlay Enabled</span>
+          <span class="badge" id="stream-badge">Connecting</span>
         </div>
         <div class="stream-wrap">
           <img id="stream" src="/api/stream.mjpg" alt="Live stream" />
@@ -317,39 +317,6 @@
           </div>
         </div>
       </div>
-
-      <aside class="meta-card">
-        <div class="card-header">
-          <h2 class="card-title">Vision Metadata</h2>
-          <span class="badge" id="mode-badge">Loading</span>
-        </div>
-        <div class="meta-body">
-          <div class="info-row">
-            <div class="label">Backend Stream Meta</div>
-            <pre id="stream-meta">Loading...</pre>
-          </div>
-          <div class="info-row">
-            <div class="label">Camera Mount Suggestion</div>
-            <pre id="camera-mount-json">Loading...</pre>
-          </div>
-          <div class="info-row">
-            <div class="label">Locker Status</div>
-            <pre id="locker-status-json">Loading...</pre>
-          </div>
-          <div class="info-row">
-            <div class="label">Recent Locker Events</div>
-            <pre id="locker-events-json">Loading...</pre>
-          </div>
-          <div class="info-row">
-            <div class="label">Card Store Snapshot</div>
-            <pre id="cards-json">Loading...</pre>
-          </div>
-          <div class="info-row">
-            <div class="label">Latest Boxes Payload</div>
-            <pre id="boxes-json">Loading...</pre>
-          </div>
-        </div>
-      </aside>
     </section>
   </div>
   <div class="toast" id="button-toast" aria-live="polite"></div>
@@ -357,18 +324,12 @@
   <script>
     const streamImage = document.getElementById("stream");
     const overlay = document.getElementById("overlay");
-    const streamMetaPre = document.getElementById("stream-meta");
-    const cameraMountPre = document.getElementById("camera-mount-json");
-    const lockerStatusPre = document.getElementById("locker-status-json");
-    const lockerEventsPre = document.getElementById("locker-events-json");
-    const cardsJsonPre = document.getElementById("cards-json");
+    const streamBadge = document.getElementById("stream-badge");
     const controlLogPre = document.getElementById("control-log-json");
     const cardIoHelper = document.getElementById("card-io-helper");
     const cardWriteFields = document.getElementById("card-write-fields");
     const cardTextInput = document.getElementById("card-text-input");
     const controlStatus = document.getElementById("control-status");
-    const boxesJsonPre = document.getElementById("boxes-json");
-    const modeBadge = document.getElementById("mode-badge");
     const openDoorButton = document.getElementById("open-door-btn");
     const closeDoorButton = document.getElementById("close-door-btn");
     const captureSnapshotButton = document.getElementById("capture-snapshot-btn");
@@ -382,11 +343,8 @@
     const ctx = overlay.getContext("2d");
 
     let latestPayload = null;
-    let streamMeta = null;
     let visionSocket = null;
     let reconnectTimer = null;
-    let lockerRefreshTimer = null;
-    let eventsRefreshTimer = null;
     let cardIoMode = "read";
     let readPollTimer = null;
     let readPollInFlight = false;
@@ -395,8 +353,6 @@
     let buttonToastTimer = null;
     let lastHandledButtonEventId = 0;
 
-    const LOCKER_STATUS_REFRESH_MS = 2000;
-    const LOCKER_EVENTS_REFRESH_MS = 6000;
     const READ_POLL_TIMEOUT_SECONDS = 0.75;
     const READ_POLL_INTERVAL_MS = 250;
     const READ_POLL_ERROR_RETRY_MS = 1500;
@@ -518,8 +474,8 @@
 
     function drawOverlay() {
       ctx.clearRect(0, 0, overlay.width, overlay.height);
-      const frameWidth = latestPayload?.frame_size?.width || streamMeta?.stream_size?.width;
-      const frameHeight = latestPayload?.frame_size?.height || streamMeta?.stream_size?.height;
+      const frameWidth = latestPayload?.frame_size?.width;
+      const frameHeight = latestPayload?.frame_size?.height;
       if (!frameWidth || !frameHeight) return;
 
       if (latestPayload) {
@@ -750,31 +706,16 @@
       updateCardIoActionLabel();
     }
 
-    async function loadStreamMeta() {
-      streamMeta = await fetchJson("/api/stream/meta", { headers: {} });
-      streamMetaPre.textContent = stringifyForDisplay(streamMeta);
-      cameraMountPre.textContent = stringifyForDisplay(streamMeta.camera_mount_status);
-      lockerStatusPre.textContent = stringifyForDisplay(streamMeta.locker_status);
-      syncButtonStatus(streamMeta.button_status, false);
-      drawOverlay();
-    }
-
     async function refreshLockerStatus() {
-      const payload = await fetchJson("/api/locker/status", { headers: {} });
-      lockerStatusPre.textContent = stringifyForDisplay(payload);
-      return payload;
+      return fetchJson("/api/locker/status", { headers: {} });
     }
 
     async function refreshLockerEvents() {
-      const payload = await fetchJson("/api/locker/events?limit=10", { headers: {} });
-      lockerEventsPre.textContent = stringifyForDisplay(payload);
-      return payload;
+      return fetchJson("/api/locker/events?limit=10", { headers: {} });
     }
 
     async function refreshCards() {
-      const payload = await fetchJson("/api/cards", { headers: {} });
-      cardsJsonPre.textContent = stringifyForDisplay(payload);
-      return payload;
+      return fetchJson("/api/cards", { headers: {} });
     }
 
     async function pollReadCardOnce(sessionId = readPollingSessionId) {
@@ -805,7 +746,6 @@
         } else {
           setControlStatus("Card detected: not authorized");
         }
-        await Promise.allSettled([refreshLockerStatus(), refreshLockerEvents(), refreshCards()]);
         scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
         return payload;
       } catch (error) {
@@ -873,7 +813,6 @@
         } else {
           setControlStatus("Write card succeeded");
         }
-        await Promise.allSettled([refreshLockerStatus(), refreshLockerEvents(), refreshCards()]);
         return payload;
       } catch (error) {
         setControlLog("write_card_error", {
@@ -896,8 +835,15 @@
           body: JSON.stringify({ source: "frontend" }),
         });
         setControlStatus(`${label} succeeded`);
-        setControlLog(actionKey(label), payload);
-        await Promise.all([loadStreamMeta(), refreshLockerStatus(), refreshLockerEvents()]);
+        const [lockerStatus, lockerEvents] = await Promise.all([
+          refreshLockerStatus(),
+          refreshLockerEvents(),
+        ]);
+        setControlLog(actionKey(label), {
+          event: payload,
+          locker_status: lockerStatus,
+          locker_events: lockerEvents,
+        });
         return payload;
       } catch (error) {
         setControlStatus(`${label} failed: ${error.message}`);
@@ -928,24 +874,9 @@
       }
     }
 
-    function startBackgroundRefresh() {
-      if (!lockerRefreshTimer) {
-        lockerRefreshTimer = window.setInterval(() => {
-          refreshLockerStatus().catch(() => {});
-        }, LOCKER_STATUS_REFRESH_MS);
-      }
-
-      if (!eventsRefreshTimer) {
-        eventsRefreshTimer = window.setInterval(() => {
-          refreshLockerEvents().catch(() => {});
-        }, LOCKER_EVENTS_REFRESH_MS);
-      }
-    }
-
     function buildVisionWebSocketUrl() {
-      const path = streamMeta?.vision_ws_path || "/ws/vision";
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      return `${protocol}://${window.location.host}${path}`;
+      return `${protocol}://${window.location.host}/ws/vision`;
     }
 
     function scheduleReconnect() {
@@ -957,46 +888,34 @@
     }
 
     function connectVisionSocket() {
-      if (!streamMeta) return;
-
       if (visionSocket) {
         visionSocket.close();
         visionSocket = null;
       }
 
-      modeBadge.textContent = "Connecting";
-      boxesJsonPre.textContent = "Connecting to vision websocket...";
+      streamBadge.textContent = "Connecting";
 
       visionSocket = new WebSocket(buildVisionWebSocketUrl());
 
       visionSocket.addEventListener("open", () => {
-        modeBadge.textContent = "Connected";
+        streamBadge.textContent = "Connected";
       });
 
       visionSocket.addEventListener("message", (event) => {
         const payload = JSON.parse(event.data);
         latestPayload = payload;
-        if (streamMeta) {
-          streamMeta.button_status = {
-            ...(streamMeta.button_status || {}),
-            latest_event: payload.button_event || null,
-          };
-          streamMetaPre.textContent = stringifyForDisplay(streamMeta);
-        }
         syncButtonStatus({ latest_event: payload.button_event }, true);
-        boxesJsonPre.textContent = stringifyForDisplay(latestPayload);
-        cameraMountPre.textContent = stringifyForDisplay(latestPayload.camera_mount || null);
-        modeBadge.textContent = latestPayload.active_mode || latestPayload.mode;
+        streamBadge.textContent = latestPayload.active_mode || latestPayload.mode || "Connected";
         drawOverlay();
       });
 
       visionSocket.addEventListener("close", () => {
-        modeBadge.textContent = "Disconnected";
+        streamBadge.textContent = "Disconnected";
         scheduleReconnect();
       });
 
       visionSocket.addEventListener("error", () => {
-        modeBadge.textContent = "Socket Error";
+        streamBadge.textContent = "Socket Error";
       });
     }
 
@@ -1016,9 +935,9 @@
       setControlButtonsDisabled(true);
       setControlStatus("Refreshing locker status...");
       try {
-        await Promise.all([loadStreamMeta(), refreshLockerStatus()]);
+        const payload = await refreshLockerStatus();
         setControlStatus("Locker status refreshed");
-        setControlLog("refresh_locker", { status: "ok" });
+        setControlLog("refresh_locker", payload);
       } catch (error) {
         setControlStatus(`Locker refresh failed: ${error.message}`);
         setControlLog("refresh_locker_error", { error: error.message });
@@ -1031,9 +950,9 @@
       setControlButtonsDisabled(true);
       setControlStatus("Refreshing recent events...");
       try {
-        await refreshLockerEvents();
+        const payload = await refreshLockerEvents();
         setControlStatus("Recent events refreshed");
-        setControlLog("refresh_events", { status: "ok" });
+        setControlLog("refresh_events", payload);
       } catch (error) {
         setControlStatus(`Event refresh failed: ${error.message}`);
         setControlLog("refresh_events_error", { error: error.message });
@@ -1046,9 +965,9 @@
       setControlButtonsDisabled(true);
       setControlStatus("Refreshing cards...");
       try {
-        await refreshCards();
+        const payload = await refreshCards();
         setControlStatus("Cards refreshed");
-        setControlLog("refresh_cards", { status: "ok" });
+        setControlLog("refresh_cards", payload);
       } catch (error) {
         setControlStatus(`Card refresh failed: ${error.message}`);
         setControlLog("refresh_cards_error", { error: error.message });
@@ -1073,12 +992,6 @@
     streamImage.addEventListener("load", resizeOverlay);
     window.addEventListener("beforeunload", () => {
       stopReadPolling();
-      if (lockerRefreshTimer) {
-        window.clearInterval(lockerRefreshTimer);
-      }
-      if (eventsRefreshTimer) {
-        window.clearInterval(eventsRefreshTimer);
-      }
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
       }
@@ -1091,29 +1004,9 @@
     });
 
     async function bootstrap() {
-      try {
-        await loadStreamMeta();
-        connectVisionSocket();
-      } catch (error) {
-        setControlStatus(`Initial load failed: ${error.message}`);
-        return;
-      }
-
-      const results = await Promise.allSettled([
-        refreshLockerStatus(),
-        refreshLockerEvents(),
-        refreshCards(),
-      ]);
-
-      const firstFailure = results.find((result) => result.status === "rejected");
-      if (firstFailure) {
-        setControlStatus(`Partial load failed: ${firstFailure.reason.message}`);
-        return;
-      }
-
+      connectVisionSocket();
       applyCardIoMode("read");
-      startBackgroundRefresh();
-      setControlStatus("Phase 3 controls ready");
+      setControlStatus("Controls ready");
     }
 
     bootstrap();

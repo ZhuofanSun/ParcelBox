@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 import time
 
 from config import config
 from drivers.button import Button
+
+logger = logging.getLogger(__name__)
 
 
 class ButtonService:
@@ -46,6 +49,7 @@ class ButtonService:
             self._initialize_button_locked()
 
             if not self._button_enabled:
+                logger.info("Button service started without GPIO input: %s", self._last_error)
                 return
 
             self._worker_thread = threading.Thread(
@@ -54,6 +58,7 @@ class ButtonService:
                 daemon=True,
             )
             self._worker_thread.start()
+            logger.info("Button service started on pin %s", config.gpio.button_pin)
 
     def stop(self) -> None:
         """Stop the button worker and release GPIO resources."""
@@ -66,6 +71,7 @@ class ButtonService:
         with self._lock:
             self._cleanup_button_locked()
             self._started = False
+        logger.info("Button service stopped")
 
     def get_status(self) -> dict:
         """Return current button service state."""
@@ -97,10 +103,12 @@ class ButtonService:
             self._button = self._button_factory(pin)
             self._button_enabled = True
             self._last_error = None
+            logger.info("Button initialized on pin %s", pin)
         except Exception as error:
             self._button = None
             self._button_enabled = False
             self._last_error = str(error)
+            logger.warning("Button initialization failed: %s", error)
 
     def _cleanup_button_locked(self) -> None:
         button = self._button
@@ -128,12 +136,14 @@ class ButtonService:
             except Exception as error:
                 with self._lock:
                     self._last_error = str(error)
+                logger.warning("Button worker error: %s", error)
                 self._stop_event.wait(0.1)
                 continue
 
             if not pressed:
                 continue
 
+            logger.info("Hardware button press detected")
             self._record_button_press()
 
             try:
@@ -141,6 +151,7 @@ class ButtonService:
             except Exception as error:
                 with self._lock:
                     self._last_error = str(error)
+                logger.warning("Button release wait failed: %s", error)
 
             self._stop_event.wait(0.15)
 
@@ -170,6 +181,7 @@ class ButtonService:
             notification.setdefault("trigger", "button")
             notification.setdefault("source", "hardware_button")
 
+        stored_request = None
         with self._lock:
             self._event_counter += 1
             event = {
@@ -194,8 +206,8 @@ class ButtonService:
                 if stored_request.get("id") is not None:
                     event["storage_id"] = int(stored_request["id"])
                     event["storage_category"] = "button"
-                if stored_request.get("snapshot") is not None:
-                    event["snapshot"] = stored_request["snapshot"]
+            if stored_request is not None and stored_request.get("snapshot") is not None:
+                event["snapshot"] = stored_request["snapshot"]
             if snapshot_error is not None:
                 self._last_error = snapshot_error
             elif notification_error is not None:
@@ -203,3 +215,10 @@ class ButtonService:
             else:
                 self._last_error = None
             self._latest_event = event
+        logger.info(
+            "Button event recorded: id=%s snapshot=%s notification_status=%s notification_error=%s",
+            event["id"],
+            None if event.get("snapshot") is None else event["snapshot"].get("filename"),
+            None if event.get("notification") is None else event["notification"].get("status"),
+            notification_error,
+        )

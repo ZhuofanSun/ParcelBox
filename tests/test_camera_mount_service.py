@@ -281,6 +281,7 @@ class CameraMountServiceTests(unittest.TestCase):
         service = self.build_service()
 
         service._process_payload(build_payload())
+        service._pan_angle = config.camera_mount.pan_home_angle + 5.0
         service._last_home_issue_at = time.monotonic() - (
             config.camera_mount.no_face_home_interval_seconds + 0.1
         )
@@ -292,6 +293,19 @@ class CameraMountServiceTests(unittest.TestCase):
         self.assertTrue(advice["should_home"])
         self.assertEqual(service.get_status()["current_angles"]["pan"], config.camera_mount.pan_home_angle)
         self.assertEqual(service.get_status()["current_angles"]["tilt"], config.camera_mount.tilt_home_angle)
+
+    def test_missing_face_at_home_does_not_trigger_periodic_home_fallback(self) -> None:
+        service = self.build_service()
+
+        service._process_payload(build_payload())
+        service._last_home_issue_at = time.monotonic() - (
+            config.camera_mount.no_face_home_interval_seconds + 0.1
+        )
+
+        advice = service._process_payload(build_payload(center_x=None, center_y=None))
+
+        self.assertEqual(advice["status"], "waiting_for_face")
+        self.assertFalse(advice["should_home"])
 
     def test_startup_requests_home_first(self) -> None:
         service = self.build_service()

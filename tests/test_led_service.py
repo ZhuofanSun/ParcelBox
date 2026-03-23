@@ -105,7 +105,7 @@ class LedServiceTests(unittest.TestCase):
         config.vision = self.original_config.vision
         config.web = self.original_config.web
 
-    def test_standby_pattern_breathes_blue(self) -> None:
+    def test_standby_pattern_breathes_green(self) -> None:
         service = LedService(
             vision_service=FakeVisionService({"active_mode": "standby", "status": "ok"}),
             camera_mount_service=FakeMountService(),
@@ -121,14 +121,31 @@ class LedServiceTests(unittest.TestCase):
         time.sleep(0.18)
         second = service.get_status()["current_rgb"]
 
-        self.assertEqual(service.get_status()["pattern"], "standby_blue_breathe")
+        self.assertEqual(service.get_status()["pattern"], "standby_green_breathe")
         self.assertIsNotNone(first)
         self.assertIsNotNone(second)
         self.assertNotEqual(first, second)
         self.assertEqual(first[0], 0)
-        self.assertEqual(second[1], 0)
+        self.assertEqual(first[2], 0)
+        self.assertEqual(second[2], 0)
 
-    def test_open_door_pattern_is_green_solid(self) -> None:
+    def test_returning_home_does_not_force_tracking_pattern(self) -> None:
+        service = LedService(
+            vision_service=FakeVisionService({"active_mode": "standby", "status": "ok"}),
+            camera_mount_service=FakeMountService({"status": "returning_home"}),
+            locker_service=FakeLockerService(),
+            button_service=FakeButtonService(),
+            led_factory=FakeLed,
+        )
+        service.start()
+        self.addCleanup(service.stop)
+
+        time.sleep(0.05)
+        status = service.get_status()
+
+        self.assertEqual(status["pattern"], "standby_green_breathe")
+
+    def test_open_door_pattern_is_white_solid(self) -> None:
         service = LedService(
             vision_service=FakeVisionService({"active_mode": "standby", "status": "ok"}),
             camera_mount_service=FakeMountService(),
@@ -142,8 +159,8 @@ class LedServiceTests(unittest.TestCase):
         time.sleep(0.05)
         status = service.get_status()
 
-        self.assertEqual(status["pattern"], "door_open_green_solid")
-        self.assertEqual(status["current_rgb"], (0, 255, 0))
+        self.assertEqual(status["pattern"], "door_open_white_solid")
+        self.assertEqual(status["current_rgb"], (255, 255, 255))
 
 
 if __name__ == "__main__":

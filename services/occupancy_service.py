@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import copy
+import logging
 import threading
 import time
 
 from config import config
 from drivers.ultrasonic_sensor import UltrasonicSensor
+
+logger = logging.getLogger(__name__)
 
 
 class OccupancyService:
@@ -29,6 +32,7 @@ class OccupancyService:
                 return
             self._started = True
             self._initialize_sensor_locked()
+            logger.info("Occupancy service started: enabled=%s", self._sensor_enabled)
 
     def stop(self) -> None:
         """Release ultrasonic sensor resources."""
@@ -48,6 +52,7 @@ class OccupancyService:
                 cleanup()
             except Exception:
                 pass
+        logger.info("Occupancy service stopped")
 
     def measure_once(self, *, door_state: str | None = None) -> dict:
         """Capture one occupancy measurement and classify it."""
@@ -72,12 +77,20 @@ class OccupancyService:
             with self._lock:
                 self._last_error = str(error)
                 self._latest_measurement = result
+            logger.warning("Ultrasonic measure failed: %s", error)
             return copy.deepcopy(result)
 
         result = self._classify_distance(distance_cm, door_state=door_state)
         with self._lock:
             self._last_error = None
             self._latest_measurement = result
+        logger.info(
+            "Ultrasonic measured: door_state=%s distance_cm=%s state=%s reason=%s",
+            door_state,
+            result.get("distance_cm"),
+            result.get("state"),
+            result.get("reason"),
+        )
         return copy.deepcopy(result)
 
     def get_status(self, *, door_state: str | None = None) -> dict:
@@ -107,9 +120,15 @@ class OccupancyService:
             self._sensor_enabled = True
             self._last_error = None
             self._latest_measurement = self._build_unavailable_result(reason="warming_up")
+            logger.info(
+                "Ultrasonic sensor initialized: trigger_pin=%s echo_pin=%s",
+                trigger_pin,
+                echo_pin,
+            )
         except Exception as error:
             self._last_error = str(error)
             self._latest_measurement = self._build_unavailable_result(reason="sensor_error", error=str(error))
+            logger.warning("Ultrasonic sensor initialization failed: %s", error)
 
     def _classify_distance(self, distance_cm: float | None, *, door_state: str | None = None) -> dict:
         now = time.time()

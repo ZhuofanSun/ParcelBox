@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import threading
 import time
 from datetime import datetime
@@ -12,6 +13,8 @@ from pathlib import Path
 from config import config
 from drivers.rc522 import RC522Reader
 from data.event_store import EventStore
+
+logger = logging.getLogger(__name__)
 
 
 class AccessService:
@@ -47,6 +50,11 @@ class AccessService:
             self._started = True
             self._last_error = None
             self._initialize_reader_locked()
+            logger.info(
+                "Access service started: reader_enabled=%s card_count=%s",
+                self._reader_enabled,
+                len(self._cards),
+            )
 
     def stop(self) -> None:
         """Release RFID reader resources."""
@@ -65,6 +73,7 @@ class AccessService:
                 cleanup()
             except Exception:
                 pass
+        logger.info("Access service stopped")
 
     def get_status(self) -> dict:
         """Return reader and card-store status."""
@@ -126,6 +135,7 @@ class AccessService:
             }
             self._cards[normalized_uid] = card
             self._persist_card_locked(card)
+            logger.info("RFID card enrolled: uid=%s overwrite=%s", normalized_uid, overwrite)
             return copy.deepcopy(self._cards[normalized_uid])
 
     def update_card(
@@ -154,6 +164,7 @@ class AccessService:
             card["updated_at"] = time.time()
             self._cards[normalized_uid] = card
             self._persist_card_locked(card)
+            logger.info("RFID card updated: uid=%s", normalized_uid)
             return copy.deepcopy(self._cards[normalized_uid])
 
     def ensure_card_authorized(
@@ -187,6 +198,7 @@ class AccessService:
 
             self._cards[normalized_uid] = card
             self._persist_card_locked(card)
+            logger.info("RFID card ensured authorized: uid=%s", normalized_uid)
             return copy.deepcopy(self._cards[normalized_uid])
 
     def scan_uid(self, timeout: float | None = None) -> str | None:
@@ -204,7 +216,12 @@ class AccessService:
             return None
         normalized_uid = self._normalize_uid(uid)
         self._notify_card_detected(normalized_uid)
+        logger.info("RFID UID detected: uid=%s timeout=%s", normalized_uid, timeout)
         return normalized_uid
+
+    def reset_card_detect_latch(self) -> None:
+        """Allow the next detected card UID to trigger the card-detect callback again."""
+        self._clear_detected_uid_latch()
 
     def read_card_text(
         self,
@@ -214,6 +231,7 @@ class AccessService:
         block_count: int | None = None,
     ) -> dict | None:
         """Read text payload from a presented card."""
+        self._clear_detected_uid_latch()
         with self._lock:
             if not self._reader_enabled or self._reader is None:
                 raise RuntimeError("RFID reader is unavailable")
@@ -236,6 +254,13 @@ class AccessService:
                 timeout=timeout,
                 poll_interval=poll_interval,
             )
+        logger.info(
+            "RFID text read: uid=%s start_block=%s block_count=%s text_length=%s",
+            normalized_uid,
+            resolved_start_block,
+            resolved_block_count,
+            len(text),
+        )
         return {
             "uid": normalized_uid,
             "text": text,
@@ -252,6 +277,7 @@ class AccessService:
         block_count: int | None = None,
     ) -> dict | None:
         """Write text payload to a presented card."""
+        self._clear_detected_uid_latch()
         payload = str(text)
         resolved_start_block = config.rfid.text_start_block if start_block is None else int(start_block)
         resolved_block_count = config.rfid.text_block_count if block_count is None else int(block_count)
@@ -279,6 +305,14 @@ class AccessService:
                 timeout=timeout,
                 poll_interval=poll_interval,
             )
+        logger.info(
+            "RFID text written: uid=%s start_block=%s block_count=%s blocks=%s text_length=%s",
+            normalized_uid,
+            resolved_start_block,
+            resolved_block_count,
+            blocks,
+            len(payload),
+        )
         return {
             "uid": normalized_uid,
             "text": payload,
@@ -296,39 +330,47 @@ class AccessService:
             card = copy.deepcopy(self._cards.get(normalized_uid))
 
         if card is None:
-            return self._build_access_result(
+            result = self._build_access_result(
                 uid=normalized_uid,
                 allowed=False,
                 reason="unknown_card",
                 card=None,
                 checked_at=access_time,
             )
+            logger.info("RFID authorization denied: uid=%s reason=unknown_card", normalized_uid)
+            return result
 
         if not card.get("enabled", False):
-            return self._build_access_result(
+            result = self._build_access_result(
                 uid=normalized_uid,
                 allowed=False,
                 reason="card_disabled",
                 card=card,
                 checked_at=access_time,
             )
+            logger.info("RFID authorization denied: uid=%s reason=card_disabled", normalized_uid)
+            return result
 
         if not self._is_allowed_by_windows(access_time, card.get("access_windows") or []):
-            return self._build_access_result(
+            result = self._build_access_result(
                 uid=normalized_uid,
                 allowed=False,
                 reason="outside_schedule",
                 card=card,
                 checked_at=access_time,
             )
+            logger.info("RFID authorization denied: uid=%s reason=outside_schedule", normalized_uid)
+            return result
 
-        return self._build_access_result(
+        result = self._build_access_result(
             uid=normalized_uid,
             allowed=True,
             reason="granted",
             card=card,
             checked_at=access_time,
         )
+        logger.info("RFID authorization granted: uid=%s", normalized_uid)
+        return result
 
     def scan_and_authorize(self, timeout: float | None = None) -> dict | None:
         """Read one card and evaluate its access."""
@@ -348,8 +390,10 @@ class AccessService:
         if callable(callback):
             try:
                 callback()
-            except Exception:
-                pass
+            except Exception as error:
+                logger.warning("RFID card-detect callback failed for uid=%s: %s", uid, error)
+            else:
+                logger.info("RFID card-detect callback fired: uid=%s", uid)
 
     def _clear_detected_uid_latch(self) -> None:
         with self._lock:
@@ -375,10 +419,17 @@ class AccessService:
             self._reader = reader
             self._reader_enabled = True
             self._last_error = None
+            logger.info(
+                "RFID reader initialized: bus=%s device=%s rst_pin=%s",
+                config.rfid.spi_bus,
+                config.rfid.spi_device,
+                config.gpio.rc522_rst_pin,
+            )
         except Exception as error:
             self._reader = None
             self._reader_enabled = False
             self._last_error = str(error)
+            logger.warning("RFID reader initialization failed: %s", error)
 
     def _load_cards_locked(self) -> None:
         self._cards = {}
@@ -393,6 +444,7 @@ class AccessService:
                 except Exception:
                     continue
                 self._cards[normalized_card["uid"]] = normalized_card
+            logger.info("Loaded %s RFID cards from sqlite", len(self._cards))
             return
 
         if self._store_path is None or not self._store_path.exists():
@@ -416,6 +468,7 @@ class AccessService:
                 continue
 
             self._cards[normalized_card["uid"]] = normalized_card
+        logger.info("Loaded %s RFID cards from JSON fallback", len(self._cards))
 
     def _persist_card_locked(self, card: dict) -> None:
         if self._event_store is not None:

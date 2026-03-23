@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from contextlib import suppress
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from config import config
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
 from services.button_service import ButtonService
-from services.buzzer_service import BuzzerService
-from services.locker_service import LockerService
-from services.led_service import LedService
 from services.vision_service import VisionService
 from data.event_store import EventStore
+
+logger = logging.getLogger(__name__)
 
 
 ACTIVE_VISION_WEBSOCKETS: set[WebSocket] = set()
@@ -48,11 +47,8 @@ def build_stream_router(
     camera_service: CameraService,
     vision_service: VisionService,
     camera_mount_service: CameraMountService | None = None,
-    locker_service: LockerService | None = None,
     button_service: ButtonService | None = None,
     event_store: EventStore | None = None,
-    led_service: LedService | None = None,
-    buzzer_service: BuzzerService | None = None,
 ) -> APIRouter:
     """Create the router for stream and vision endpoints."""
     router = APIRouter()
@@ -69,69 +65,13 @@ def build_stream_router(
     def health() -> JSONResponse:
         return JSONResponse({"status": "ok"})
 
-    @router.get("/api/stream/meta")
-    def stream_meta() -> JSONResponse:
-        return JSONResponse(
-            {
-                "stream_size": {
-                    "width": camera_service.stream_size[0],
-                    "height": camera_service.stream_size[1],
-                },
-                "detection_size": {
-                    "width": camera_service.detection_size[0],
-                    "height": camera_service.detection_size[1],
-                },
-                "stream_fps": config.web.stream_fps,
-                "standby_stream_fps": config.web.standby_stream_fps,
-                "current_stream_fps_target": camera_service.get_stream_fps_target(),
-                "detection_fps": config.vision.detection_fps,
-                "vision_backend": config.vision.backend,
-                "vision_mode": "face",
-                "jpeg_quality": config.web.jpeg_quality,
-                "vision_transport": "websocket",
-                "vision_ws_path": "/ws/vision",
-                "camera_mount_status": (
-                    camera_mount_service.get_status()
-                    if camera_mount_service is not None
-                    else None
-                ),
-                "locker_status": (
-                    locker_service.get_status()
-                    if locker_service is not None
-                    else None
-                ),
-                "button_status": (
-                    button_service.get_status()
-                    if button_service is not None
-                    else None
-                ),
-                "led_status": (
-                    led_service.get_status()
-                    if led_service is not None
-                    else None
-                ),
-                "buzzer_status": (
-                    buzzer_service.get_status()
-                    if buzzer_service is not None
-                    else None
-                ),
-                "storage_status": (
-                    event_store.get_status()
-                    if event_store is not None
-                    else None
-                ),
-            }
-        )
-
-    @router.get("/api/vision/boxes")
-    def vision_boxes() -> JSONResponse:
-        return JSONResponse(enrich_payload(vision_service.get_boxes()))
-
     @router.post("/api/camera/snapshot")
     def capture_snapshot() -> JSONResponse:
+        logger.info("HTTP snapshot request received from frontend")
         try:
             payload = camera_service.capture_snapshot()
         except RuntimeError as error:
+            logger.warning("HTTP snapshot request failed: %s", error)
             return JSONResponse({"detail": str(error)}, status_code=503)
 
         if isinstance(payload, dict):
@@ -155,6 +95,11 @@ def build_stream_router(
                 event["storage_id"] = int(stored_snapshot["storage_id"])
                 event["storage_category"] = "snapshot"
 
+        logger.info(
+            "HTTP snapshot saved: filename=%s storage_id=%s",
+            None if payload is None else payload.get("filename"),
+            None if event is None else event.get("storage_id"),
+        )
         return JSONResponse({"snapshot": payload, "event": event})
 
     @router.websocket("/ws/vision")
@@ -162,6 +107,7 @@ def build_stream_router(
         await websocket.accept()
         last_seen_version = 0
         ACTIVE_VISION_WEBSOCKETS.add(websocket)
+        logger.info("Vision websocket connected from %s", websocket.client)
 
         try:
             while not STREAM_SHUTDOWN_EVENT.is_set():
@@ -177,8 +123,10 @@ def build_stream_router(
                 await websocket.send_json(enrich_payload(payload))
                 last_seen_version = version
         except WebSocketDisconnect:
+            logger.info("Vision websocket disconnected from %s", websocket.client)
             return
         except asyncio.CancelledError:
+            logger.info("Vision websocket cancelled for %s", websocket.client)
             return
         finally:
             ACTIVE_VISION_WEBSOCKETS.discard(websocket)
@@ -186,23 +134,27 @@ def build_stream_router(
     @router.get("/api/stream.mjpg")
     def mjpeg_stream() -> StreamingResponse:
         def generate():
+            logger.info("MJPEG stream opened")
             last_timestamp = 0.0
-            while not STREAM_SHUTDOWN_EVENT.is_set():
-                try:
-                    frame_bytes, timestamp = camera_service.wait_for_latest_stream_jpeg()
-                except RuntimeError:
-                    time.sleep(0.1)
-                    continue
+            try:
+                while not STREAM_SHUTDOWN_EVENT.is_set():
+                    try:
+                        frame_bytes, timestamp = camera_service.wait_for_latest_stream_jpeg()
+                    except RuntimeError:
+                        time.sleep(0.1)
+                        continue
 
-                if timestamp != last_timestamp:
-                    yield (
-                        b"--frame\r\n"
-                        b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
-                    )
-                    last_timestamp = timestamp
+                    if timestamp != last_timestamp:
+                        yield (
+                            b"--frame\r\n"
+                            b"Content-Type: image/jpeg\r\n\r\n" + frame_bytes + b"\r\n"
+                        )
+                        last_timestamp = timestamp
 
-                interval = 1 / max(camera_service.get_stream_fps_target(), 1)
-                time.sleep(interval)
+                    interval = 1 / max(camera_service.get_stream_fps_target(), 1)
+                    time.sleep(interval)
+            finally:
+                logger.info("MJPEG stream closed")
 
         return StreamingResponse(
             generate(),

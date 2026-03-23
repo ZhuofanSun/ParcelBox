@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import sqlite3
 import threading
 import time
@@ -11,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from config import config
+
+logger = logging.getLogger(__name__)
 
 
 class EventStore:
@@ -35,11 +38,13 @@ class EventStore:
                 connection.executescript(self._load_schema_sql())
             self._started = True
             self._last_error = None
+            logger.info("SQLite event store started at %s", self._db_path)
 
     def stop(self) -> None:
         """Mark the store as stopped."""
         with self._lock:
             self._started = False
+        logger.info("SQLite event store stopped")
 
     def get_status(self) -> dict:
         """Return database location and current record counts."""

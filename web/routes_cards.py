@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from config import config
 from services.access_service import AccessService
 from services.locker_service import LockerService
 from web.schemas import CardEnrollPayload, CardReadPayload, CardUpdatePayload, CardWritePayload
+
+logger = logging.getLogger(__name__)
 
 
 def _window_to_dict(window) -> dict:
@@ -31,6 +35,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
     @router.get("/api/cards")
     def list_cards() -> dict:
+        logger.info("HTTP list_cards request")
         return {
             "cards": access_service.list_cards(),
             "status": access_service.get_status(),
@@ -38,6 +43,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
     @router.get("/api/cards/{uid}")
     def get_card(uid: str) -> dict:
+        logger.info("HTTP get_card request: uid=%s", uid)
         card = access_service.get_card(uid)
         if card is None:
             raise HTTPException(status_code=404, detail="Card not found")
@@ -45,12 +51,14 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
     @router.post("/api/cards/enroll")
     def enroll_card(payload: CardEnrollPayload) -> dict:
+        logger.info("HTTP enroll_card request: provided_uid=%s overwrite=%s", payload.uid, payload.overwrite)
         uid = payload.uid
         snapshot = None
         if uid is None:
             ensure_reader_available()
             timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
             locker_service.pause_rfid_polling(frontend_card_io_pause_seconds(timeout))
+            access_service.reset_card_detect_latch()
             uid = access_service.scan_uid(timeout=timeout)
             if uid is None:
                 raise HTTPException(status_code=408, detail="Timed out waiting for card")
@@ -77,6 +85,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
     @router.post("/api/cards/read")
     def read_card(payload: CardReadPayload) -> dict:
+        logger.info("HTTP read_card request: timeout=%s", payload.scan_timeout_seconds)
         ensure_reader_available()
         timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
         locker_service.pause_rfid_polling(frontend_card_io_pause_seconds(timeout))
@@ -94,6 +103,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
         if result is None:
             locker_service.note_no_card_present()
+            logger.info("HTTP read_card waiting_for_card")
             return {
                 "mode": "read",
                 "status": "waiting_for_card",
@@ -123,6 +133,11 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
     @router.post("/api/cards/write")
     def write_card(payload: CardWritePayload) -> dict:
+        logger.info(
+            "HTTP write_card request: timeout=%s text_length=%s",
+            payload.scan_timeout_seconds,
+            len(payload.text),
+        )
         ensure_reader_available()
         timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
         locker_service.pause_rfid_polling(frontend_card_io_pause_seconds(timeout))
@@ -156,6 +171,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
     @router.patch("/api/cards/{uid}")
     def update_card(uid: str, payload: CardUpdatePayload) -> dict:
+        logger.info("HTTP update_card request: uid=%s", uid)
         try:
             card = access_service.update_card(
                 uid,

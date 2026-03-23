@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -25,6 +26,8 @@ from web.routes_cards import build_cards_router
 from web.routes_control import build_control_router
 from web.routes_logs import build_logs_router
 from web.routes_stream import begin_stream_shutdown, build_stream_router, reset_stream_shutdown_state
+
+logger = logging.getLogger(__name__)
 
 
 camera_service = CameraService()
@@ -59,22 +62,44 @@ led_service = LedService(
 )
 
 
+def configure_logging() -> None:
+    """Configure application logging for local runs."""
+    if logging.getLogger().handlers:
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     reset_stream_shutdown_state()
+    logger.info("Application startup sequence begin")
     buzzer_service.start()
+    logger.info("Buzzer service started")
     access_service.start()
+    logger.info("Access service started")
     occupancy_service.start()
+    logger.info("Occupancy service started")
     event_store.start()
+    logger.info("Event store started")
     camera_service.start()
+    logger.info("Camera service started")
     button_service.start()
+    logger.info("Button service started")
     vision_service.start()
+    logger.info("Vision service started")
     locker_service.start()
+    logger.info("Locker service started")
     camera_mount_service.start()
+    logger.info("Camera mount service started")
     led_service.start()
+    logger.info("LED service started")
     try:
         yield
     finally:
+        logger.info("Application shutdown sequence begin")
         await begin_stream_shutdown()
         led_service.stop()
         camera_mount_service.stop()
@@ -86,6 +111,7 @@ async def lifespan(app: FastAPI):
         occupancy_service.stop()
         access_service.stop()
         buzzer_service.stop()
+        logger.info("Application shutdown sequence complete")
 
 
 app = FastAPI(title="ParcelBox", lifespan=lifespan)
@@ -94,11 +120,8 @@ app.include_router(
         camera_service,
         vision_service,
         camera_mount_service,
-        locker_service,
         button_service,
         event_store,
-        led_service,
-        buzzer_service,
     )
 )
 app.include_router(build_control_router(locker_service))
@@ -111,6 +134,12 @@ app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
 def serve() -> None:
     """Run the local web server."""
+    configure_logging()
+    logger.info(
+        "Starting ParcelBox web server on %s:%s",
+        config.web.host,
+        config.web.port,
+    )
     uvicorn.run(
         app,
         host=config.web.host,

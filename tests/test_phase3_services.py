@@ -531,6 +531,21 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(access_service.scan_uid(), "CAFE01")
         self.assertEqual(beeps, ["beep", "beep"])
 
+    def test_interactive_read_resets_card_detect_latch_before_waiting(self) -> None:
+        beeps: list[str] = []
+        reader = FakeReader()
+        access_service = self.build_custom_reader_access_service(
+            reader,
+            card_detect_callback=lambda: beeps.append("beep"),
+        )
+
+        first = access_service.read_card_text()
+        second = access_service.read_card_text()
+
+        self.assertEqual(first["uid"], reader.uid)
+        self.assertEqual(second["uid"], reader.uid)
+        self.assertEqual(beeps, ["beep", "beep"])
+
 
 if __name__ == "__main__":
     unittest.main()

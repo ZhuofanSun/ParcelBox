@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from datetime import datetime
@@ -15,6 +16,8 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from config import config
 from drivers.camera import CsiCamera
+
+logger = logging.getLogger(__name__)
 
 
 class CameraService:
@@ -75,6 +78,12 @@ class CameraService:
                 daemon=True,
             )
             self._stream_thread.start()
+            logger.info(
+                "Camera service started: stream_size=%s detection_size=%s fps=%s",
+                config.camera.stream_size,
+                config.camera.detection_size,
+                config.camera.default_fps,
+            )
 
     def stop(self) -> None:
         """Stop the camera service."""
@@ -99,6 +108,7 @@ class CameraService:
 
             self._started = False
             self._last_applied_stream_fps = None
+            logger.info("Camera service stopped")
 
     def set_stream_standby_provider(self, provider: Callable[[], bool] | None) -> None:
         """Set a callback that reports whether the shared stream should run in standby mode."""
@@ -178,6 +188,7 @@ class CameraService:
                 }
             )
             self._last_applied_stream_fps = target_fps
+            logger.info("Camera stream FPS target changed to %s", target_fps)
 
     def get_stream_frame(self):
         """Get one frame from the main stream."""
@@ -264,6 +275,7 @@ class CameraService:
 
         self.save_snapshot(output_path)
         self._prune_snapshot_directory(target_dir)
+        logger.info("Snapshot saved: %s", output_path.name)
         return {
             "filename": output_path.name,
             "path": str(output_path),
@@ -275,8 +287,16 @@ class CameraService:
         if len(snapshot_files) <= self.SNAPSHOT_MAX_FILES:
             return
 
+        deleted = 0
         for stale_path in snapshot_files[: self.SNAPSHOT_PRUNE_COUNT]:
             try:
                 stale_path.unlink()
+                deleted += 1
             except FileNotFoundError:
                 continue
+        if deleted:
+            logger.info(
+                "Snapshot directory pruned: deleted=%s remaining=%s",
+                deleted,
+                max(len(snapshot_files) - deleted, 0),
+            )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -9,6 +10,8 @@ from datetime import datetime
 
 from config import config
 from drivers.rgb_led import RgbLed
+
+logger = logging.getLogger(__name__)
 
 
 class LedService:
@@ -35,6 +38,7 @@ class LedService:
         self._started = False
         self._last_error: str | None = None
         self._current_pattern = "off"
+        self._last_logged_pattern: str | None = None
 
     def start(self) -> None:
         """Initialize the RGB LED and start the state loop."""
@@ -46,6 +50,7 @@ class LedService:
             self._started = True
             self._initialize_led_locked()
             if not self._enabled:
+                logger.info("LED service started without hardware output: %s", self._last_error)
                 return
 
             self._worker_thread = threading.Thread(
@@ -54,6 +59,12 @@ class LedService:
                 daemon=True,
             )
             self._worker_thread.start()
+            logger.info(
+                "LED service started on pins r=%s g=%s b=%s",
+                config.gpio.rgb_red_pin,
+                config.gpio.rgb_green_pin,
+                config.gpio.rgb_blue_pin,
+            )
 
     def stop(self) -> None:
         """Stop the LED worker and release GPIO resources."""
@@ -69,6 +80,7 @@ class LedService:
             self._enabled = False
             self._started = False
             self._current_pattern = "off"
+            self._last_logged_pattern = None
 
         cleanup = getattr(led, "cleanup", None) or getattr(led, "close", None)
         if callable(cleanup):
@@ -76,6 +88,7 @@ class LedService:
                 cleanup()
             except Exception:
                 pass
+        logger.info("LED service stopped")
 
     def get_status(self) -> dict:
         """Return current LED service status."""
@@ -122,6 +135,7 @@ class LedService:
             self._led = None
             self._enabled = False
             self._last_error = str(error)
+            logger.warning("LED initialization failed: %s", error)
 
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
@@ -132,10 +146,13 @@ class LedService:
                 with self._lock:
                     self._current_pattern = pattern
                     self._last_error = None
+                self._log_pattern_change(pattern)
             except Exception as error:
                 with self._lock:
                     self._current_pattern = "error"
                     self._last_error = str(error)
+                self._log_pattern_change("error")
+                logger.warning("LED worker error: %s", error)
 
             self._stop_event.wait(max(config.led.update_interval_seconds, 0.02))
 
@@ -145,20 +162,20 @@ class LedService:
         if self._is_recent_denied(now):
             return "denied_red_fast_blink"
         if self._is_door_open():
-            return "door_open_green_solid"
+            return "door_open_white_solid"
         if self._is_recent_button_request(now):
             return "button_pending_yellow_slow_blink"
         if self._is_tracking_active():
-            return "tracking_cyan_slow_blink"
-        return "standby_blue_breathe"
+            return "tracking_blue_slow_blink"
+        return "standby_green_breathe"
 
     def _apply_pattern(self, pattern: str, now: float) -> None:
         led = self._led
         if led is None:
             return
 
-        if pattern == "door_open_green_solid":
-            led.set_rgb(0, 255, 0)
+        if pattern == "door_open_white_solid":
+            led.set_rgb(255, 255, 255)
             return
 
         if pattern in {"error_red_fast_blink", "denied_red_fast_blink"}:
@@ -175,16 +192,16 @@ class LedService:
                 led.off()
             return
 
-        if pattern == "tracking_cyan_slow_blink":
+        if pattern == "tracking_blue_slow_blink":
             if self._blink_on(now, config.led.slow_blink_cycle_seconds):
-                led.set_rgb(0, 180, 180)
+                led.set_rgb(0, 0, 255)
             else:
                 led.off()
             return
 
-        if pattern == "standby_blue_breathe":
-            blue_value = self._breathe_value(now, config.led.standby_breath_cycle_seconds)
-            led.set_rgb(0, 0, blue_value)
+        if pattern == "standby_green_breathe":
+            green_value = self._breathe_value(now, config.led.standby_breath_cycle_seconds)
+            led.set_rgb(0, green_value, 0)
             return
 
         led.off()
@@ -259,7 +276,14 @@ class LedService:
         if self._camera_mount_service is None:
             return False
         advice = self._camera_mount_service.get_latest_advice()
-        return advice.get("status") in {"tracking", "centered", "searching", "returning_home"}
+        return advice.get("status") in {"tracking", "centered", "searching"}
+
+    def _log_pattern_change(self, pattern: str) -> None:
+        with self._lock:
+            if pattern == self._last_logged_pattern:
+                return
+            self._last_logged_pattern = pattern
+        logger.info("LED pattern changed to %s", pattern)
 
     @staticmethod
     def _timestamp_to_epoch(value) -> float | None:

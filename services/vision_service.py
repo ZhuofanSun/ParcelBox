@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import TYPE_CHECKING, Callable
@@ -11,6 +12,8 @@ from services.vision_backends import build_vision_backend
 
 if TYPE_CHECKING:
     from services.camera_service import CameraService
+
+logger = logging.getLogger(__name__)
 
 
 class VisionService:
@@ -33,6 +36,8 @@ class VisionService:
         self._last_face_seen_at: float | None = None
         self._standby_active = False
         self._standby_anchor_provider: Callable[[], float | None] | None = None
+        self._last_logged_active_mode: str | None = None
+        self._last_logged_standby_state: bool | None = None
 
     def start(self) -> None:
         """Start the background detection loop."""
@@ -50,6 +55,12 @@ class VisionService:
                 daemon=True,
             )
             self._worker_thread.start()
+            logger.info(
+                "Vision service started: backend=%s detection_fps=%s standby_fps=%s",
+                config.vision.backend,
+                config.vision.detection_fps,
+                config.vision.standby_detection_fps,
+            )
 
     def stop(self) -> None:
         """Stop the background detection loop and release detectors."""
@@ -71,6 +82,9 @@ class VisionService:
         self._face_snapshot_taken = False
         self._last_face_seen_at = None
         self._standby_active = False
+        self._last_logged_active_mode = None
+        self._last_logged_standby_state = None
+        logger.info("Vision service stopped")
 
     def get_boxes(self) -> dict:
         """Return the latest detection payload."""
@@ -117,6 +131,7 @@ class VisionService:
         while not self._stop_event.is_set():
             started_at = time.perf_counter()
             payload = self._run_detection_cycle()
+            self._log_runtime_state(payload)
 
             with self._frame_condition:
                 self._latest_payload = payload
@@ -194,6 +209,7 @@ class VisionService:
     def _ensure_backend(self):
         if self._backend is None:
             self._backend = build_vision_backend()
+            logger.info("Vision backend initialized: %s", type(self._backend).__name__)
         return self._backend
 
     def _update_face_track(self, face_boxes: list[dict]) -> list[dict]:
@@ -381,6 +397,8 @@ class VisionService:
             anchor = self._last_face_seen_at
 
         if delay <= 0 or anchor is None:
+            if self._standby_active:
+                logger.info("Vision standby disabled")
             self._standby_active = False
             return
 
@@ -445,6 +463,12 @@ class VisionService:
                     default_trigger="vision_face",
                     default_timestamp=time.time(),
                 )
+            logger.info(
+                "Vision face snapshot captured: filename=%s area_ratio=%.3f active_mode=%s",
+                snapshot.get("filename"),
+                area_ratio,
+                active_mode,
+            )
 
         self._face_snapshot_taken = True
 
@@ -470,3 +494,23 @@ class VisionService:
         if self._backend is not None and hasattr(self._backend, "close"):
             self._backend.close()
         self._backend = None
+
+    def _log_runtime_state(self, payload: dict) -> None:
+        active_mode = str(payload.get("active_mode"))
+        standby_active = bool(payload.get("runtime", {}).get("standby_active"))
+        if active_mode != self._last_logged_active_mode:
+            logger.info(
+                "Vision state changed: active_mode=%s status=%s boxes=%s latency_ms=%s",
+                active_mode,
+                payload.get("status"),
+                len(payload.get("boxes") or []),
+                payload.get("latency_ms"),
+            )
+            self._last_logged_active_mode = active_mode
+        if standby_active != self._last_logged_standby_state:
+            logger.info(
+                "Vision standby changed: standby_active=%s detection_fps_target=%s",
+                standby_active,
+                payload.get("runtime", {}).get("current_detection_fps_target"),
+            )
+            self._last_logged_standby_state = standby_active
