@@ -440,16 +440,10 @@ class VisionService:
             snapshot.setdefault("trigger", "vision_face")
             snapshot.setdefault("source", "vision_face")
             if self._event_store is not None:
-                self._event_store.record_event(
-                    "vision",
-                    {
-                        "type": "face_snapshot_captured",
-                        "source": "vision_face",
-                        "timestamp": time.time(),
-                        "active_mode": active_mode,
-                        "face_area_ratio": round(area_ratio, 4),
-                        "snapshot": snapshot,
-                    },
+                self._event_store.record_snapshot(
+                    snapshot,
+                    default_trigger="vision_face",
+                    default_timestamp=time.time(),
                 )
 
         self._face_snapshot_taken = True

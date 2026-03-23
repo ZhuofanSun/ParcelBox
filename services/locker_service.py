@@ -107,25 +107,28 @@ class LockerService:
 
     def close_door(self, *, source: str = "api") -> dict:
         """Close the door, then refresh occupancy state."""
-        measurement = None
         with self._lock:
-            event = self._close_door_locked(source=source)
+            self._cancel_auto_close_locked()
+            self._move_door_locked(config.door.closed_angle, state="closed")
+            event = {
+                "type": "door_closed",
+                "source": source,
+                "uid": None,
+                "allowed": True,
+                "reason": "manual_close" if source == "api" else source,
+                "timestamp": time.time(),
+            }
 
+        measurement = None
         if self._occupancy_service is not None:
             measurement = self._occupancy_service.measure_once(door_state="closed")
 
         if measurement is not None:
-            with self._lock:
-                event["occupancy"] = measurement
-                if self._events:
-                    self._events[0] = copy.deepcopy(event)
-                if self._event_store is not None:
-                    event = self._event_store.update_event(event)
-                    if self._events:
-                        self._events[0] = copy.deepcopy(event)
-                return copy.deepcopy(event)
+            event["occupancy"] = measurement
 
-        return copy.deepcopy(event)
+        with self._lock:
+            recorded_event = self._persist_door_closed_event_locked(event)
+            return copy.deepcopy(recorded_event)
 
     def process_scanned_uid(
         self,
@@ -163,7 +166,7 @@ class LockerService:
             if snapshot is not None:
                 event["snapshot"] = snapshot
 
-            event = self._record_event_locked(event)
+            event = self._persist_access_denied_event_locked(event)
             return copy.deepcopy(event)
 
     def note_no_card_present(self) -> None:
@@ -297,23 +300,9 @@ class LockerService:
         }
         if snapshot is not None:
             event["snapshot"] = snapshot
-        recorded_event = self._record_event_locked(event)
+        recorded_event = self._persist_door_opened_event_locked(event)
         self._schedule_auto_close_locked()
         return recorded_event
-
-    def _close_door_locked(self, *, source: str) -> dict:
-        self._cancel_auto_close_locked()
-        self._move_door_locked(config.door.closed_angle, state="closed")
-        return self._record_event_locked(
-            {
-                "type": "door_closed",
-                "source": source,
-                "uid": None,
-                "allowed": True,
-                "reason": "manual_close" if source == "api" else source,
-                "timestamp": time.time(),
-            }
-        )
 
     def _move_door_locked(self, target_angle: float, *, state: str) -> None:
         clamped_target = self._clamp(target_angle, config.door.min_angle, config.door.max_angle)
@@ -334,10 +323,67 @@ class LockerService:
         self._door_angle = clamped_target
         self._door_state = state
 
-    def _record_event_locked(self, event: dict) -> dict:
-        stored_event = event
+    def _persist_access_denied_event_locked(self, event: dict) -> dict:
+        stored_event = copy.deepcopy(event)
         if self._event_store is not None:
-            stored_event = self._event_store.record_event("locker", event)
+            stored_attempt = self._event_store.record_access_attempt(
+                card_uid=stored_event["uid"],
+                source=stored_event["source"],
+                allowed=False,
+                reason=stored_event["reason"],
+                checked_at=stored_event.get("timestamp"),
+                snapshot=stored_event.get("snapshot"),
+            )
+            if stored_attempt.get("id") is not None:
+                stored_event["storage_id"] = int(stored_attempt["id"])
+                stored_event["storage_category"] = "locker"
+            if stored_attempt.get("snapshot") is not None:
+                stored_event["snapshot"] = stored_attempt["snapshot"]
+        self._events.insert(0, copy.deepcopy(stored_event))
+        del self._events[50:]
+        return stored_event
+
+    def _persist_door_opened_event_locked(self, event: dict) -> dict:
+        stored_event = copy.deepcopy(event)
+        if self._event_store is not None:
+            access_attempt_id = None
+            if stored_event.get("uid") is not None:
+                stored_attempt = self._event_store.record_access_attempt(
+                    card_uid=stored_event["uid"],
+                    source=stored_event["source"],
+                    allowed=bool(stored_event.get("allowed", True)),
+                    reason=stored_event.get("reason", "granted"),
+                    checked_at=stored_event.get("timestamp"),
+                    snapshot=stored_event.get("snapshot"),
+                )
+                access_attempt_id = stored_attempt.get("id")
+                if stored_attempt.get("snapshot") is not None:
+                    stored_event["snapshot"] = stored_attempt["snapshot"]
+            stored_session = self._event_store.open_door_session(
+                access_attempt_id=access_attempt_id,
+                open_source=stored_event["source"],
+                opened_at=stored_event.get("timestamp"),
+            )
+            if stored_session.get("id") is not None:
+                stored_event["storage_id"] = int(stored_session["id"])
+                stored_event["storage_category"] = "locker"
+        self._events.insert(0, copy.deepcopy(stored_event))
+        del self._events[50:]
+        return stored_event
+
+    def _persist_door_closed_event_locked(self, event: dict) -> dict:
+        stored_event = copy.deepcopy(event)
+        if self._event_store is not None:
+            stored_session = self._event_store.close_door_session(
+                close_source=stored_event["source"],
+                closed_at=stored_event.get("timestamp"),
+                auto_closed=stored_event.get("source") == "auto_close",
+                occupancy=stored_event.get("occupancy"),
+                create_if_missing=True,
+            )
+            if stored_session.get("id") is not None:
+                stored_event["storage_id"] = int(stored_session["id"])
+                stored_event["storage_category"] = "locker"
         self._events.insert(0, copy.deepcopy(stored_event))
         del self._events[50:]
         return stored_event

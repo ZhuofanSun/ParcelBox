@@ -50,22 +50,27 @@ class EventStore:
                     card_count = self._scalar(connection, "SELECT COUNT(*) FROM rfid_card")
                     access_attempt_count = self._scalar(connection, "SELECT COUNT(*) FROM access_attempt")
                     door_session_count = self._scalar(connection, "SELECT COUNT(*) FROM door_session")
+                    closed_session_count = self._scalar(
+                        connection,
+                        "SELECT COUNT(*) FROM door_session WHERE closed_at IS NOT NULL",
+                    )
                     button_request_count = self._scalar(connection, "SELECT COUNT(*) FROM button_request")
                     snapshot_count = self._scalar(connection, "SELECT COUNT(*) FROM snapshot")
+                    standalone_snapshot_count = self._scalar(
+                        connection,
+                        """
+                        SELECT COUNT(*)
+                        FROM snapshot
+                        WHERE access_attempt_id IS NULL
+                          AND button_request_id IS NULL
+                        """,
+                    )
                     event_count = (
-                        self._scalar(connection, "SELECT COUNT(*) FROM access_attempt WHERE allowed = 0")
+                        access_attempt_count
                         + door_session_count
-                        + self._scalar(connection, "SELECT COUNT(*) FROM door_session WHERE closed_at IS NOT NULL")
+                        + closed_session_count
                         + button_request_count
-                        + self._scalar(
-                            connection,
-                            """
-                            SELECT COUNT(*)
-                            FROM snapshot
-                            WHERE access_attempt_id IS NULL
-                              AND button_request_id IS NULL
-                            """,
-                        )
+                        + standalone_snapshot_count
                     )
             except Exception as error:
                 self._last_error = str(error)
@@ -140,6 +145,7 @@ class EventStore:
         card_copy = copy.deepcopy(card)
         created_at_text = self._timestamp_to_text(card_copy.get("created_at"))
         updated_at_text = self._timestamp_to_text(card_copy.get("updated_at"))
+        access_windows = copy.deepcopy(card_copy.get("access_windows") or [])
         with self._lock:
             try:
                 with self._connect() as connection:
@@ -161,10 +167,10 @@ class EventStore:
                             updated_at = excluded.updated_at
                         """,
                         (
-                            card_copy.get("uid"),
+                            str(card_copy.get("uid")),
                             card_copy.get("name"),
                             self._coerce_bool(card_copy.get("enabled", True)),
-                            self._serialize_access_window(card_copy.get("access_windows") or []),
+                            self._serialize_access_window(access_windows),
                             created_at_text,
                             updated_at_text,
                         ),
@@ -179,65 +185,207 @@ class EventStore:
         return {
             "uid": str(card_copy.get("uid")),
             "name": card_copy.get("name"),
-            "user_name": None,
             "enabled": bool(card_copy.get("enabled", True)),
-            "access_windows": copy.deepcopy(card_copy.get("access_windows") or []),
+            "access_windows": access_windows,
             "created_at": self._timestamp_to_epoch(created_at_text),
             "updated_at": self._timestamp_to_epoch(updated_at_text),
         }
 
-    def record_event(self, category: str, event: dict) -> dict:
-        """Compatibility layer that routes old event-style writes into the new schema."""
+    def record_access_attempt(
+        self,
+        *,
+        card_uid: str,
+        source: str,
+        allowed: bool,
+        reason: str,
+        checked_at=None,
+        snapshot: dict | None = None,
+    ) -> dict:
+        """Persist one RFID access attempt, optionally attaching a snapshot."""
         self._ensure_started()
-        event_copy = copy.deepcopy(event)
+        checked_at_text = self._timestamp_to_text(checked_at)
         with self._lock:
             try:
                 with self._connect() as connection:
-                    if category == "locker":
-                        stored_event = self._record_locker_event_with_connection(connection, event_copy)
-                    elif category == "button":
-                        stored_event = self._record_button_event_with_connection(connection, event_copy)
-                    elif category in {"snapshot", "vision"}:
-                        stored_event = self._record_snapshot_event_with_connection(connection, category, event_copy)
-                    else:
-                        stored_event = self._record_generic_snapshot_event_with_connection(connection, category, event_copy)
-            except Exception as error:
-                self._last_error = str(error)
-                return event_copy
-
-            self._last_error = None
-            return stored_event
-
-    def update_event(self, event: dict) -> dict:
-        """Update previously written data when later state arrives."""
-        self._ensure_started()
-        event_copy = copy.deepcopy(event)
-        storage_id = event_copy.get("storage_id")
-        if storage_id is None:
-            return self.record_event(event_copy.get("storage_category", "locker"), event_copy)
-
-        if event_copy.get("type") != "door_closed":
-            return event_copy
-
-        occupancy = event_copy.get("occupancy")
-        if not isinstance(occupancy, dict):
-            return event_copy
-
-        with self._lock:
-            try:
-                with self._connect() as connection:
-                    self._update_door_session_occupancy_with_connection(
+                    attempt_id = self._insert_access_attempt_with_connection(
                         connection,
-                        int(storage_id),
-                        occupancy,
+                        card_uid=card_uid,
+                        source=source,
+                        allowed=allowed,
+                        reason=reason,
+                        checked_at_text=checked_at_text,
+                    )
+                    stored_snapshot = self._insert_snapshot_for_parent_with_connection(
+                        connection,
+                        snapshot,
+                        access_attempt_id=attempt_id,
+                        default_trigger="rfid",
+                        default_timestamp=checked_at_text,
                     )
                     connection.commit()
             except Exception as error:
                 self._last_error = str(error)
-                return event_copy
+                return {"id": None, "snapshot": None}
 
             self._last_error = None
-            return event_copy
+
+        return {
+            "id": attempt_id,
+            "checked_at": checked_at_text,
+            "snapshot": stored_snapshot,
+        }
+
+    def open_door_session(
+        self,
+        *,
+        open_source: str,
+        opened_at=None,
+        access_attempt_id: int | None = None,
+    ) -> dict:
+        """Persist one door-open session."""
+        self._ensure_started()
+        opened_at_text = self._timestamp_to_text(opened_at)
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    self._close_stale_open_sessions_with_connection(connection, opened_at_text)
+                    session_id = self._insert_door_session_with_connection(
+                        connection,
+                        access_attempt_id=access_attempt_id,
+                        open_source=open_source,
+                        opened_at_text=opened_at_text,
+                    )
+                    connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return {"id": None, "opened_at": opened_at_text}
+
+            self._last_error = None
+
+        return {
+            "id": session_id,
+            "opened_at": opened_at_text,
+        }
+
+    def close_door_session(
+        self,
+        *,
+        close_source: str,
+        closed_at=None,
+        auto_closed: bool = False,
+        occupancy: dict | None = None,
+        create_if_missing: bool = True,
+    ) -> dict:
+        """Close the latest open door session and optionally attach occupancy data."""
+        self._ensure_started()
+        closed_at_text = self._timestamp_to_text(closed_at)
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    session_id = self._close_latest_open_session_with_connection(
+                        connection,
+                        close_source=close_source,
+                        closed_at_text=closed_at_text,
+                        auto_closed=auto_closed,
+                    )
+                    if session_id is None and create_if_missing:
+                        session_id = self._insert_door_session_with_connection(
+                            connection,
+                            access_attempt_id=None,
+                            open_source="implicit_open",
+                            opened_at_text=closed_at_text,
+                            close_source=close_source,
+                            closed_at_text=closed_at_text,
+                            auto_closed=auto_closed,
+                        )
+                    if session_id is not None and isinstance(occupancy, dict):
+                        self._update_door_session_occupancy_with_connection(
+                            connection,
+                            session_id,
+                            occupancy,
+                        )
+                    connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return {"id": None, "closed_at": closed_at_text}
+
+            self._last_error = None
+
+        return {
+            "id": session_id,
+            "closed_at": closed_at_text,
+        }
+
+    def record_button_request(
+        self,
+        *,
+        pressed_at=None,
+        notification=None,
+        notification_error: str | None = None,
+        snapshot: dict | None = None,
+    ) -> dict:
+        """Persist one hardware button request, optionally attaching a snapshot."""
+        self._ensure_started()
+        pressed_at_text = self._timestamp_to_text(pressed_at)
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    button_request_id = self._insert_button_request_with_connection(
+                        connection,
+                        pressed_at_text=pressed_at_text,
+                        notification=notification,
+                        notification_error=notification_error,
+                    )
+                    stored_snapshot = self._insert_snapshot_for_parent_with_connection(
+                        connection,
+                        snapshot,
+                        button_request_id=button_request_id,
+                        default_trigger="button",
+                        default_timestamp=pressed_at_text,
+                    )
+                    connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return {"id": None, "snapshot": None}
+
+            self._last_error = None
+
+        return {
+            "id": button_request_id,
+            "pressed_at": pressed_at_text,
+            "snapshot": stored_snapshot,
+        }
+
+    def record_snapshot(
+        self,
+        snapshot: dict | None,
+        *,
+        access_attempt_id: int | None = None,
+        button_request_id: int | None = None,
+        default_trigger: str | None = None,
+        default_timestamp=None,
+    ) -> dict | None:
+        """Persist one snapshot and optionally attach it to a parent business record."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    stored_snapshot = self._insert_snapshot_for_parent_with_connection(
+                        connection,
+                        snapshot,
+                        access_attempt_id=access_attempt_id,
+                        button_request_id=button_request_id,
+                        default_trigger=default_trigger,
+                        default_timestamp=self._timestamp_to_text(default_timestamp),
+                    )
+                    connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return None
+
+            self._last_error = None
+
+        return stored_snapshot
 
     def list_events(self, limit: int = 50, *, category: str | None = None) -> list[dict]:
         """Return recent synthesized events."""
@@ -267,122 +415,6 @@ class EventStore:
         events.sort(key=self._event_sort_key, reverse=True)
         return events[:safe_limit]
 
-    def _record_locker_event_with_connection(self, connection, event: dict) -> dict:
-        event_type = str(event.get("type", "")).strip()
-        timestamp_text = self._timestamp_to_text(event.get("timestamp"))
-
-        if event_type == "access_denied":
-            attempt_id = self._insert_access_attempt_with_connection(
-                connection,
-                card_uid=event.get("uid"),
-                source=event.get("source"),
-                allowed=False,
-                reason=event.get("reason", "denied"),
-                checked_at_text=timestamp_text,
-            )
-            snapshot_id = self._insert_snapshot_for_parent_with_connection(
-                connection,
-                event.get("snapshot"),
-                access_attempt_id=attempt_id,
-                default_trigger="rfid",
-                default_timestamp=timestamp_text,
-            )
-            connection.commit()
-            return self._enrich_event(event, attempt_id, "locker", snapshot_id=snapshot_id)
-
-        if event_type == "door_opened":
-            access_attempt_id = None
-            if event.get("uid") is not None:
-                access_attempt_id = self._insert_access_attempt_with_connection(
-                    connection,
-                    card_uid=event.get("uid"),
-                    source=event.get("source"),
-                    allowed=bool(event.get("allowed", True)),
-                    reason=event.get("reason", "granted"),
-                    checked_at_text=timestamp_text,
-                )
-            snapshot_id = self._insert_snapshot_for_parent_with_connection(
-                connection,
-                event.get("snapshot"),
-                access_attempt_id=access_attempt_id,
-                default_trigger="rfid",
-                default_timestamp=timestamp_text,
-            )
-            self._close_stale_open_sessions_with_connection(connection, timestamp_text)
-            session_id = self._insert_door_session_with_connection(
-                connection,
-                access_attempt_id=access_attempt_id,
-                open_source=event.get("source", "unknown"),
-                opened_at_text=timestamp_text,
-            )
-            connection.commit()
-            return self._enrich_event(event, session_id, "locker", snapshot_id=snapshot_id)
-
-        if event_type == "door_closed":
-            session_id = self._close_latest_open_session_with_connection(
-                connection,
-                close_source=event.get("source", "unknown"),
-                closed_at_text=timestamp_text,
-                auto_closed=event.get("source") == "auto_close",
-            )
-            if session_id is None:
-                session_id = self._insert_door_session_with_connection(
-                    connection,
-                    access_attempt_id=None,
-                    open_source="implicit_open",
-                    opened_at_text=timestamp_text,
-                    close_source=event.get("source", "unknown"),
-                    closed_at_text=timestamp_text,
-                    auto_closed=event.get("source") == "auto_close",
-                )
-            occupancy = event.get("occupancy")
-            if isinstance(occupancy, dict):
-                self._update_door_session_occupancy_with_connection(connection, session_id, occupancy)
-            connection.commit()
-            return self._enrich_event(event, session_id, "locker")
-
-        return self._enrich_event(event, None, "locker")
-
-    def _record_button_event_with_connection(self, connection, event: dict) -> dict:
-        notification = event.get("notification")
-        notification_error = event.get("notification_error")
-        timestamp_text = self._timestamp_to_text(event.get("timestamp"))
-        button_request_id = self._insert_button_request_with_connection(
-            connection,
-            pressed_at_text=timestamp_text,
-            notification=notification,
-            notification_error=notification_error,
-        )
-        snapshot_id = self._insert_snapshot_for_parent_with_connection(
-            connection,
-            event.get("snapshot"),
-            button_request_id=button_request_id,
-            default_trigger="button",
-            default_timestamp=timestamp_text,
-        )
-        connection.commit()
-        return self._enrich_event(event, button_request_id, "button", snapshot_id=snapshot_id)
-
-    def _record_snapshot_event_with_connection(self, connection, category: str, event: dict) -> dict:
-        snapshot_id = self._insert_snapshot_for_parent_with_connection(
-            connection,
-            event.get("snapshot"),
-            default_trigger=self._default_snapshot_trigger(event),
-            default_timestamp=self._timestamp_to_text(event.get("timestamp")),
-        )
-        connection.commit()
-        return self._enrich_event(event, snapshot_id, category, snapshot_id=snapshot_id)
-
-    def _record_generic_snapshot_event_with_connection(self, connection, category: str, event: dict) -> dict:
-        snapshot_id = self._insert_snapshot_for_parent_with_connection(
-            connection,
-            event.get("snapshot"),
-            default_trigger=self._default_snapshot_trigger(event),
-            default_timestamp=self._timestamp_to_text(event.get("timestamp")),
-        )
-        connection.commit()
-        return self._enrich_event(event, snapshot_id, category, snapshot_id=snapshot_id)
-
     def _insert_access_attempt_with_connection(
         self,
         connection,
@@ -404,7 +436,7 @@ class EventStore:
             ) VALUES (?, ?, ?, ?, ?)
             """,
             (
-                None if card_uid is None else str(card_uid),
+                str(card_uid),
                 str(source or "unknown"),
                 self._coerce_bool(allowed),
                 str(reason or "unknown"),
@@ -565,31 +597,30 @@ class EventStore:
         button_request_id: int | None = None,
         default_trigger: str | None = None,
         default_timestamp: str | None = None,
-    ) -> int | None:
+    ) -> dict | None:
         if not isinstance(snapshot, dict):
             return None
 
         existing_id = snapshot.get("storage_id")
         if existing_id is not None:
-            return int(existing_id)
+            row = self._snapshot_row_by_id_with_connection(connection, int(existing_id))
+            return None if row is None else self._row_to_snapshot(row)
 
         if access_attempt_id is not None:
             existing_row = connection.execute(
-                "SELECT id FROM snapshot WHERE access_attempt_id = ?",
+                "SELECT id, path, filename, trigger, captured_at FROM snapshot WHERE access_attempt_id = ?",
                 (int(access_attempt_id),),
             ).fetchone()
             if existing_row is not None:
-                snapshot["storage_id"] = int(existing_row["id"])
-                return int(existing_row["id"])
+                return self._row_to_snapshot(existing_row)
 
         if button_request_id is not None:
             existing_row = connection.execute(
-                "SELECT id FROM snapshot WHERE button_request_id = ?",
+                "SELECT id, path, filename, trigger, captured_at FROM snapshot WHERE button_request_id = ?",
                 (int(button_request_id),),
             ).fetchone()
             if existing_row is not None:
-                snapshot["storage_id"] = int(existing_row["id"])
-                return int(existing_row["id"])
+                return self._row_to_snapshot(existing_row)
 
         path = snapshot.get("path")
         if not path:
@@ -621,8 +652,18 @@ class EventStore:
                 button_request_id,
             ),
         )
-        snapshot["storage_id"] = int(cursor.lastrowid)
-        return int(cursor.lastrowid)
+        row = self._snapshot_row_by_id_with_connection(connection, int(cursor.lastrowid))
+        return None if row is None else self._row_to_snapshot(row)
+
+    def _snapshot_row_by_id_with_connection(self, connection, snapshot_id: int):
+        return connection.execute(
+            """
+            SELECT id, path, filename, trigger, captured_at
+            FROM snapshot
+            WHERE id = ?
+            """,
+            (int(snapshot_id),),
+        ).fetchone()
 
     def _list_locker_events_with_connection(self, connection) -> list[dict]:
         events: list[dict] = []
@@ -729,10 +770,7 @@ class EventStore:
             if row["email_error"]:
                 event["notification_error"] = row["email_error"]
             snapshot = self._snapshot_for_button_request_with_connection(connection, int(row["id"]))
-            if snapshot is not None:
-                event["snapshot"] = snapshot
-            else:
-                event["snapshot"] = None
+            event["snapshot"] = snapshot
             events.append(event)
         return events
 
@@ -808,7 +846,6 @@ class EventStore:
         return {
             "uid": row["uid"],
             "name": row["name"],
-            "user_name": None,
             "enabled": bool(row["enabled"]),
             "access_windows": self._deserialize_access_window(row["access_window"]),
             "created_at": self._timestamp_to_epoch(row["created_at"]),
@@ -827,18 +864,6 @@ class EventStore:
         if row["email_error"]:
             return {"status": "error", "error": row["email_error"]}
         return None
-
-    @staticmethod
-    def _default_snapshot_trigger(event: dict) -> str:
-        snapshot = event.get("snapshot")
-        if isinstance(snapshot, dict) and snapshot.get("trigger"):
-            return str(snapshot["trigger"])
-        event_type = str(event.get("type", "")).strip()
-        if event_type == "manual_snapshot_captured":
-            return "manual"
-        if event_type == "face_snapshot_captured":
-            return "vision_face"
-        return "snapshot"
 
     @staticmethod
     def _serialize_access_window(access_windows: list[dict]) -> str:
@@ -885,16 +910,6 @@ class EventStore:
     @staticmethod
     def _scalar(connection, sql: str, params: tuple = ()) -> int:
         return int(connection.execute(sql, params).fetchone()[0])
-
-    @staticmethod
-    def _enrich_event(event: dict, storage_id: int | None, category: str, *, snapshot_id: int | None = None) -> dict:
-        enriched = copy.deepcopy(event)
-        if storage_id is not None:
-            enriched["storage_id"] = int(storage_id)
-        enriched["storage_category"] = category
-        if snapshot_id is not None and isinstance(enriched.get("snapshot"), dict):
-            enriched["snapshot"]["storage_id"] = int(snapshot_id)
-        return enriched
 
     @staticmethod
     def _timestamp_to_text(value) -> str:

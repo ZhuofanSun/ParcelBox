@@ -126,15 +126,20 @@ def build_stream_router(
 
         event = None
         if event_store is not None:
-            event = event_store.record_event(
-                "snapshot",
-                {
-                    "type": "manual_snapshot_captured",
-                    "source": "frontend_manual",
-                    "timestamp": time.time(),
-                    "snapshot": payload,
-                },
+            stored_snapshot = event_store.record_snapshot(
+                payload,
+                default_trigger="manual",
+                default_timestamp=time.time(),
             )
+            event = {
+                "type": "manual_snapshot_captured",
+                "source": "frontend_manual",
+                "timestamp": time.time(),
+                "snapshot": stored_snapshot,
+            }
+            if stored_snapshot is not None and stored_snapshot.get("storage_id") is not None:
+                event["storage_id"] = int(stored_snapshot["storage_id"])
+                event["storage_category"] = "snapshot"
 
         return JSONResponse({"snapshot": payload, "event": event})
 

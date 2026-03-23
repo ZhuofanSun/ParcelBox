@@ -20,6 +20,9 @@ from drivers.camera import CsiCamera
 class CameraService:
     """High-level camera service for streaming and snapshots."""
 
+    SNAPSHOT_MAX_FILES = 100
+    SNAPSHOT_PRUNE_COUNT = 50
+
     def __init__(self, camera: CsiCamera | None = None) -> None:
         self._camera = camera
         self._lock = threading.Lock()
@@ -260,8 +263,20 @@ class CameraService:
             suffix += 1
 
         self.save_snapshot(output_path)
+        self._prune_snapshot_directory(target_dir)
         return {
             "filename": output_path.name,
             "path": str(output_path),
             "saved_at": timestamp.isoformat(),
         }
+
+    def _prune_snapshot_directory(self, directory: Path) -> None:
+        snapshot_files = sorted(path for path in directory.iterdir() if path.is_file())
+        if len(snapshot_files) <= self.SNAPSHOT_MAX_FILES:
+            return
+
+        for stale_path in snapshot_files[: self.SNAPSHOT_PRUNE_COUNT]:
+            try:
+                stale_path.unlink()
+            except FileNotFoundError:
+                continue

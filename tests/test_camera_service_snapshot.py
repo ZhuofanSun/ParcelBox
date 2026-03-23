@@ -33,6 +33,25 @@ class CameraServiceSnapshotTests(unittest.TestCase):
             self.assertEqual(camera.saved_paths, [str(output_path)])
             self.assertTrue(result["saved_at"])
 
+    def test_capture_snapshot_prunes_oldest_50_files_after_exceeding_100(self) -> None:
+        camera = FakeSnapshotCamera()
+        service = CameraService(camera=camera)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            for index in range(100):
+                (temp_path / f"20200101_{index:06d}.jpg").write_bytes(b"old-snapshot")
+
+            result = service.capture_snapshot(temp_dir)
+
+            remaining_files = sorted(path.name for path in temp_path.iterdir() if path.is_file())
+
+            self.assertEqual(len(remaining_files), 51)
+            self.assertNotIn("20200101_000000.jpg", remaining_files)
+            self.assertNotIn("20200101_000049.jpg", remaining_files)
+            self.assertIn("20200101_000050.jpg", remaining_files)
+            self.assertIn(result["filename"], remaining_files)
+
 
 if __name__ == "__main__":
     unittest.main()

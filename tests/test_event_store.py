@@ -35,31 +35,31 @@ class EventStoreTests(unittest.TestCase):
         self.addCleanup(store.stop)
         return store
 
-    def test_record_event_persists_snapshot_and_payload(self) -> None:
+    def test_record_access_attempt_and_open_session_persist_snapshot(self) -> None:
         store = self.build_store()
 
-        stored_event = store.record_event(
-            "locker",
-            {
-                "type": "door_opened",
-                "source": "rfid",
-                "uid": "CAFE01",
-                "allowed": True,
-                "reason": "granted",
-                "timestamp": 1774128429.0,
-                "snapshot": {
-                    "path": "/tmp/door_opened.jpg",
-                    "filename": "door_opened.jpg",
-                    "saved_at": "2026-03-21T12:00:00",
-                    "trigger": "rfid",
-                    "source": "rfid",
-                },
+        attempt = store.record_access_attempt(
+            card_uid="CAFE01",
+            source="rfid",
+            allowed=True,
+            reason="granted",
+            checked_at=1774128429.0,
+            snapshot={
+                "path": "/tmp/door_opened.jpg",
+                "filename": "door_opened.jpg",
+                "saved_at": "2026-03-21T12:00:00",
+                "trigger": "rfid",
             },
         )
+        session = store.open_door_session(
+            access_attempt_id=attempt["id"],
+            open_source="rfid",
+            opened_at=1774128429.0,
+        )
 
-        self.assertIsInstance(stored_event["storage_id"], int)
-        self.assertEqual(stored_event["storage_category"], "locker")
-        self.assertIsInstance(stored_event["snapshot"]["storage_id"], int)
+        self.assertIsInstance(attempt["id"], int)
+        self.assertIsInstance(session["id"], int)
+        self.assertEqual(attempt["snapshot"]["filename"], "door_opened.jpg")
 
         events = store.list_events(limit=10, category="locker")
         self.assertEqual(len(events), 1)
@@ -67,29 +67,49 @@ class EventStoreTests(unittest.TestCase):
         self.assertEqual(events[0]["snapshot"]["filename"], "door_opened.jpg")
 
         status = store.get_status()
-        self.assertEqual(status["event_count"], 1)
+        self.assertEqual(status["access_attempt_count"], 1)
+        self.assertEqual(status["door_session_count"], 1)
         self.assertEqual(status["snapshot_count"], 1)
 
-    def test_update_event_rewrites_payload(self) -> None:
+    def test_close_door_session_updates_occupancy(self) -> None:
         store = self.build_store()
-        stored_event = store.record_event(
-            "locker",
-            {
-                "type": "door_closed",
-                "source": "frontend",
-                "timestamp": 1774128430.0,
+        session = store.open_door_session(open_source="frontend", opened_at=1774128429.0)
+
+        closed = store.close_door_session(
+            close_source="frontend",
+            closed_at=1774128430.0,
+            occupancy={
+                "state": "empty",
+                "distance_cm": 42.0,
+                "measured_at": 1774128431.0,
             },
         )
-        stored_event["occupancy"] = {
-            "state": "empty",
-            "distance_cm": 42.0,
-        }
 
-        updated_event = store.update_event(stored_event)
-
-        self.assertEqual(updated_event["occupancy"]["state"], "empty")
+        self.assertEqual(closed["id"], session["id"])
         events = store.list_events(limit=10, category="locker")
+        self.assertEqual(events[0]["type"], "door_closed")
         self.assertEqual(events[0]["occupancy"]["distance_cm"], 42.0)
+
+    def test_record_button_request_persists_snapshot_and_notification(self) -> None:
+        store = self.build_store()
+
+        request = store.record_button_request(
+            pressed_at=1774128429.0,
+            notification={"status": "sent", "timestamp": 1774128430.0},
+            snapshot={
+                "path": "/tmp/button.jpg",
+                "filename": "button.jpg",
+                "saved_at": "2026-03-21T12:00:00",
+                "trigger": "button",
+            },
+        )
+
+        self.assertIsInstance(request["id"], int)
+        self.assertEqual(request["snapshot"]["filename"], "button.jpg")
+        events = store.list_events(limit=10, category="button")
+        self.assertEqual(events[0]["type"], "button_pressed")
+        self.assertEqual(events[0]["notification"]["status"], "sent")
+        self.assertEqual(events[0]["snapshot"]["filename"], "button.jpg")
 
     def test_upsert_card_persists_rfid_cards_in_sqlite(self) -> None:
         store = self.build_store()

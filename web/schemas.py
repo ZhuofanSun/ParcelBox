@@ -14,7 +14,6 @@ class AccessWindowPayload(BaseModel):
 class CardEnrollPayload(BaseModel):
     uid: str | None = None
     name: str | None = None
-    user_name: str | None = None
     enabled: bool = True
     overwrite: bool = False
     access_windows: list[AccessWindowPayload] = Field(default_factory=list)
@@ -23,7 +22,6 @@ class CardEnrollPayload(BaseModel):
 
 class CardUpdatePayload(BaseModel):
     name: str | None = None
-    user_name: str | None = None
     enabled: bool | None = None
     access_windows: list[AccessWindowPayload] | None = None
 

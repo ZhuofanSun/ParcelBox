@@ -98,7 +98,6 @@ class AccessService:
         uid: str,
         *,
         name: str | None = None,
-        user_name: str | None = None,
         enabled: bool = True,
         access_windows: list[dict] | None = None,
         overwrite: bool = False,
@@ -117,7 +116,6 @@ class AccessService:
             card = {
                 "uid": normalized_uid,
                 "name": self._normalize_optional_text(name),
-                "user_name": self._normalize_optional_text(user_name),
                 "enabled": bool(enabled),
                 "access_windows": normalized_windows,
                 "created_at": created_at,
@@ -132,7 +130,6 @@ class AccessService:
         uid: str,
         *,
         name: str | None = None,
-        user_name: str | None = None,
         enabled: bool | None = None,
         access_windows: list[dict] | None = None,
     ) -> dict:
@@ -146,8 +143,6 @@ class AccessService:
             card = dict(self._cards[normalized_uid])
             if name is not None:
                 card["name"] = self._normalize_optional_text(name)
-            if user_name is not None:
-                card["user_name"] = self._normalize_optional_text(user_name)
             if enabled is not None:
                 card["enabled"] = bool(enabled)
             if access_windows is not None:
@@ -163,12 +158,10 @@ class AccessService:
         uid: str,
         *,
         name: str | None = None,
-        user_name: str | None = None,
     ) -> dict:
         """Create or enable a card record while preserving existing schedules."""
         normalized_uid = self._normalize_uid(uid)
         normalized_name = self._normalize_optional_text(name)
-        normalized_user_name = self._normalize_optional_text(user_name)
         now = time.time()
 
         with self._lock:
@@ -177,7 +170,6 @@ class AccessService:
                 card = {
                     "uid": normalized_uid,
                     "name": normalized_name,
-                    "user_name": normalized_user_name,
                     "enabled": True,
                     "access_windows": [],
                     "created_at": now,
@@ -187,8 +179,6 @@ class AccessService:
                 card = dict(existing)
                 if normalized_name is not None and card.get("name") is None:
                     card["name"] = normalized_name
-                if normalized_user_name is not None and card.get("user_name") is None:
-                    card["user_name"] = normalized_user_name
                 card["enabled"] = True
                 card["updated_at"] = now
 
@@ -425,7 +415,6 @@ class AccessService:
         return {
             "uid": uid,
             "name": self._normalize_optional_text(raw_card.get("name")),
-            "user_name": self._normalize_optional_text(raw_card.get("user_name")),
             "enabled": bool(raw_card.get("enabled", True)),
             "access_windows": self._normalize_access_windows(raw_card.get("access_windows") or []),
             "created_at": float(raw_card.get("created_at", time.time())),

@@ -185,7 +185,17 @@ class ButtonService:
             if notification_error is not None:
                 event["notification_error"] = notification_error
             if self._event_store is not None:
-                event = self._event_store.record_event("button", event)
+                stored_request = self._event_store.record_button_request(
+                    pressed_at=event["timestamp"],
+                    notification=notification,
+                    notification_error=notification_error,
+                    snapshot=snapshot,
+                )
+                if stored_request.get("id") is not None:
+                    event["storage_id"] = int(stored_request["id"])
+                    event["storage_category"] = "button"
+                if stored_request.get("snapshot") is not None:
+                    event["snapshot"] = stored_request["snapshot"]
             if snapshot_error is not None:
                 self._last_error = snapshot_error
             elif notification_error is not None:

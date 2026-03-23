@@ -233,7 +233,7 @@ class Phase3ServiceTests(unittest.TestCase):
     def test_enrolled_card_is_authorized(self) -> None:
         access_service = self.build_access_service()
 
-        card = access_service.enroll_card("AB-CD", name="Courier Card", user_name="Alice")
+        card = access_service.enroll_card("AB-CD", name="Courier Card")
         result = access_service.authorize_uid("abcd")
 
         self.assertEqual(card["uid"], "ABCD")
@@ -397,6 +397,20 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(event["reason"], "unknown_card")
         self.assertEqual(status["door_state"], "closed")
         self.assertEqual(status["current_angle"], config.door.closed_angle)
+
+    def test_unknown_card_denial_is_persisted_for_audit(self) -> None:
+        access_service = self.build_access_service()
+        event_store = self.build_event_store()
+        locker_service = self.build_locker_service(access_service, event_store=event_store)
+
+        event = locker_service.process_scanned_uid("DEAD55", source="rfid")
+        persisted_events = event_store.list_events(limit=10, category="locker")
+
+        self.assertEqual(event["type"], "access_denied")
+        self.assertIsInstance(event["storage_id"], int)
+        self.assertEqual(persisted_events[0]["type"], "access_denied")
+        self.assertEqual(persisted_events[0]["uid"], "DEAD55")
+        self.assertEqual(persisted_events[0]["reason"], "unknown_card")
 
     def test_read_card_text_uses_reader_defaults(self) -> None:
         access_service, reader = self.build_reader_access_service()

@@ -23,7 +23,9 @@ rsync \
   --exclude "__pycache__/" \
   --exclude "*.pyc" \
   --exclude ".DS_Store" \
-  --exclude "data/" \
+  --exclude "iot_locker.db" \
+  --exclude "data/cards.json" \
+  --exclude "data/snapshots/" \
   --exclude "drivers/camera_test.jpg" \
   --exclude "scripts/*.pt" \
   --exclude "scripts/*_ncnn_model/" \

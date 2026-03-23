@@ -63,7 +63,6 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
             card = access_service.enroll_card(
                 uid,
                 name=payload.name,
-                user_name=payload.user_name,
                 enabled=payload.enabled,
                 overwrite=payload.overwrite,
                 access_windows=[_window_to_dict(window) for window in payload.access_windows],
@@ -161,7 +160,6 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
             card = access_service.update_card(
                 uid,
                 name=payload.name,
-                user_name=payload.user_name,
                 enabled=payload.enabled,
                 access_windows=(
                     None
