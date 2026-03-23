@@ -85,7 +85,6 @@ class LedServiceTests(unittest.TestCase):
         config.gpio.rgb_green_pin = 6
         config.gpio.rgb_blue_pin = 26
         config.led.update_interval_seconds = 0.02
-        config.led.standby_breath_cycle_seconds = 0.4
         config.led.slow_blink_cycle_seconds = 0.2
         config.led.fast_blink_cycle_seconds = 0.1
         config.led.button_pending_seconds = 1.0
@@ -105,7 +104,7 @@ class LedServiceTests(unittest.TestCase):
         config.vision = self.original_config.vision
         config.web = self.original_config.web
 
-    def test_standby_pattern_breathes_green(self) -> None:
+    def test_standby_pattern_is_green_solid(self) -> None:
         service = LedService(
             vision_service=FakeVisionService({"active_mode": "standby", "status": "ok"}),
             camera_mount_service=FakeMountService(),
@@ -117,17 +116,10 @@ class LedServiceTests(unittest.TestCase):
         self.addCleanup(service.stop)
 
         time.sleep(0.05)
-        first = service.get_status()["current_rgb"]
-        time.sleep(0.18)
-        second = service.get_status()["current_rgb"]
+        status = service.get_status()
 
-        self.assertEqual(service.get_status()["pattern"], "standby_green_breathe")
-        self.assertIsNotNone(first)
-        self.assertIsNotNone(second)
-        self.assertNotEqual(first, second)
-        self.assertEqual(first[0], 0)
-        self.assertEqual(first[2], 0)
-        self.assertEqual(second[2], 0)
+        self.assertEqual(status["pattern"], "standby_green_solid")
+        self.assertEqual(status["current_rgb"], (0, 255, 0))
 
     def test_returning_home_does_not_force_tracking_pattern(self) -> None:
         service = LedService(
@@ -143,7 +135,7 @@ class LedServiceTests(unittest.TestCase):
         time.sleep(0.05)
         status = service.get_status()
 
-        self.assertEqual(status["pattern"], "standby_green_breathe")
+        self.assertEqual(status["pattern"], "standby_green_solid")
 
     def test_open_door_pattern_is_white_solid(self) -> None:
         service = LedService(

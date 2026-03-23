@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 import threading
 import time
 from datetime import datetime
@@ -167,7 +166,7 @@ class LedService:
             return "button_pending_yellow_slow_blink"
         if self._is_tracking_active():
             return "tracking_blue_slow_blink"
-        return "standby_green_breathe"
+        return "standby_green_solid"
 
     def _apply_pattern(self, pattern: str, now: float) -> None:
         led = self._led
@@ -199,9 +198,8 @@ class LedService:
                 led.off()
             return
 
-        if pattern == "standby_green_breathe":
-            green_value = self._breathe_value(now, config.led.standby_breath_cycle_seconds)
-            led.set_rgb(0, green_value, 0)
+        if pattern == "standby_green_solid":
+            led.set_rgb(0, 255, 0)
             return
 
         led.off()
@@ -210,13 +208,6 @@ class LedService:
     def _blink_on(now: float, cycle_seconds: float) -> bool:
         cycle = max(cycle_seconds, 0.1)
         return (now % cycle) < (cycle / 2)
-
-    @staticmethod
-    def _breathe_value(now: float, cycle_seconds: float) -> int:
-        cycle = max(cycle_seconds, 0.2)
-        phase = (now % cycle) / cycle
-        intensity = (math.sin(phase * 2 * math.pi - math.pi / 2) + 1) / 2
-        return int(32 + intensity * 160)
 
     def _has_error(self) -> bool:
         locker_state = self._locker_service.get_indicator_state() if self._locker_service is not None else None

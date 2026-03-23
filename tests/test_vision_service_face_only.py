@@ -164,6 +164,28 @@ class VisionServiceFaceOnlyTests(unittest.TestCase):
         self.assertTrue(after_payload["runtime"]["standby_active"])
         self.assertEqual(after_payload["runtime"]["current_detection_fps_target"], 3)
 
+    def test_run_detection_cycle_enters_standby_after_startup_delay_without_face(self) -> None:
+        config.vision.startup_standby_after_seconds = 15.0
+        config.vision.standby_detection_fps = 3
+        service = VisionService(FakeVisionCamera())
+        service._backend = FakeFaceBackend([[], []])
+        service.set_standby_anchor_provider(lambda: None)
+        service._tracked_face_box = None
+        service._face_miss_count = config.vision.face_hold_frames
+        service._last_face_seen_at = None
+        service._started_monotonic_at = 10.0
+
+        with patch("services.vision_service.time.monotonic", return_value=24.0):
+            before_payload = service._run_detection_cycle()
+        with patch("services.vision_service.time.monotonic", return_value=25.2):
+            payload = service._run_detection_cycle()
+
+        self.assertEqual(before_payload["active_mode"], "face")
+        self.assertFalse(before_payload["runtime"]["standby_active"])
+        self.assertEqual(payload["active_mode"], "standby")
+        self.assertTrue(payload["runtime"]["standby_active"])
+        self.assertEqual(payload["runtime"]["current_detection_fps_target"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

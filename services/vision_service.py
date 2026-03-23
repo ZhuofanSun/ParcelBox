@@ -35,6 +35,7 @@ class VisionService:
         self._face_snapshot_taken = False
         self._last_face_seen_at: float | None = None
         self._standby_active = False
+        self._started_monotonic_at: float | None = None
         self._standby_anchor_provider: Callable[[], float | None] | None = None
         self._last_logged_active_mode: str | None = None
         self._last_logged_standby_state: bool | None = None
@@ -47,6 +48,7 @@ class VisionService:
 
             self._stop_event.clear()
             self._started = True
+            self._started_monotonic_at = time.monotonic()
             self._last_face_seen_at = None
             self._standby_active = False
             self._worker_thread = threading.Thread(
@@ -82,6 +84,7 @@ class VisionService:
         self._face_snapshot_taken = False
         self._last_face_seen_at = None
         self._standby_active = False
+        self._started_monotonic_at = None
         self._last_logged_active_mode = None
         self._last_logged_standby_state = None
         logger.info("Vision service stopped")
@@ -386,15 +389,21 @@ class VisionService:
         return runtime_info if isinstance(runtime_info, dict) else {}
 
     def _update_standby_state(self, now: float) -> None:
-        delay = max(config.vision.standby_after_no_face_seconds, 0.0)
         anchor = None
+        delay = max(config.vision.standby_after_no_face_seconds, 0.0)
         if self._standby_anchor_provider is not None:
             try:
                 anchor = self._standby_anchor_provider()
             except Exception:
                 anchor = None
-        else:
+            if anchor is None and self._last_face_seen_at is None:
+                anchor = self._started_monotonic_at
+                delay = max(config.vision.startup_standby_after_seconds, 0.0)
+        elif self._last_face_seen_at is not None:
             anchor = self._last_face_seen_at
+        else:
+            anchor = self._started_monotonic_at
+            delay = max(config.vision.startup_standby_after_seconds, 0.0)
 
         if delay <= 0 or anchor is None:
             if self._standby_active:

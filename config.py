@@ -122,7 +122,6 @@ class LedConfig:
     update_interval_seconds: float = 0.05
     button_pending_seconds: float = 5.0
     denied_flash_seconds: float = 2.0
-    standby_breath_cycle_seconds: float = 2.4
     slow_blink_cycle_seconds: float = 1.0
     fast_blink_cycle_seconds: float = 0.3
 
@@ -177,6 +176,7 @@ class VisionConfig:
     detection_fps: int = 15
     standby_detection_fps: int = 3
     standby_after_no_face_seconds: float = 5.0
+    startup_standby_after_seconds: float = 15.0
     face_model_path: str = "models/face_detection_yunet_2023mar.onnx"
     face_score_threshold: float = 0.4
     # Keep predicted face boxes alive for a very short time to reduce jitter when
