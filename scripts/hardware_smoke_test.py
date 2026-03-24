@@ -15,6 +15,7 @@ from config import config
 from drivers.button import Button
 from drivers.buzzer import Buzzer
 from drivers.camera import CsiCamera
+from drivers.pn532 import PN532Reader
 from drivers.rc522 import RC522Reader
 from drivers.rgb_led import RgbLed
 from drivers.servo import Servo
@@ -165,6 +166,47 @@ def smoke_rc522(timeout: float | None = None) -> None:
         reader.cleanup()
 
 
+def smoke_pn532(timeout: float | None = None, scans: int = 3) -> None:
+    reader = PN532Reader()
+    try:
+        firmware = reader.get_firmware_info()
+        print(
+            "Found PN532: "
+            f"IC=0x{firmware['ic']:02X}, "
+            f"firmware={firmware['version_major']}.{firmware['version_minor']}, "
+            f"support=0x{firmware['support']:02X}"
+        )
+
+        resolved_timeout = 10.0 if timeout is None else float(timeout)
+        resolved_scans = max(int(scans), 1)
+        followup_timeout = min(max(resolved_timeout, 0.1), 1.0)
+        print(
+            f"Scanning for up to {resolved_scans} compatible RFID/NFC target(s), "
+            f"{resolved_timeout:.0f}s each..."
+        )
+        print("Unsupported or unusual targets are ignored during polling.")
+
+        try:
+            for index in range(resolved_scans):
+                if not reader.wait_for_card(timeout=resolved_timeout):
+                    print(f"[{index + 1}/{resolved_scans}] No compatible target detected")
+                    continue
+                print(f"[{index + 1}/{resolved_scans}] Compatible target detected. Hold it steady...")
+                target = reader.scan_target(timeout=followup_timeout, poll_interval=0.05)
+                uid_hex = reader.read_uid_hex(timeout=followup_timeout, poll_interval=0.05)
+                uid_number = reader.read_uid_number(timeout=followup_timeout, poll_interval=0.05)
+                print(
+                    f"[{index + 1}/{resolved_scans}] "
+                    f"Protocol={target.protocol if target is not None else 'unavailable'} "
+                    f"UID={uid_hex if uid_hex is not None else 'unavailable'} "
+                    f"Number={uid_number if uid_number is not None else 'unavailable'}"
+                )
+        except KeyboardInterrupt:
+            print("\nInterrupted by user.")
+    finally:
+        reader.cleanup()
+
+
 def run_step(name: str, func) -> None:
     print(f"\n=== {name} ===")
     func()
@@ -209,6 +251,7 @@ def main() -> None:
             "ultrasonic",
             "camera",
             "rc522",
+            "pn532",
         ],
         help="Hardware target to test.",
     )
@@ -243,6 +286,9 @@ def main() -> None:
         return
     if args.device == "rc522":
         smoke_rc522()
+        return
+    if args.device == "pn532":
+        smoke_pn532()
         return
 
     raise RuntimeError(f"Unsupported device: {args.device}")
