@@ -1,7 +1,8 @@
 RPi.GPIO
 pigpio
 spidev
-pi-rc522
+adafruit-blinka
+adafruit-circuitpython-busdevice
 fastapi
 uvicorn
 websockets

@@ -328,17 +328,9 @@
             </div>
           </div>
           <div class="info-row">
-            <div class="label">RFID Card I/O</div>
-            <div class="button-grid">
-              <button id="card-read-mode-btn" class="toggle-button button-active" type="button">Read Card</button>
-              <button id="card-write-mode-btn" class="toggle-button" type="button">Write Card</button>
-            </div>
-            <div class="field-stack" id="card-write-fields" hidden>
-              <textarea id="card-text-input" placeholder="Write text payload to the presented card"></textarea>
-              <div class="helper-text">The backend will use the configured RFID text blocks.</div>
-            </div>
+            <div class="label">RFID UID Scan</div>
             <div class="helper-text" id="card-io-helper">
-              Click Start Polling, then present a card to read text from the configured RFID blocks.
+              Click Start Polling, then present a card to scan its UID and run authorization.
             </div>
             <button id="card-io-action-btn" class="single-action" type="button">Start Polling</button>
           </div>
@@ -459,14 +451,9 @@
     const doorSessionBody = document.getElementById("table-door-session-body");
     const buttonRequestBody = document.getElementById("table-button-request-body");
     const snapshotBody = document.getElementById("table-snapshot-body");
-    const cardIoHelper = document.getElementById("card-io-helper");
-    const cardWriteFields = document.getElementById("card-write-fields");
-    const cardTextInput = document.getElementById("card-text-input");
     const openDoorButton = document.getElementById("open-door-btn");
     const closeDoorButton = document.getElementById("close-door-btn");
     const captureSnapshotButton = document.getElementById("capture-snapshot-btn");
-    const cardReadModeButton = document.getElementById("card-read-mode-btn");
-    const cardWriteModeButton = document.getElementById("card-write-mode-btn");
     const cardIoActionButton = document.getElementById("card-io-action-btn");
     const buttonToast = document.getElementById("button-toast");
     const ctx = overlay.getContext("2d");
@@ -475,17 +462,16 @@
     let visionSocket = null;
     let reconnectTimer = null;
     let databasePollTimer = null;
-    let cardIoMode = "read";
-    let readPollTimer = null;
-    let readPollInFlight = false;
-    let readPollingActive = false;
-    let readPollingSessionId = 0;
+    let scanPollTimer = null;
+    let scanPollInFlight = false;
+    let scanPollingActive = false;
+    let scanPollingSessionId = 0;
     let buttonToastTimer = null;
     let lastHandledButtonEventId = 0;
 
-    const READ_POLL_TIMEOUT_SECONDS = 0.75;
-    const READ_POLL_INTERVAL_MS = 250;
-    const READ_POLL_ERROR_RETRY_MS = 1500;
+    const SCAN_POLL_TIMEOUT_SECONDS = 0.75;
+    const SCAN_POLL_INTERVAL_MS = 250;
+    const SCAN_POLL_ERROR_RETRY_MS = 1500;
     const DATABASE_POLL_INTERVAL_MS = 2000;
 
     function resizeOverlay() {
@@ -639,8 +625,6 @@
       openDoorButton.disabled = disabled;
       closeDoorButton.disabled = disabled;
       captureSnapshotButton.disabled = disabled;
-      cardReadModeButton.disabled = disabled;
-      cardWriteModeButton.disabled = disabled;
       cardIoActionButton.disabled = disabled;
     }
 
@@ -881,20 +865,15 @@
     }
 
     function updateCardIoActionLabel() {
-      if (cardIoMode === "read") {
-        cardIoActionButton.textContent = readPollingActive ? "Stop Polling" : "Start Polling";
-        return;
-      }
-
-      cardIoActionButton.textContent = "Write Card";
+      cardIoActionButton.textContent = scanPollingActive ? "Stop Polling" : "Start Polling";
     }
 
-    function stopReadPolling(statusMessage = null) {
-      readPollingActive = false;
-      readPollingSessionId += 1;
-      if (readPollTimer) {
-        window.clearTimeout(readPollTimer);
-        readPollTimer = null;
+    function stopScanPolling(statusMessage = null) {
+      scanPollingActive = false;
+      scanPollingSessionId += 1;
+      if (scanPollTimer) {
+        window.clearTimeout(scanPollTimer);
+        scanPollTimer = null;
       }
       updateCardIoActionLabel();
       if (statusMessage) {
@@ -902,127 +881,69 @@
       }
     }
 
-    function scheduleReadPoll(delayMs = READ_POLL_INTERVAL_MS, sessionId = readPollingSessionId) {
-      if (!readPollingActive) return;
-      if (readPollTimer) {
-        window.clearTimeout(readPollTimer);
+    function scheduleScanPoll(delayMs = SCAN_POLL_INTERVAL_MS, sessionId = scanPollingSessionId) {
+      if (!scanPollingActive) return;
+      if (scanPollTimer) {
+        window.clearTimeout(scanPollTimer);
       }
-      readPollTimer = window.setTimeout(() => {
-        readPollTimer = null;
-        pollReadCardOnce(sessionId).catch(() => {});
+      scanPollTimer = window.setTimeout(() => {
+        scanPollTimer = null;
+        pollScanCardOnce(sessionId).catch(() => {});
       }, delayMs);
     }
 
-    async function waitForReadPollIdle() {
-      while (readPollInFlight) {
-        await new Promise((resolve) => window.setTimeout(resolve, 50));
-      }
-    }
-
-    function applyCardIoMode(mode = cardIoMode) {
-      if (mode !== "read" && readPollingActive) {
-        stopReadPolling("Read polling paused");
-      }
-      cardIoMode = mode;
-      const isReadMode = cardIoMode === "read";
-
-      cardReadModeButton.classList.toggle("button-active", isReadMode);
-      cardWriteModeButton.classList.toggle("button-active", !isReadMode);
-      cardWriteFields.hidden = isReadMode;
-      cardIoHelper.textContent = isReadMode
-        ? "Click Start Polling, then present a card to read text from the configured RFID blocks."
-        : "Present a card and write the text below into the configured RFID blocks.";
-      updateCardIoActionLabel();
-    }
-
-    async function pollReadCardOnce(sessionId = readPollingSessionId) {
-      if (!readPollingActive || readPollInFlight || cardIoMode !== "read") return;
-      readPollInFlight = true;
+    async function pollScanCardOnce(sessionId = scanPollingSessionId) {
+      if (!scanPollingActive || scanPollInFlight) return;
+      scanPollInFlight = true;
 
       try {
-        const payload = await fetchJson("/api/cards/read", {
+        const payload = await fetchJson("/api/cards/scan", {
           method: "POST",
-          body: JSON.stringify({ scan_timeout_seconds: READ_POLL_TIMEOUT_SECONDS }),
+          body: JSON.stringify({ scan_timeout_seconds: SCAN_POLL_TIMEOUT_SECONDS }),
         });
 
-        if (!readPollingActive || cardIoMode !== "read" || sessionId !== readPollingSessionId) {
+        if (!scanPollingActive || sessionId !== scanPollingSessionId) {
           return payload;
         }
 
         if (payload.status === "waiting_for_card") {
-          scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
+          scheduleScanPoll(SCAN_POLL_INTERVAL_MS, sessionId);
           return payload;
         }
 
         if (payload.status === "duplicate_scan_ignored") {
-          showToast("Read polling: duplicate card ignored");
+          showToast("Scan polling: duplicate card ignored");
         } else if (payload.door_event) {
           showToast("Authorized card detected: door opened");
         } else {
           showToast("Card detected: not authorized");
         }
         await refreshDatabaseTables().catch(() => {});
-        scheduleReadPoll(READ_POLL_INTERVAL_MS, sessionId);
+        scheduleScanPoll(SCAN_POLL_INTERVAL_MS, sessionId);
         return payload;
       } catch (error) {
-        if (!readPollingActive || cardIoMode !== "read" || sessionId !== readPollingSessionId) {
+        if (!scanPollingActive || sessionId !== scanPollingSessionId) {
           return null;
         }
-        showToast(`Read polling error: ${error.message}; retrying...`);
-        scheduleReadPoll(READ_POLL_ERROR_RETRY_MS, sessionId);
+        showToast(`Scan polling error: ${error.message}; retrying...`);
+        scheduleScanPoll(SCAN_POLL_ERROR_RETRY_MS, sessionId);
         return null;
       } finally {
-        readPollInFlight = false;
+        scanPollInFlight = false;
       }
     }
 
     async function runCardIoAction() {
-      const isReadMode = cardIoMode === "read";
-      const text = cardTextInput.value.trim();
-
-      if (isReadMode) {
-        if (readPollingActive) {
-          stopReadPolling("Read polling stopped");
-          return;
-        }
-
-        readPollingActive = true;
-        readPollingSessionId += 1;
-        updateCardIoActionLabel();
-        showToast("Read polling started");
-        await pollReadCardOnce(readPollingSessionId);
+      if (scanPollingActive) {
+        stopScanPolling("Scan polling stopped");
         return;
       }
 
-      if (!text) {
-        showToast("Write card failed: text is required");
-        return;
-      }
-
-      setControlButtonsDisabled(true);
-      if (readPollInFlight) {
-        showToast("Waiting for active read poll to finish...");
-        await waitForReadPollIdle();
-      }
-
-      try {
-        const payload = await fetchJson("/api/cards/write", {
-          method: "POST",
-          body: JSON.stringify({ text }),
-        });
-        if (payload.authorized_card) {
-          showToast("Write card succeeded: card saved as authorized");
-        } else {
-          showToast("Write card succeeded");
-        }
-        await refreshDatabaseTables().catch(() => {});
-        return payload;
-      } catch (error) {
-        showToast(`Write card failed: ${error.message}`);
-        throw error;
-      } finally {
-        setControlButtonsDisabled(false);
-      }
+      scanPollingActive = true;
+      scanPollingSessionId += 1;
+      updateCardIoActionLabel();
+      showToast("Scan polling started");
+      await pollScanCardOnce(scanPollingSessionId);
     }
 
     async function runLockerAction(path, label) {
@@ -1118,14 +1039,6 @@
       runSnapshotAction().catch(() => {});
     });
 
-    cardReadModeButton.addEventListener("click", () => {
-      applyCardIoMode("read");
-    });
-
-    cardWriteModeButton.addEventListener("click", () => {
-      applyCardIoMode("write");
-    });
-
     cardIoActionButton.addEventListener("click", () => {
       runCardIoAction().catch(() => {});
     });
@@ -1133,7 +1046,7 @@
     window.addEventListener("resize", resizeOverlay);
     streamImage.addEventListener("load", resizeOverlay);
     window.addEventListener("beforeunload", () => {
-      stopReadPolling();
+      stopScanPolling();
       if (databasePollTimer) {
         window.clearInterval(databasePollTimer);
       }
@@ -1150,7 +1063,7 @@
 
     async function bootstrap() {
       connectVisionSocket();
-      applyCardIoMode("read");
+      updateCardIoActionLabel();
       try {
         await refreshDatabaseTables();
       } catch (error) {

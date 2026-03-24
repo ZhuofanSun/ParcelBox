@@ -26,17 +26,8 @@ class CardUpdatePayload(BaseModel):
     access_windows: list[AccessWindowPayload] | None = None
 
 
-class CardReadPayload(BaseModel):
+class CardScanPayload(BaseModel):
     scan_timeout_seconds: float | None = None
-    start_block: int | None = None
-    block_count: int | None = None
-
-
-class CardWritePayload(BaseModel):
-    text: str
-    scan_timeout_seconds: float | None = None
-    start_block: int | None = None
-    block_count: int | None = None
 
 
 class LockerActionPayload(BaseModel):

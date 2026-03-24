@@ -16,7 +16,6 @@ from drivers.button import Button
 from drivers.buzzer import Buzzer
 from drivers.camera import CsiCamera
 from drivers.pn532 import PN532Reader
-from drivers.rc522 import RC522Reader
 from drivers.rgb_led import RgbLed
 from drivers.servo import Servo
 from drivers.ultrasonic_sensor import UltrasonicSensor
@@ -149,23 +148,6 @@ def smoke_camera() -> None:
         camera.cleanup()
 
 
-def smoke_rc522(timeout: float | None = None) -> None:
-    reader = RC522Reader(pin_rst=config.gpio.rc522_rst_pin)
-    try:
-        if timeout is None:
-            print("Waiting for RFID card...")
-        else:
-            print(f"Waiting for RFID card for up to {timeout:.0f} seconds...")
-
-        uid = reader.read_uid_hex(timeout=timeout)
-        if uid is None:
-            print("No RFID card detected")
-        else:
-            print("UID:", uid)
-    finally:
-        reader.cleanup()
-
-
 def smoke_pn532(timeout: float | None = None, scans: int = 3) -> None:
     reader = PN532Reader()
     try:
@@ -214,7 +196,7 @@ def run_step(name: str, func) -> None:
 
 def smoke_all() -> None:
     print("Running all hardware smoke tests...")
-    print("Button and RC522 are time-limited in this mode.")
+    print("Button and PN532 are time-limited in this mode.")
 
     run_step("Buzzer", smoke_buzzer)
     run_step("RGB LED", smoke_rgb)
@@ -229,7 +211,7 @@ def smoke_all() -> None:
     )
     run_step("Ultrasonic Sensor", lambda: smoke_ultrasonic(8))
     run_step("Camera", smoke_camera)
-    run_step("RC522", lambda: smoke_rc522(10))
+    run_step("PN532", lambda: smoke_pn532(10))
     run_step("Button", lambda: smoke_button(8))
     print("\nAll hardware smoke tests finished.")
 
@@ -250,7 +232,6 @@ def main() -> None:
             "rgb",
             "ultrasonic",
             "camera",
-            "rc522",
             "pn532",
         ],
         help="Hardware target to test.",
@@ -283,9 +264,6 @@ def main() -> None:
         return
     if args.device == "camera":
         smoke_camera()
-        return
-    if args.device == "rc522":
-        smoke_rc522()
         return
     if args.device == "pn532":
         smoke_pn532()

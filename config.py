@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 class GPIOConfig:
     """Central place for GPIO pin assignments."""
 
-    rc522_rst_pin: int = 22
-
     door_servo_pin: int | None = 18
     camera_pan_servo_pin: int | None = 13
     camera_tilt_servo_pin: int | None = 12
@@ -91,16 +89,13 @@ class RFIDConfig:
     """RFID reader polling and debounce settings."""
 
     enabled: bool = True
-    spi_bus: int = 0
-    spi_device: int = 0
-    irq_pin: int | None = None
+    # Optional Blinka pin names, for example "D6" and "D12".
+    pn532_reset_pin: str | None = None
+    pn532_req_pin: str | None = None
     scan_timeout_seconds: float = 0.25
     poll_interval_seconds: float = 0.08
     same_card_cooldown_seconds: float = 3.0
-    post_write_settle_seconds: float = 0.2
     enroll_scan_timeout_seconds: float = 10.0
-    text_start_block: int = 4
-    text_block_count: int = 4
 
 
 @dataclass

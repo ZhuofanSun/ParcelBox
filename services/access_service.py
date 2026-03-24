@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from config import config
-from drivers.rc522 import RC522Reader
+from drivers.pn532 import PN532Reader
 from data.event_store import EventStore
 
 logger = logging.getLogger(__name__)
@@ -22,7 +22,7 @@ class AccessService:
 
     def __init__(
         self,
-        reader_factory=RC522Reader,
+        reader_factory=PN532Reader,
         *,
         store_path: str | Path | None = None,
         event_store: EventStore | None = None,
@@ -223,135 +223,13 @@ class AccessService:
         """Allow the next detected card UID to trigger the card-detect callback again."""
         self._clear_detected_uid_latch()
 
-    def read_card_text(
-        self,
-        *,
-        timeout: float | None = None,
-        start_block: int | None = None,
-        block_count: int | None = None,
-    ) -> dict | None:
-        """Read text payload from a presented card."""
+    def scan_card(self, *, timeout: float | None = None) -> dict | None:
+        """Wait for one card and return its normalized UID."""
         self._clear_detected_uid_latch()
-        with self._lock:
-            if not self._reader_enabled or self._reader is None:
-                raise RuntimeError("RFID reader is unavailable")
-            reader = self._reader
-            poll_interval = config.rfid.poll_interval_seconds
-
-        resolved_start_block = config.rfid.text_start_block if start_block is None else int(start_block)
-        resolved_block_count = config.rfid.text_block_count if block_count is None else int(block_count)
-        with self._io_lock:
-            read_with_uid = getattr(reader, "read_text_with_uid_hex", None)
-            if callable(read_with_uid):
-                result = read_with_uid(
-                    start_block=resolved_start_block,
-                    block_count=resolved_block_count,
-                    timeout=timeout,
-                    poll_interval=poll_interval,
-                )
-                if result is None:
-                    self._clear_detected_uid_latch()
-                    return None
-                uid, text = result
-                normalized_uid = self._normalize_uid(uid)
-            else:
-                uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-                if uid is None:
-                    self._clear_detected_uid_latch()
-                    return None
-
-                normalized_uid = self._normalize_uid(uid)
-                text = reader.read_text(
-                    start_block=resolved_start_block,
-                    block_count=resolved_block_count,
-                    timeout=timeout,
-                    poll_interval=poll_interval,
-                )
-        self._notify_card_detected(normalized_uid)
-        logger.info(
-            "RFID text read: uid=%s start_block=%s block_count=%s text_length=%s",
-            normalized_uid,
-            resolved_start_block,
-            resolved_block_count,
-            len(text),
-        )
-        return {
-            "uid": normalized_uid,
-            "text": text,
-            "start_block": resolved_start_block,
-            "block_count": resolved_block_count,
-        }
-
-    def write_card_text(
-        self,
-        text: str,
-        *,
-        timeout: float | None = None,
-        start_block: int | None = None,
-        block_count: int | None = None,
-    ) -> dict | None:
-        """Write text payload to a presented card."""
-        self._clear_detected_uid_latch()
-        payload = str(text)
-        resolved_start_block = config.rfid.text_start_block if start_block is None else int(start_block)
-        resolved_block_count = config.rfid.text_block_count if block_count is None else int(block_count)
-        max_bytes = resolved_block_count * 16
-        if len(payload.encode("utf-8")) > max_bytes:
-            raise ValueError(f"text exceeds configured RFID capacity of {max_bytes} bytes")
-
-        with self._lock:
-            if not self._reader_enabled or self._reader is None:
-                raise RuntimeError("RFID reader is unavailable")
-            reader = self._reader
-            poll_interval = config.rfid.poll_interval_seconds
-
-        with self._io_lock:
-            write_with_uid = getattr(reader, "write_text_with_uid_hex", None)
-            if callable(write_with_uid):
-                result = write_with_uid(
-                    payload,
-                    start_block=resolved_start_block,
-                    timeout=timeout,
-                    poll_interval=poll_interval,
-                )
-                if result is None:
-                    self._clear_detected_uid_latch()
-                    return None
-                uid, blocks = result
-                normalized_uid = self._normalize_uid(uid)
-            else:
-                uid = reader.read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-                if uid is None:
-                    self._clear_detected_uid_latch()
-                    return None
-
-                normalized_uid = self._normalize_uid(uid)
-                blocks = reader.write_text(
-                    payload,
-                    start_block=resolved_start_block,
-                    timeout=timeout,
-                    poll_interval=poll_interval,
-                )
-            settle_seconds = max(config.rfid.post_write_settle_seconds, 0.0)
-            if settle_seconds > 0:
-                time.sleep(settle_seconds)
-        self._notify_card_detected(normalized_uid)
-        logger.info(
-            "RFID text written: uid=%s start_block=%s block_count=%s blocks=%s text_length=%s settle_seconds=%s",
-            normalized_uid,
-            resolved_start_block,
-            resolved_block_count,
-            blocks,
-            len(payload),
-            max(config.rfid.post_write_settle_seconds, 0.0),
-        )
-        return {
-            "uid": normalized_uid,
-            "text": payload,
-            "start_block": resolved_start_block,
-            "block_count": resolved_block_count,
-            "blocks": blocks,
-        }
+        uid = self.scan_uid(timeout=timeout)
+        if uid is None:
+            return None
+        return {"uid": uid}
 
     def authorize_uid(self, uid: str, *, when: datetime | None = None) -> dict:
         """Evaluate access policy for one UID."""
@@ -441,10 +319,8 @@ class AccessService:
 
         try:
             reader = self._reader_factory(
-                bus=config.rfid.spi_bus,
-                device=config.rfid.spi_device,
-                pin_rst=config.gpio.rc522_rst_pin,
-                pin_irq=config.rfid.irq_pin,
+                reset_pin=config.rfid.pn532_reset_pin,
+                req_pin=config.rfid.pn532_req_pin,
             )
             if reader is None:
                 raise RuntimeError("rfid reader factory returned no reader instance")
@@ -452,10 +328,9 @@ class AccessService:
             self._reader_enabled = True
             self._last_error = None
             logger.info(
-                "RFID reader initialized: bus=%s device=%s rst_pin=%s",
-                config.rfid.spi_bus,
-                config.rfid.spi_device,
-                config.gpio.rc522_rst_pin,
+                "RFID reader initialized: backend=pn532 reset_pin=%s req_pin=%s",
+                config.rfid.pn532_reset_pin,
+                config.rfid.pn532_req_pin,
             )
         except Exception as error:
             self._reader = None

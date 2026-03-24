@@ -53,75 +53,28 @@ class FakeUltrasonicSensor:
 class FakeReader:
     def __init__(self) -> None:
         self.uid = "A1B2C3D4"
-        self.text = "parcel-box"
         self.read_requests: list[dict] = []
-        self.write_requests: list[dict] = []
         self.cleaned_up = False
 
     def read_uid_hex(self, timeout: float = None, poll_interval: float = 0.1) -> str | None:
         self.read_requests.append({"type": "uid", "timeout": timeout, "poll_interval": poll_interval})
         return self.uid
 
-    def read_text(
-        self,
-        start_block: int = 1,
-        block_count: int = 1,
-        timeout: float = None,
-        poll_interval: float = 0.1,
-    ) -> str:
-        self.read_requests.append(
-            {
-                "type": "text",
-                "start_block": start_block,
-                "block_count": block_count,
-                "timeout": timeout,
-                "poll_interval": poll_interval,
-            }
-        )
-        return self.text
-
-    def write_text(
-        self,
-        text: str,
-        start_block: int = 1,
-        timeout: float = None,
-        poll_interval: float = 0.1,
-    ) -> list[int]:
-        self.write_requests.append(
-            {
-                "text": text,
-                "start_block": start_block,
-                "timeout": timeout,
-                "poll_interval": poll_interval,
-            }
-        )
-        return [start_block]
-
     def cleanup(self) -> None:
         self.cleaned_up = True
 
 
-class FlakyReadTextReader(FakeReader):
+class FlakyUidReader(FakeReader):
     def __init__(self) -> None:
         super().__init__()
         self.remaining_failures = 1
 
-    def read_text(
-        self,
-        start_block: int = 1,
-        block_count: int = 1,
-        timeout: float = None,
-        poll_interval: float = 0.1,
-    ) -> str:
+    def read_uid_hex(self, timeout: float = None, poll_interval: float = 0.1) -> str | None:
+        self.read_requests.append({"type": "uid", "timeout": timeout, "poll_interval": poll_interval})
         if self.remaining_failures > 0:
             self.remaining_failures -= 1
-            raise RuntimeError("temporary read failure")
-        return super().read_text(
-            start_block=start_block,
-            block_count=block_count,
-            timeout=timeout,
-            poll_interval=poll_interval,
-        )
+            raise RuntimeError("temporary scan failure")
+        return super().read_uid_hex(timeout=timeout, poll_interval=poll_interval)
 
 
 class SequencedUidReader(FakeReader):
@@ -135,52 +88,6 @@ class SequencedUidReader(FakeReader):
             next_uid = self._sequence.pop(0)
             return next_uid
         return None
-
-
-class CombinedIoReader(FakeReader):
-    def __init__(self) -> None:
-        super().__init__()
-        self.direct_uid_reads = 0
-        self.combined_reads: list[dict] = []
-        self.combined_writes: list[dict] = []
-
-    def read_uid_hex(self, timeout: float = None, poll_interval: float = 0.1) -> str | None:
-        self.direct_uid_reads += 1
-        return super().read_uid_hex(timeout=timeout, poll_interval=poll_interval)
-
-    def read_text_with_uid_hex(
-        self,
-        start_block: int = 1,
-        block_count: int = 1,
-        timeout: float = None,
-        poll_interval: float = 0.1,
-    ) -> tuple[str, str] | None:
-        self.combined_reads.append(
-            {
-                "start_block": start_block,
-                "block_count": block_count,
-                "timeout": timeout,
-                "poll_interval": poll_interval,
-            }
-        )
-        return self.uid, self.text
-
-    def write_text_with_uid_hex(
-        self,
-        text: str,
-        start_block: int = 1,
-        timeout: float = None,
-        poll_interval: float = 0.1,
-    ) -> tuple[str, list[int]] | None:
-        self.combined_writes.append(
-            {
-                "text": text,
-                "start_block": start_block,
-                "timeout": timeout,
-                "poll_interval": poll_interval,
-            }
-        )
-        return self.uid, [start_block]
 
 
 class FakeLockerBridge:
@@ -218,7 +125,6 @@ class Phase3ServiceTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         config.storage.card_store_path = str(Path(self.temp_dir.name) / "cards.json")
         config.storage.database_url = f"sqlite:///{Path(self.temp_dir.name) / 'events.db'}"
-        config.rfid.post_write_settle_seconds = 0.0
 
     def tearDown(self) -> None:
         config.gpio = self.original_config.gpio
@@ -430,7 +336,7 @@ class Phase3ServiceTests(unittest.TestCase):
         access_service.enroll_card("CAFE01", name="Tester")
         locker_service = self.build_locker_service(access_service)
 
-        first_event = locker_service.process_scanned_uid("CAFE01", source="frontend_read")
+        first_event = locker_service.process_scanned_uid("CAFE01", source="frontend_scan")
         close_event = locker_service.close_door(source="frontend")
         duplicate_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
         status_after_duplicate = locker_service.get_status()
@@ -485,44 +391,32 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(persisted_events[0]["uid"], "DEAD55")
         self.assertEqual(persisted_events[0]["reason"], "unknown_card")
 
-    def test_read_card_text_uses_reader_defaults(self) -> None:
+    def test_scan_card_returns_uid(self) -> None:
         access_service, reader = self.build_reader_access_service()
 
-        result = access_service.read_card_text()
+        result = access_service.scan_card()
 
         self.assertEqual(result["uid"], reader.uid)
-        self.assertEqual(result["text"], reader.text)
-        self.assertEqual(result["start_block"], config.rfid.text_start_block)
-        self.assertEqual(result["block_count"], config.rfid.text_block_count)
-        self.assertEqual(reader.read_requests[-1]["type"], "text")
+        self.assertEqual(reader.read_requests[-1]["type"], "uid")
 
-    def test_write_card_text_respects_capacity(self) -> None:
-        access_service, reader = self.build_reader_access_service()
+    def test_scan_card_returns_none_when_no_card_is_present(self) -> None:
+        reader = SequencedUidReader([None])
+        access_service = self.build_custom_reader_access_service(reader)
 
-        result = access_service.write_card_text("hello")
+        result = access_service.scan_card(timeout=0.01)
 
-        self.assertEqual(result["uid"], reader.uid)
-        self.assertEqual(result["text"], "hello")
-        self.assertEqual(result["blocks"], [config.rfid.text_start_block])
-        self.assertEqual(reader.write_requests[-1]["text"], "hello")
+        self.assertIsNone(result)
 
-        with self.assertRaises(ValueError):
-            access_service.write_card_text("x" * (config.rfid.text_block_count * 16 + 1))
-
-    def test_read_card_error_does_not_break_future_read_or_write(self) -> None:
-        reader = FlakyReadTextReader()
+    def test_scan_card_error_does_not_break_future_scan(self) -> None:
+        reader = FlakyUidReader()
         access_service = self.build_custom_reader_access_service(reader)
 
         with self.assertRaises(RuntimeError):
-            access_service.read_card_text()
+            access_service.scan_card()
 
-        read_result = access_service.read_card_text()
-        write_result = access_service.write_card_text("hello")
+        scan_result = access_service.scan_card()
 
-        self.assertEqual(read_result["uid"], reader.uid)
-        self.assertEqual(read_result["text"], reader.text)
-        self.assertEqual(write_result["uid"], reader.uid)
-        self.assertEqual(write_result["text"], "hello")
+        self.assertEqual(scan_result["uid"], reader.uid)
 
     def test_ensure_card_authorized_persists_card_record(self) -> None:
         event_store = self.build_event_store()
@@ -548,20 +442,20 @@ class Phase3ServiceTests(unittest.TestCase):
         reloaded_service = self.build_access_service(event_store=self.build_event_store())
         self.assertEqual(reloaded_service.get_card("CAFE01")["name"], "courier-1")
 
-    def test_read_card_flow_opens_door_for_authorized_card(self) -> None:
+    def test_scan_card_flow_opens_door_for_authorized_card(self) -> None:
         access_service, reader = self.build_reader_access_service()
         access_service.ensure_card_authorized(reader.uid, name="courier-1")
         locker_bridge = FakeLockerBridge()
 
-        result = access_service.read_card_text()
+        result = access_service.scan_card()
         access_result = access_service.authorize_uid(result["uid"])
         door_event = None
         if access_result["allowed"]:
-            door_event = locker_bridge.process_scanned_uid(result["uid"], source="frontend_read")
+            door_event = locker_bridge.process_scanned_uid(result["uid"], source="frontend_scan")
 
         self.assertTrue(access_result["allowed"])
         self.assertEqual(door_event["type"], "door_opened")
-        self.assertEqual(door_event["source"], "frontend_read")
+        self.assertEqual(door_event["source"], "frontend_scan")
         self.assertEqual(locker_bridge.processed_uids[0]["uid"], reader.uid)
 
     def test_card_detect_callback_fires_once_until_reader_sees_no_card(self) -> None:
@@ -578,7 +472,7 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(access_service.scan_uid(), "CAFE01")
         self.assertEqual(beeps, ["beep", "beep"])
 
-    def test_interactive_read_resets_card_detect_latch_before_waiting(self) -> None:
+    def test_interactive_scan_resets_card_detect_latch_before_waiting(self) -> None:
         beeps: list[str] = []
         reader = FakeReader()
         access_service = self.build_custom_reader_access_service(
@@ -586,25 +480,12 @@ class Phase3ServiceTests(unittest.TestCase):
             card_detect_callback=lambda: beeps.append("beep"),
         )
 
-        first = access_service.read_card_text()
-        second = access_service.read_card_text()
+        first = access_service.scan_card()
+        second = access_service.scan_card()
 
         self.assertEqual(first["uid"], reader.uid)
         self.assertEqual(second["uid"], reader.uid)
         self.assertEqual(beeps, ["beep", "beep"])
-
-    def test_interactive_card_io_prefers_single_pass_reader_methods(self) -> None:
-        reader = CombinedIoReader()
-        access_service = self.build_custom_reader_access_service(reader)
-
-        read_result = access_service.read_card_text()
-        write_result = access_service.write_card_text("hello")
-
-        self.assertEqual(read_result["uid"], reader.uid)
-        self.assertEqual(write_result["uid"], reader.uid)
-        self.assertEqual(reader.direct_uid_reads, 0)
-        self.assertEqual(len(reader.combined_reads), 1)
-        self.assertEqual(len(reader.combined_writes), 1)
 
 
 if __name__ == "__main__":
