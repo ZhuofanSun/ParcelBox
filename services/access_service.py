@@ -75,6 +75,32 @@ class AccessService:
                 pass
         logger.info("Access service stopped")
 
+    def restart_reader(self) -> dict:
+        """Recreate the RFID reader instance after a recoverable hardware error."""
+        with self._io_lock:
+            with self._lock:
+                reader = self._reader
+                self._reader = None
+                self._reader_enabled = False
+
+            if reader is not None:
+                cleanup = getattr(reader, "cleanup", None) or getattr(reader, "close", None)
+                if callable(cleanup):
+                    try:
+                        cleanup()
+                    except Exception:
+                        pass
+
+            with self._lock:
+                self._last_error = None
+                if self._started:
+                    self._initialize_reader_locked()
+                return {
+                    "started": self._started,
+                    "reader_enabled": self._reader_enabled,
+                    "last_error": self._last_error,
+                }
+
     def get_status(self) -> dict:
         """Return reader and card-store status."""
         with self._lock:
@@ -416,6 +442,11 @@ class AccessService:
         filtered = "".join(character for character in str(uid).upper() if character in "0123456789ABCDEF")
         if not filtered:
             raise ValueError("uid must contain at least one hex character")
+        if len(filtered) == 10:
+            uid_bytes = bytes.fromhex(filtered)
+            bcc = uid_bytes[0] ^ uid_bytes[1] ^ uid_bytes[2] ^ uid_bytes[3]
+            if uid_bytes[4] == bcc:
+                return filtered[:8]
         return filtered
 
     @staticmethod

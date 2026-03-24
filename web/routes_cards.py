@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException
 from config import config
 from services.access_service import AccessService
 from services.locker_service import LockerService
-from web.schemas import CardEnrollPayload, CardScanPayload, CardUpdatePayload
+from web.schemas import CardEnrollPayload, CardUpdatePayload
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
     """Create card-management endpoints."""
     router = APIRouter()
 
-    def frontend_card_scan_pause_seconds(timeout_seconds: float | None) -> float:
+    def frontend_card_enroll_pause_seconds(timeout_seconds: float | None) -> float:
         timeout = 0.0 if timeout_seconds is None else max(float(timeout_seconds), 0.0)
         settle = max(config.rfid.same_card_cooldown_seconds, 0.5)
         return timeout + settle
@@ -57,7 +57,7 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
         if uid is None:
             ensure_reader_available()
             timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
-            locker_service.pause_rfid_polling(frontend_card_scan_pause_seconds(timeout))
+            locker_service.pause_rfid_polling(frontend_card_enroll_pause_seconds(timeout))
             access_service.reset_card_detect_latch()
             uid = access_service.scan_uid(timeout=timeout)
             if uid is None:
@@ -80,48 +80,6 @@ def build_cards_router(access_service: AccessService, locker_service: LockerServ
 
         return {
             "card": card,
-            "snapshot": snapshot,
-        }
-
-    @router.post("/api/cards/scan")
-    def scan_card(payload: CardScanPayload) -> dict:
-        logger.info("HTTP scan_card request: timeout=%s", payload.scan_timeout_seconds)
-        ensure_reader_available()
-        timeout = payload.scan_timeout_seconds or config.rfid.enroll_scan_timeout_seconds
-        locker_service.pause_rfid_polling(frontend_card_scan_pause_seconds(timeout))
-
-        try:
-            result = access_service.scan_card(timeout=timeout)
-        except RuntimeError as error:
-            raise HTTPException(status_code=503, detail=str(error)) from error
-
-        if result is None:
-            locker_service.note_no_card_present()
-            logger.info("HTTP scan_card waiting_for_card")
-            return {
-                "mode": "scan",
-                "status": "waiting_for_card",
-                "card_scan": None,
-                "access_result": None,
-                "door_event": None,
-            }
-
-        access_result = access_service.authorize_uid(result["uid"])
-        scan_event = locker_service.process_scanned_uid(
-            result["uid"],
-            source="frontend_scan",
-            access_result=access_result,
-        )
-        door_event = scan_event if scan_event is not None and scan_event.get("type") == "door_opened" else None
-        snapshot = None if scan_event is None else scan_event.get("snapshot")
-
-        return {
-            "card_scan": result,
-            "mode": "scan",
-            "status": "duplicate_scan_ignored" if scan_event is None else "card_detected",
-            "access_result": access_result,
-            "scan_event": scan_event,
-            "door_event": door_event,
             "snapshot": snapshot,
         }
 

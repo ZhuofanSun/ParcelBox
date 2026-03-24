@@ -220,6 +220,15 @@ class Phase3ServiceTests(unittest.TestCase):
         self.assertEqual(result["reason"], "granted")
         self.assertEqual(result["card"]["name"], "Courier Card")
 
+    def test_uid_normalization_strips_legacy_rc522_bcc_byte(self) -> None:
+        access_service = self.build_access_service()
+
+        card = access_service.enroll_card("FD165006BD", name="Legacy RC522 UID")
+        result = access_service.authorize_uid("FD165006")
+
+        self.assertEqual(card["uid"], "FD165006")
+        self.assertTrue(result["allowed"])
+
     def test_access_windows_can_deny_outside_schedule(self) -> None:
         access_service = self.build_access_service()
         access_service.enroll_card(
@@ -336,7 +345,7 @@ class Phase3ServiceTests(unittest.TestCase):
         access_service.enroll_card("CAFE01", name="Tester")
         locker_service = self.build_locker_service(access_service)
 
-        first_event = locker_service.process_scanned_uid("CAFE01", source="frontend_scan")
+        first_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
         close_event = locker_service.close_door(source="frontend")
         duplicate_event = locker_service.process_scanned_uid("CAFE01", source="rfid")
         status_after_duplicate = locker_service.get_status()
@@ -451,11 +460,11 @@ class Phase3ServiceTests(unittest.TestCase):
         access_result = access_service.authorize_uid(result["uid"])
         door_event = None
         if access_result["allowed"]:
-            door_event = locker_bridge.process_scanned_uid(result["uid"], source="frontend_scan")
+            door_event = locker_bridge.process_scanned_uid(result["uid"], source="rfid")
 
         self.assertTrue(access_result["allowed"])
         self.assertEqual(door_event["type"], "door_opened")
-        self.assertEqual(door_event["source"], "frontend_scan")
+        self.assertEqual(door_event["source"], "rfid")
         self.assertEqual(locker_bridge.processed_uids[0]["uid"], reader.uid)
 
     def test_card_detect_callback_fires_once_until_reader_sees_no_card(self) -> None:

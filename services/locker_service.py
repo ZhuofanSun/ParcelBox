@@ -59,7 +59,7 @@ class LockerService:
             self._move_door_locked(config.door.closed_angle, state="closed")
 
             access_status = self._access_service.get_status()
-            if access_status["reader_enabled"]:
+            if access_status["enabled"]:
                 self._worker_thread = threading.Thread(
                     target=self._worker_loop,
                     name="locker-rfid-worker",
@@ -284,10 +284,27 @@ class LockerService:
             }
 
     def _worker_loop(self) -> None:
+        recoverable_error_streak = 0
+        last_recovery_signature = None
         while not self._stop_event.is_set():
             pause_seconds = self._rfid_pause_remaining()
             if pause_seconds > 0:
                 self._stop_event.wait(min(pause_seconds, 0.2))
+                continue
+
+            if not self._access_service.get_status()["reader_enabled"]:
+                recovery = self._access_service.restart_reader()
+                with self._lock:
+                    self._last_error = recovery.get("last_error")
+                signature = (bool(recovery.get("reader_enabled")), recovery.get("last_error"))
+                if signature != last_recovery_signature:
+                    logger.warning(
+                        "RFID reader unavailable in worker loop: recovery attempted reader_enabled=%s last_error=%s",
+                        recovery.get("reader_enabled"),
+                        recovery.get("last_error"),
+                    )
+                    last_recovery_signature = signature
+                self._stop_event.wait(1.0)
                 continue
 
             try:
@@ -297,14 +314,40 @@ class LockerService:
             except Exception as error:
                 with self._lock:
                     self._last_error = str(error)
-                logger.warning("RFID worker loop error: %s", error)
-                self._stop_event.wait(0.1)
+                if not self._is_recoverable_rfid_error(error):
+                    logger.exception("RFID worker loop stopped by unexpected error")
+                    return
+
+                recoverable_error_streak += 1
+                logger.warning(
+                    "RFID worker loop recoverable error: %s (streak=%s)",
+                    error,
+                    recoverable_error_streak,
+                )
+                if recoverable_error_streak >= 3:
+                    recovery = self._access_service.restart_reader()
+                    logger.warning(
+                        "RFID reader recovery attempted: reader_enabled=%s last_error=%s",
+                        recovery.get("reader_enabled"),
+                        recovery.get("last_error"),
+                    )
+                    if recovery.get("reader_enabled"):
+                        recoverable_error_streak = 0
+                        self._stop_event.wait(0.25)
+                    else:
+                        self._stop_event.wait(1.0)
+                else:
+                    self._stop_event.wait(0.1)
                 continue
 
             if access_result is None:
+                recoverable_error_streak = 0
+                last_recovery_signature = None
                 self.note_no_card_present()
                 continue
 
+            recoverable_error_streak = 0
+            last_recovery_signature = None
             self.process_scanned_uid(
                 access_result["uid"],
                 source="rfid",
@@ -462,6 +505,10 @@ class LockerService:
         with self._lock:
             remaining = self._rfid_polling_paused_until - time.monotonic()
         return max(remaining, 0.0)
+
+    @staticmethod
+    def _is_recoverable_rfid_error(error: Exception) -> bool:
+        return isinstance(error, (RuntimeError, OSError))
 
     def _schedule_auto_close_locked(self) -> None:
         delay_seconds = max(config.door.auto_close_seconds, 0.0)

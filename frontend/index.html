@@ -202,10 +202,9 @@
       line-height: 1.45;
     }
 
+    input,
     textarea {
       width: 100%;
-      min-height: 86px;
-      resize: vertical;
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 12px 14px;
@@ -213,6 +212,11 @@
       font-size: 14px;
       color: var(--text);
       background: rgba(255, 255, 255, 0.7);
+    }
+
+    textarea {
+      min-height: 86px;
+      resize: vertical;
     }
 
     .table-card {
@@ -328,11 +332,14 @@
             </div>
           </div>
           <div class="info-row">
-            <div class="label">RFID UID Scan</div>
+            <div class="label">Card Enrollment</div>
             <div class="helper-text" id="card-io-helper">
-              Click Start Polling, then present a card to scan its UID and run authorization.
+              RFID scanning starts automatically with the app. To save a new authorized card, enter a name below and present the card when prompted.
             </div>
-            <button id="card-io-action-btn" class="single-action" type="button">Start Polling</button>
+            <div class="field-stack">
+              <input id="card-enroll-name-input" type="text" placeholder="Card name / label" />
+              <button id="card-enroll-btn" class="single-action" type="button">Scan And Save Card</button>
+            </div>
           </div>
         </div>
         <div class="database-section">
@@ -454,7 +461,8 @@
     const openDoorButton = document.getElementById("open-door-btn");
     const closeDoorButton = document.getElementById("close-door-btn");
     const captureSnapshotButton = document.getElementById("capture-snapshot-btn");
-    const cardIoActionButton = document.getElementById("card-io-action-btn");
+    const cardEnrollNameInput = document.getElementById("card-enroll-name-input");
+    const cardEnrollButton = document.getElementById("card-enroll-btn");
     const buttonToast = document.getElementById("button-toast");
     const ctx = overlay.getContext("2d");
 
@@ -462,16 +470,10 @@
     let visionSocket = null;
     let reconnectTimer = null;
     let databasePollTimer = null;
-    let scanPollTimer = null;
-    let scanPollInFlight = false;
-    let scanPollingActive = false;
-    let scanPollingSessionId = 0;
     let buttonToastTimer = null;
     let lastHandledButtonEventId = 0;
 
-    const SCAN_POLL_TIMEOUT_SECONDS = 0.75;
-    const SCAN_POLL_INTERVAL_MS = 250;
-    const SCAN_POLL_ERROR_RETRY_MS = 1500;
+    const CARD_ENROLL_TIMEOUT_SECONDS = 10;
     const DATABASE_POLL_INTERVAL_MS = 2000;
 
     function resizeOverlay() {
@@ -625,7 +627,8 @@
       openDoorButton.disabled = disabled;
       closeDoorButton.disabled = disabled;
       captureSnapshotButton.disabled = disabled;
-      cardIoActionButton.disabled = disabled;
+      cardEnrollButton.disabled = disabled;
+      cardEnrollNameInput.disabled = disabled;
     }
 
     function formatDateTime(value) {
@@ -864,86 +867,33 @@
       showToast(message);
     }
 
-    function updateCardIoActionLabel() {
-      cardIoActionButton.textContent = scanPollingActive ? "Stop Polling" : "Start Polling";
-    }
-
-    function stopScanPolling(statusMessage = null) {
-      scanPollingActive = false;
-      scanPollingSessionId += 1;
-      if (scanPollTimer) {
-        window.clearTimeout(scanPollTimer);
-        scanPollTimer = null;
-      }
-      updateCardIoActionLabel();
-      if (statusMessage) {
-        showToast(statusMessage);
-      }
-    }
-
-    function scheduleScanPoll(delayMs = SCAN_POLL_INTERVAL_MS, sessionId = scanPollingSessionId) {
-      if (!scanPollingActive) return;
-      if (scanPollTimer) {
-        window.clearTimeout(scanPollTimer);
-      }
-      scanPollTimer = window.setTimeout(() => {
-        scanPollTimer = null;
-        pollScanCardOnce(sessionId).catch(() => {});
-      }, delayMs);
-    }
-
-    async function pollScanCardOnce(sessionId = scanPollingSessionId) {
-      if (!scanPollingActive || scanPollInFlight) return;
-      scanPollInFlight = true;
-
-      try {
-        const payload = await fetchJson("/api/cards/scan", {
-          method: "POST",
-          body: JSON.stringify({ scan_timeout_seconds: SCAN_POLL_TIMEOUT_SECONDS }),
-        });
-
-        if (!scanPollingActive || sessionId !== scanPollingSessionId) {
-          return payload;
-        }
-
-        if (payload.status === "waiting_for_card") {
-          scheduleScanPoll(SCAN_POLL_INTERVAL_MS, sessionId);
-          return payload;
-        }
-
-        if (payload.status === "duplicate_scan_ignored") {
-          showToast("Scan polling: duplicate card ignored");
-        } else if (payload.door_event) {
-          showToast("Authorized card detected: door opened");
-        } else {
-          showToast("Card detected: not authorized");
-        }
-        await refreshDatabaseTables().catch(() => {});
-        scheduleScanPoll(SCAN_POLL_INTERVAL_MS, sessionId);
-        return payload;
-      } catch (error) {
-        if (!scanPollingActive || sessionId !== scanPollingSessionId) {
-          return null;
-        }
-        showToast(`Scan polling error: ${error.message}; retrying...`);
-        scheduleScanPoll(SCAN_POLL_ERROR_RETRY_MS, sessionId);
-        return null;
-      } finally {
-        scanPollInFlight = false;
-      }
-    }
-
-    async function runCardIoAction() {
-      if (scanPollingActive) {
-        stopScanPolling("Scan polling stopped");
+    async function enrollCard() {
+      const name = cardEnrollNameInput.value.trim();
+      if (!name) {
+        showToast("Save card failed: name is required");
         return;
       }
 
-      scanPollingActive = true;
-      scanPollingSessionId += 1;
-      updateCardIoActionLabel();
-      showToast("Scan polling started");
-      await pollScanCardOnce(scanPollingSessionId);
+      setControlButtonsDisabled(true);
+      showToast("Ready to save card: present the card to the reader");
+      try {
+        const payload = await fetchJson("/api/cards/enroll", {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            scan_timeout_seconds: CARD_ENROLL_TIMEOUT_SECONDS,
+          }),
+        });
+        cardEnrollNameInput.value = "";
+        showToast(`Card saved: ${payload.card.uid} (${payload.card.name || "unnamed"})`);
+        await refreshDatabaseTables().catch(() => {});
+        return payload;
+      } catch (error) {
+        showToast(`Save card failed: ${error.message}`);
+        throw error;
+      } finally {
+        setControlButtonsDisabled(false);
+      }
     }
 
     async function runLockerAction(path, label) {
@@ -1039,14 +989,19 @@
       runSnapshotAction().catch(() => {});
     });
 
-    cardIoActionButton.addEventListener("click", () => {
-      runCardIoAction().catch(() => {});
+    cardEnrollButton.addEventListener("click", () => {
+      enrollCard().catch(() => {});
+    });
+
+    cardEnrollNameInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      enrollCard().catch(() => {});
     });
 
     window.addEventListener("resize", resizeOverlay);
     streamImage.addEventListener("load", resizeOverlay);
     window.addEventListener("beforeunload", () => {
-      stopScanPolling();
       if (databasePollTimer) {
         window.clearInterval(databasePollTimer);
       }
@@ -1063,7 +1018,6 @@
 
     async function bootstrap() {
       connectVisionSocket();
-      updateCardIoActionLabel();
       try {
         await refreshDatabaseTables();
       } catch (error) {

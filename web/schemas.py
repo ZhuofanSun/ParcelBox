@@ -26,9 +26,5 @@ class CardUpdatePayload(BaseModel):
     access_windows: list[AccessWindowPayload] | None = None
 
 
-class CardScanPayload(BaseModel):
-    scan_timeout_seconds: float | None = None
-
-
 class LockerActionPayload(BaseModel):
     source: str = "api"
