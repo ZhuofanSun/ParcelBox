@@ -1,8 +1,10 @@
 import { ui } from "./dom.js";
-import { DASHBOARD_POLL_INTERVAL_MS, state } from "./state.js";
+import { DASHBOARD_POLL_INTERVAL_MS, THEME_STORAGE_KEY, state } from "./state.js";
 import { humanizeToken, statusToneClass } from "./formatters.js";
 import {
   drawOverlay,
+  markNotificationsSeen,
+  renderNotificationCenter,
   resizeOverlay,
   setPillState,
   showToast,
@@ -21,12 +23,66 @@ function buildVisionWebSocketUrl() {
   return `${protocol}://${window.location.host}/ws/vision`;
 }
 
+function getStoredTheme() {
+  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return storedTheme === "dark" ? "dark" : "light";
+}
+
+function applyTheme(theme, persist = true) {
+  state.theme = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = state.theme;
+  ui.themeToggleButton.setAttribute("aria-pressed", String(state.theme === "dark"));
+  ui.themeToggleLabel.textContent = state.theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
+  ui.profileThemeValue.textContent = state.theme === "dark" ? "Dark" : "Light";
+  if (persist) {
+    window.localStorage.setItem(THEME_STORAGE_KEY, state.theme);
+  }
+}
+
+function toggleTheme() {
+  applyTheme(state.theme === "dark" ? "light" : "dark");
+}
+
 function scheduleReconnect() {
   if (state.reconnectTimer) return;
   state.reconnectTimer = window.setTimeout(() => {
     state.reconnectTimer = null;
     connectVisionSocket();
   }, 1000);
+}
+
+function setPopoverState(button, popover, isOpen) {
+  button.setAttribute("aria-expanded", String(isOpen));
+  button.classList.toggle("toolbar-button-active", isOpen);
+  button.classList.toggle("profile-trigger-active", isOpen);
+  popover.hidden = !isOpen;
+}
+
+function closeAllPopovers() {
+  state.activePopover = null;
+  setPopoverState(ui.notificationsTriggerButton, ui.notificationsPopover, false);
+  setPopoverState(ui.profileTriggerButton, ui.profilePopover, false);
+}
+
+function openPopover(name) {
+  closeAllPopovers();
+  state.activePopover = name;
+  if (name === "notifications") {
+    setPopoverState(ui.notificationsTriggerButton, ui.notificationsPopover, true);
+    markNotificationsSeen();
+    return;
+  }
+  if (name === "profile") {
+    setPopoverState(ui.profileTriggerButton, ui.profilePopover, true);
+  }
+}
+
+function togglePopover(name) {
+  if (state.activePopover === name) {
+    closeAllPopovers();
+    return;
+  }
+  openPopover(name);
 }
 
 function connectVisionSocket() {
@@ -66,6 +122,8 @@ function connectVisionSocket() {
 }
 
 function activateView(viewName) {
+  closeAllPopovers();
+
   ui.viewButtons.forEach((button) => {
     button.classList.toggle("nav-link-active", button.dataset.viewTarget === viewName);
   });
@@ -99,8 +157,35 @@ ui.viewButtons.forEach((button) => {
   });
 });
 
-ui.headerOpenDebugButton.addEventListener("click", () => {
-  activateView("debug");
+ui.themeToggleButton.addEventListener("click", () => {
+  toggleTheme();
+});
+
+ui.notificationsTriggerButton.addEventListener("click", () => {
+  togglePopover("notifications");
+});
+
+ui.notificationsOpenEventsButton.addEventListener("click", () => {
+  activateView("events");
+});
+
+ui.profileTriggerButton.addEventListener("click", () => {
+  togglePopover("profile");
+});
+
+ui.profileSettingsButton.addEventListener("click", () => {
+  closeAllPopovers();
+  showToast("Profile settings page is planned but not wired yet.");
+});
+
+ui.profileNotificationSettingsButton.addEventListener("click", () => {
+  closeAllPopovers();
+  showToast("Notification settings page is planned but not wired yet.");
+});
+
+ui.profileLogoutButton.addEventListener("click", () => {
+  closeAllPopovers();
+  showToast("Local console mode does not use sign-in yet.");
 });
 
 ui.openDoorButton.addEventListener("click", () => {
@@ -125,6 +210,18 @@ ui.cardEnrollNameInput.addEventListener("keydown", (event) => {
   enrollCard().catch(() => {});
 });
 
+document.addEventListener("click", (event) => {
+  if (!ui.headerToolbar.contains(event.target)) {
+    closeAllPopovers();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeAllPopovers();
+  }
+});
+
 window.addEventListener("resize", resizeOverlay);
 ui.streamImage.addEventListener("load", resizeOverlay);
 
@@ -144,6 +241,9 @@ window.addEventListener("beforeunload", () => {
 });
 
 async function bootstrap() {
+  applyTheme(getStoredTheme(), false);
+  renderNotificationCenter();
+
   const initialView = window.location.hash.replace("#", "") || "overview";
   activateView(["overview", "cards", "events", "debug"].includes(initialView) ? initialView : "overview");
   connectVisionSocket();

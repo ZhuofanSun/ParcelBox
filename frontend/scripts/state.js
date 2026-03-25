@@ -3,6 +3,11 @@ export const state = {
   latestLockerStatus: null,
   latestSystemStatus: null,
   latestEvents: [],
+  theme: "light",
+  activePopover: null,
+  latestNotificationKey: null,
+  seenNotificationKey: null,
+  notificationUnreadCount: 0,
   visionSocket: null,
   reconnectTimer: null,
   dashboardPollTimer: null,
@@ -12,3 +17,4 @@ export const state = {
 
 export const CARD_ENROLL_TIMEOUT_SECONDS = 10;
 export const DASHBOARD_POLL_INTERVAL_MS = 2000;
+export const THEME_STORAGE_KEY = "parcelbox.theme";

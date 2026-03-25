@@ -82,6 +82,65 @@ export function renderEventCollection(container, events, emptyMessage) {
     .join("");
 }
 
+function buildNotificationKey(event) {
+  if (!event) return null;
+  return [
+    event.timestamp ?? "",
+    event.type ?? event.event_type ?? "",
+    event.reason ?? "",
+    event.card_uid ?? "",
+    event.source ?? "",
+  ].join("|");
+}
+
+export function markNotificationsSeen() {
+  state.seenNotificationKey = buildNotificationKey(state.latestEvents[0]);
+  state.notificationUnreadCount = 0;
+  renderNotificationCenter();
+}
+
+export function renderNotificationCenter() {
+  const latestKey = buildNotificationKey(state.latestEvents[0]);
+  if (latestKey && state.latestNotificationKey === null) {
+    state.latestNotificationKey = latestKey;
+    if (state.seenNotificationKey === null) {
+      state.seenNotificationKey = latestKey;
+    }
+  } else if (latestKey && latestKey !== state.latestNotificationKey) {
+    state.latestNotificationKey = latestKey;
+    if (state.activePopover === "notifications") {
+      state.seenNotificationKey = latestKey;
+      state.notificationUnreadCount = 0;
+    } else if (latestKey !== state.seenNotificationKey) {
+      state.notificationUnreadCount = Math.min(state.notificationUnreadCount + 1, 9);
+    }
+  }
+
+  ui.notificationsUnreadDot.hidden = state.notificationUnreadCount === 0;
+  ui.notificationsUnreadCount.textContent = state.notificationUnreadCount > 0
+    ? `${state.notificationUnreadCount} new`
+    : "All read";
+
+  const notifications = Array.isArray(state.latestEvents) ? state.latestEvents.slice(0, 5) : [];
+  ui.notificationsEmpty.hidden = notifications.length > 0;
+  ui.notificationsList.innerHTML = notifications
+    .map((event) => {
+      const title = humanizeToken(event.type || event.event_type || "event");
+      const timeLabel = formatTimestampLabel(event.timestamp);
+      const detailLine = describeEvent(event) || "No extra details";
+      return `
+        <div class="notification-item">
+          <div class="notification-topline">
+            <div class="notification-title">${escapeHtml(title)}</div>
+            <div class="notification-time">${escapeHtml(timeLabel)}</div>
+          </div>
+          <div class="notification-meta">${escapeHtml(detailLine)}</div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 export function renderCardCollection(container, cards) {
   if (!Array.isArray(cards) || cards.length === 0) {
     renderEmptyCollection(container, "No RFID cards stored yet.");
@@ -348,6 +407,7 @@ export function renderLockerStatus(payload) {
 export function renderSystemStatus(payload) {
   state.latestSystemStatus = payload;
   ui.systemHostnameValue.textContent = payload?.hostname || "—";
+  ui.profileHostValue.textContent = payload?.hostname || "Local device";
   ui.systemCpuTempValue.textContent = formatTemperature(payload?.cpu?.temperature_c);
   ui.systemCpuUsageValue.textContent = formatPercentage(payload?.cpu?.usage_percent);
   ui.systemMemoryValue.textContent = formatMemory(payload?.memory);

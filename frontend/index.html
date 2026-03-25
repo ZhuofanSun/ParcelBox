@@ -59,8 +59,137 @@
             available through the side navigation.
           </p>
         </div>
-        <div class="header-actions">
-          <button class="ghost-button" id="header-open-debug-btn" type="button">Open Debug Data</button>
+        <div class="header-actions" id="header-toolbar">
+          <div class="toolbar-group">
+            <button
+              class="toolbar-button"
+              id="theme-toggle-btn"
+              type="button"
+              aria-label="Toggle dark mode"
+              aria-pressed="false"
+            >
+              <span class="theme-icon theme-icon-moon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M21 12.8A9 9 0 1 1 11.2 3a7.2 7.2 0 0 0 9.8 9.8Z" />
+                </svg>
+              </span>
+              <span class="theme-icon theme-icon-sun" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="4.2" />
+                  <path d="M12 2.5v2.2" />
+                  <path d="M12 19.3v2.2" />
+                  <path d="M4.9 4.9l1.5 1.5" />
+                  <path d="M17.6 17.6l1.5 1.5" />
+                  <path d="M2.5 12h2.2" />
+                  <path d="M19.3 12h2.2" />
+                  <path d="M4.9 19.1l1.5-1.5" />
+                  <path d="M17.6 6.4l1.5-1.5" />
+                </svg>
+              </span>
+              <span class="sr-only" id="theme-toggle-label">Switch to dark mode</span>
+            </button>
+
+            <div class="toolbar-popover-wrap">
+              <button
+                class="toolbar-button toolbar-button-alert"
+                id="notifications-trigger-btn"
+                type="button"
+                aria-label="Open notifications"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="notifications-popover"
+              >
+                <span aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 18h5l-1.6-1.8a2 2 0 0 1-.4-1.2v-3.3a6 6 0 1 0-12 0V15a2 2 0 0 1-.4 1.2L4 18h5" />
+                    <path d="M10 18a2 2 0 0 0 4 0" />
+                  </svg>
+                </span>
+                <span class="toolbar-badge-dot" id="notifications-unread-dot" hidden></span>
+              </button>
+
+              <div class="topbar-popover topbar-popover-right" id="notifications-popover" hidden>
+                <div class="popover-header">
+                  <div>
+                    <div class="popover-kicker">Activity Alerts</div>
+                    <div class="popover-title-row">
+                      <div class="popover-title">Notifications</div>
+                      <span class="popover-chip" id="notifications-unread-count">All read</span>
+                    </div>
+                  </div>
+                  <button class="popover-action" id="notifications-open-events-btn" type="button">Open Events</button>
+                </div>
+
+                <div class="notification-empty" id="notifications-empty">
+                  No recent business events yet.
+                </div>
+                <div class="notification-list" id="notifications-list"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="toolbar-popover-wrap">
+            <button
+              class="profile-trigger"
+              id="profile-trigger-btn"
+              type="button"
+              aria-label="Open profile menu"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="profile-popover"
+            >
+              <span class="profile-avatar" aria-hidden="true">PB</span>
+              <span class="profile-meta">
+                <span class="profile-name">ParcelBox Local</span>
+                <span class="profile-role">Device operator</span>
+              </span>
+              <span class="profile-chevron" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m7 10 5 5 5-5" />
+                </svg>
+              </span>
+            </button>
+
+            <div class="topbar-popover topbar-popover-right profile-popover" id="profile-popover" hidden>
+              <div class="profile-summary">
+                <span class="profile-avatar profile-avatar-large" aria-hidden="true">PB</span>
+                <div class="profile-summary-text">
+                  <div class="popover-title">ParcelBox Local</div>
+                  <div class="profile-role">Single-device operator console</div>
+                </div>
+              </div>
+
+              <div class="profile-fact-list">
+                <div class="profile-fact-row">
+                  <span class="profile-fact-label">Theme</span>
+                  <span class="profile-fact-value" id="profile-theme-value">Light</span>
+                </div>
+                <div class="profile-fact-row">
+                  <span class="profile-fact-label">Host</span>
+                  <span class="profile-fact-value" id="profile-host-value">Local device</span>
+                </div>
+                <div class="profile-fact-row">
+                  <span class="profile-fact-label">Auth</span>
+                  <span class="profile-fact-value">Disabled</span>
+                </div>
+              </div>
+
+              <div class="menu-button-stack">
+                <button class="menu-button" id="profile-settings-btn" type="button">
+                  <span class="menu-button-title">Profile Settings</span>
+                  <span class="menu-button-copy">Reserve this for account details and device preferences later.</span>
+                </button>
+                <button class="menu-button" id="profile-notification-settings-btn" type="button">
+                  <span class="menu-button-title">Notification Settings</span>
+                  <span class="menu-button-copy">Future home for email alert preferences and delivery rules.</span>
+                </button>
+                <button class="menu-button menu-button-danger" id="profile-logout-btn" type="button">
+                  <span class="menu-button-title">Log Out</span>
+                  <span class="menu-button-copy">Kept as a placeholder until real auth is introduced.</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </header>
 

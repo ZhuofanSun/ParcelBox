@@ -37,12 +37,15 @@
 - 如果是主题、阴影、卡片视觉、topbar 样式，优先动 `styles/`。
 - 如果是接口调用、轮询、WebSocket、通知逻辑，优先动 `scripts/`。
 
+## Header Tools
+
+- 右上角全局工具区已经接入：
+  - `dark mode` 开关，主题选择写入 `localStorage`
+  - 通知铃铛，当前展示最近业务事件
+  - profile trigger，下拉菜单承接后续设置与登出入口
+
 ## Planned UI Extensions
 
-- 右上角全局工具区：
-  - `dark mode` 开关
-  - 通知铃铛
-  - profile 入口
 - profile / settings：
   - 个人信息
   - 邮件通知设置

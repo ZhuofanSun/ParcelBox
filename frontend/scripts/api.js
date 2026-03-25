@@ -5,6 +5,7 @@ import {
   renderEventCollection,
   renderLockerStatus,
   renderLiveDetailStrip,
+  renderNotificationCenter,
   renderSystemStatus,
   setControlButtonsDisabled,
   showToast,
@@ -48,6 +49,7 @@ export async function refreshSystemOverview() {
 export async function refreshEventsView() {
   const payload = await fetchJson("/api/logs/events?limit=10", { headers: {} });
   state.latestEvents = payload.events || [];
+  renderNotificationCenter();
   renderEventCollection(
     ui.overviewEventsList,
     state.latestEvents.slice(0, 6),
