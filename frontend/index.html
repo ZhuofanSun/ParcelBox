@@ -138,10 +138,13 @@
               aria-expanded="false"
               aria-controls="profile-popover"
             >
-              <span class="profile-avatar" aria-hidden="true">PB</span>
+              <span class="profile-avatar" data-profile-avatar aria-hidden="true">
+                <img class="profile-avatar-image" alt="" hidden />
+                <span class="profile-avatar-fallback">PB</span>
+              </span>
               <span class="profile-meta">
-                <span class="profile-name">ParcelBox Local</span>
-                <span class="profile-role">Device operator</span>
+                <span class="profile-name" id="header-profile-name">ParcelBox Local</span>
+                <span class="profile-role" id="header-profile-role">Device operator</span>
               </span>
               <span class="profile-chevron" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -152,10 +155,13 @@
 
             <div class="topbar-popover topbar-popover-right profile-popover" id="profile-popover" hidden>
               <div class="profile-summary">
-                <span class="profile-avatar profile-avatar-large" aria-hidden="true">PB</span>
+                <span class="profile-avatar profile-avatar-large" data-profile-avatar aria-hidden="true">
+                  <img class="profile-avatar-image" alt="" hidden />
+                  <span class="profile-avatar-fallback">PB</span>
+                </span>
                 <div class="profile-summary-text">
-                  <div class="popover-title">ParcelBox Local</div>
-                  <div class="profile-role">Single-device operator console</div>
+                  <div class="popover-title" id="popover-profile-name">ParcelBox Local</div>
+                  <div class="profile-role" id="popover-profile-role">Single-device operator console</div>
                 </div>
               </div>
 
@@ -169,23 +175,19 @@
                   <span class="profile-fact-value" id="profile-host-value">Local device</span>
                 </div>
                 <div class="profile-fact-row">
-                  <span class="profile-fact-label">Auth</span>
-                  <span class="profile-fact-value">Disabled</span>
+                  <span class="profile-fact-label">Mode</span>
+                  <span class="profile-fact-value">Single-device</span>
                 </div>
               </div>
 
               <div class="menu-button-stack">
                 <button class="menu-button" id="profile-settings-btn" type="button">
                   <span class="menu-button-title">Profile Settings</span>
-                  <span class="menu-button-copy">Reserve this for account details and device preferences later.</span>
+                  <span class="menu-button-copy">Device identity, avatar, and local console preferences.</span>
                 </button>
                 <button class="menu-button" id="profile-notification-settings-btn" type="button">
                   <span class="menu-button-title">Notification Settings</span>
-                  <span class="menu-button-copy">Future home for email alert preferences and delivery rules.</span>
-                </button>
-                <button class="menu-button menu-button-danger" id="profile-logout-btn" type="button">
-                  <span class="menu-button-title">Log Out</span>
-                  <span class="menu-button-copy">Kept as a placeholder until real auth is introduced.</span>
+                  <span class="menu-button-copy">Bell filters and device email subscription schemes.</span>
                 </button>
               </div>
             </div>
@@ -594,6 +596,179 @@
                 </div>
               </div>
             </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-panel" data-view-panel="settings">
+        <article class="panel panel-tone-indigo">
+          <div class="panel-header">
+            <div>
+              <div class="section-kicker">Local Preferences</div>
+              <h2 class="panel-title">Profile &amp; Notification Settings</h2>
+              <p class="panel-copy">
+                This page keeps local console identity, theme preference, and in-app alert filters in
+                one place. These settings are stored locally in the browser for this device.
+              </p>
+            </div>
+            <button class="ghost-button" id="settings-back-btn" type="button">Back To Overview</button>
+          </div>
+          <div class="panel-body settings-shell">
+            <div class="settings-tabs">
+              <button class="settings-tab settings-tab-active" data-settings-section-target="profile" type="button">
+                Profile Settings
+              </button>
+              <button class="settings-tab" data-settings-section-target="notifications" type="button">
+                Notification Settings
+              </button>
+            </div>
+
+            <section class="settings-section settings-section-active" data-settings-section="profile">
+              <div class="settings-grid">
+                <article class="settings-card">
+                  <div class="settings-card-header">
+                    <div>
+                      <div class="settings-kicker">Console Identity</div>
+                      <h3 class="settings-title">Profile Settings</h3>
+                    </div>
+                    <span class="profile-avatar profile-avatar-large" data-profile-avatar aria-hidden="true">
+                      <img class="profile-avatar-image" alt="" hidden />
+                      <span class="profile-avatar-fallback">PB</span>
+                    </span>
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-profile-name-input">Display Name</label>
+                    <input id="settings-profile-name-input" type="text" placeholder="ParcelBox Local" />
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-profile-role-input">Subtitle / Role</label>
+                    <input id="settings-profile-role-input" type="text" placeholder="Device operator" />
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-theme-select">Preferred Theme</label>
+                    <select class="settings-select" id="settings-theme-select">
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-profile-avatar-upload-btn">Avatar</label>
+                    <input
+                      id="settings-profile-avatar-input"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      hidden
+                    />
+                    <div class="settings-avatar-actions">
+                      <button class="secondary-button" id="settings-profile-avatar-upload-btn" type="button">
+                        Upload Avatar
+                      </button>
+                      <button class="ghost-button" id="settings-profile-avatar-reset-btn" type="button">
+                        Reset To Initials
+                      </button>
+                    </div>
+                    <div class="helper-text" id="settings-profile-avatar-status">
+                      Using initials avatar based on your display name.
+                    </div>
+                  </div>
+                  <div class="settings-actions">
+                    <button class="primary-button" id="settings-profile-save-btn" type="button">Save Profile Settings</button>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card-muted">
+                  <div class="settings-kicker">Device Context</div>
+                  <h3 class="settings-title">Current Runtime Context</h3>
+                  <div class="kv-grid">
+                    <div class="kv-row">
+                      <div class="kv-label">Host</div>
+                      <div class="kv-value" id="settings-host-value">Local device</div>
+                    </div>
+                    <div class="kv-row">
+                      <div class="kv-label">Theme</div>
+                      <div class="kv-value" id="settings-theme-value">Light</div>
+                    </div>
+                    <div class="kv-row">
+                      <div class="kv-label">Mode</div>
+                      <div class="kv-value">Single-device</div>
+                    </div>
+                    <div class="kv-row">
+                      <div class="kv-label">Storage</div>
+                      <div class="kv-value">Browser local settings</div>
+                    </div>
+                  </div>
+                  <div class="helper-text">
+                    These settings describe the local ParcelBox console and device identity. This
+                    project does not currently use multi-user accounts.
+                  </div>
+                </article>
+              </div>
+            </section>
+
+            <section class="settings-section" data-settings-section="notifications">
+              <div class="settings-grid">
+                <article class="settings-card">
+                  <div class="settings-kicker">In-App Alerts</div>
+                  <h3 class="settings-title">Notification Settings</h3>
+                  <div class="helper-text">
+                    These switches only control what appears in the top-right notification bell. They do
+                    not change backend email behavior.
+                  </div>
+                  <div class="settings-toggle-stack">
+                    <label class="settings-toggle-row">
+                      <span class="settings-toggle-copy">
+                        <span class="settings-toggle-title">Button Pressed</span>
+                        <span class="settings-toggle-note">Notify when the hardware request button is pressed.</span>
+                      </span>
+                      <input class="settings-toggle-input" id="settings-alert-button-input" type="checkbox" />
+                    </label>
+                    <label class="settings-toggle-row">
+                      <span class="settings-toggle-copy">
+                        <span class="settings-toggle-title">Denied RFID</span>
+                        <span class="settings-toggle-note">Notify when a card is rejected or unauthorized.</span>
+                      </span>
+                      <input class="settings-toggle-input" id="settings-alert-denied-input" type="checkbox" />
+                    </label>
+                    <label class="settings-toggle-row">
+                      <span class="settings-toggle-copy">
+                        <span class="settings-toggle-title">Face Nearby</span>
+                        <span class="settings-toggle-note">Notify when the close-range face trigger captures a vision snapshot.</span>
+                      </span>
+                      <input class="settings-toggle-input" id="settings-alert-face-input" type="checkbox" />
+                    </label>
+                  </div>
+                  <div class="settings-actions">
+                    <button class="primary-button" id="settings-notifications-save-btn" type="button">Save Notification Settings</button>
+                  </div>
+                </article>
+
+                <article class="settings-card settings-card-muted">
+                  <div class="settings-kicker">Alert Rules</div>
+                  <h3 class="settings-title">Current Bell Behavior</h3>
+                  <div class="collection-list">
+                    <div class="collection-item collection-item-amber">
+                      <div class="collection-kicker">Manual Request</div>
+                      <div class="collection-title">Button press alerts</div>
+                      <div class="collection-meta">High-signal hardware requests stay visible until the bell is opened.</div>
+                    </div>
+                    <div class="collection-item collection-item-danger">
+                      <div class="collection-kicker">Access Control</div>
+                      <div class="collection-title">Denied RFID alerts</div>
+                      <div class="collection-meta">Rejected cards surface immediately so access rules can be checked quickly.</div>
+                    </div>
+                    <div class="collection-item collection-item-event">
+                      <div class="collection-kicker">Vision Alert</div>
+                      <div class="collection-title">Face nearby alerts</div>
+                      <div class="collection-meta">The current trigger is backed by the close-range vision snapshot event.</div>
+                    </div>
+                  </div>
+                  <div class="helper-text">
+                    Opening the notification bell marks the current alert set as read. Later this page can
+                    also host email delivery preferences once there is a backend settings API.
+                  </div>
+                </article>
+              </div>
+            </section>
           </div>
         </article>
       </section>

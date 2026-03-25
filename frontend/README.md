@@ -1,18 +1,18 @@
 # Frontend Notes
 
-当前前端仍然是“单设备调试操作台”，不引入新的构建链，也不把 `Tabler` 整体搬进来。这里的目标是保留原生 `HTML + CSS + JS` 的低门槛，同时把结构拆清楚，后续加 `dark mode`、通知铃铛、profile、登录页时不再回到一个超长单文件里摸索。
+当前前端仍然是“单设备调试操作台”，不引入新的构建链，也不把 `Tabler` 整体搬进来。这里的目标是保留原生 `HTML + CSS + JS` 的低门槛，同时把结构拆清楚，后续加 `dark mode`、通知铃铛、profile、设备级设置页时不再回到一个超长单文件里摸索。
 
 ## Directory Map
 
 - `index.html`
   - 只保留页面结构、视图容器和少量页面级内联布局。
-  - 当前入口仍然是单页，侧栏切换 `Overview / Cards / Events / Debug`。
+  - 当前入口仍然是单页，侧栏切换 `Overview / Cards / Events / Debug`，profile 菜单还可以打开独立的 `Settings` 视图。
 - `styles/theme.css`
   - 主题变量、背景、全局字体和基础色板。
   - 未来做 `dark mode` 时，优先在这里加 `data-theme="dark"` 对应变量。
 - `styles/layout.css`
   - 页面骨架：侧栏、工作区、主栅格、响应式断点。
-  - 如果后面增加 topbar、profile 页面容器、auth 页面壳子，优先放这里。
+  - 如果后面增加 topbar、profile 页面容器、settings 页面壳子，优先放这里。
 - `styles/components.css`
   - 面板、卡片、按钮、表格、toast、视频叠加区等组件样式。
   - 视觉微调大多会落在这里。
@@ -20,6 +20,9 @@
   - 所有当前页面依赖的 DOM 引用和 canvas context。
 - `scripts/state.js`
   - 前端运行时状态和轮询 / WebSocket 常量。
+- `scripts/avatar-storage.js`
+  - profile 头像图片的浏览器本地存储。
+  - 当前直接走压缩后的浏览器 `localStorage`，避免跨浏览器的本地图片持久化差异。
 - `scripts/formatters.js`
   - 时间、标签、状态文本、人类可读化等纯函数。
 - `scripts/renderers.js`
@@ -42,16 +45,27 @@
 - 右上角全局工具区已经接入：
   - `dark mode` 开关，主题选择写入 `localStorage`
   - 通知铃铛，当前只展示高价值提醒：按钮按下、未授权刷卡、近距离人脸触发
-  - profile trigger，下拉菜单承接后续设置与登出入口
+  - profile trigger，下拉菜单承接后续设备设置入口
+
+## Settings View
+
+- 已接入一个本地 settings 视图，通过 profile dropdown 进入。
+- 当前可配置：
+  - 控制台显示名称
+  - 角色 / 副标题文案
+  - 主题偏好
+  - 头像上传 / 重置
+  - `Display Name -> initials` 默认头像
+  - 通知铃铛里三类提醒的开关
+- 当前这些设置都只写入浏览器本地存储，不回写后端。
+- 文本类 profile 偏好和压缩后的头像图片当前都写 `localStorage`。
 
 ## Planned UI Extensions
 
 - profile / settings：
-  - 个人信息
-  - 邮件通知设置
-  - 登出
-- auth 页面：
-  - 后续若需要，建议单独补登录页，不和当前调试台首页混在一起。
+  - 设备级 profile 页面和更完整的本机设置
+  - 邮件通知设置和后端设置接口
+  - 后端持久化头像和邮件订阅方案
 
 ## Tabler Usage Boundary
 

@@ -1,5 +1,16 @@
 import { ui } from "./dom.js";
-import { DASHBOARD_POLL_INTERVAL_MS, THEME_STORAGE_KEY, state } from "./state.js";
+import {
+  clearProfileAvatarDataUrl,
+  loadProfileAvatarDataUrl,
+  saveProfileAvatarDataUrl,
+} from "./avatar-storage.js";
+import {
+  DASHBOARD_POLL_INTERVAL_MS,
+  NOTIFICATION_SETTINGS_STORAGE_KEY,
+  PROFILE_STORAGE_KEY,
+  THEME_STORAGE_KEY,
+  state,
+} from "./state.js";
 import { humanizeToken, statusToneClass } from "./formatters.js";
 import {
   drawOverlay,
@@ -18,6 +29,11 @@ import {
   runSnapshotAction,
 } from "./api.js";
 
+const PROFILE_DEFAULT_NAME = "ParcelBox Local";
+const PROFILE_DEFAULT_ROLE = "Device operator";
+const PROFILE_AVATAR_SIZE = 192;
+const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
 function buildVisionWebSocketUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${window.location.host}/ws/vision`;
@@ -28,12 +44,230 @@ function getStoredTheme() {
   return storedTheme === "dark" ? "dark" : "light";
 }
 
+function getStoredProfile() {
+  try {
+    const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
+    if (!raw) {
+      return { ...state.profile };
+    }
+    const parsed = JSON.parse(raw);
+    return normalizeProfile({
+      ...state.profile,
+      name: parsed?.name,
+      role: parsed?.role,
+      avatarMode: parsed?.avatarMode,
+    });
+  } catch {
+    return { ...state.profile };
+  }
+}
+
+function getStoredNotificationPreferences() {
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATION_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return { ...state.notificationPreferences };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      buttonPressed: parsed?.buttonPressed !== false,
+      accessDenied: parsed?.accessDenied !== false,
+      faceNearby: parsed?.faceNearby !== false,
+    };
+  } catch {
+    return { ...state.notificationPreferences };
+  }
+}
+
+function normalizeProfile(profile) {
+  const normalized = {
+    name: typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : PROFILE_DEFAULT_NAME,
+    role: typeof profile?.role === "string" && profile.role.trim() ? profile.role.trim() : PROFILE_DEFAULT_ROLE,
+    avatarMode: profile?.avatarMode === "uploaded" ? "uploaded" : "initials",
+    avatarImageDataUrl:
+      typeof profile?.avatarImageDataUrl === "string" && profile.avatarImageDataUrl.trim()
+        ? profile.avatarImageDataUrl
+        : null,
+  };
+
+  if (normalized.avatarMode === "uploaded" && !normalized.avatarImageDataUrl) {
+    normalized.avatarMode = "initials";
+  }
+
+  return normalized;
+}
+
+function profileStoragePayload(profile) {
+  return {
+    name: profile.name,
+    role: profile.role,
+    avatarMode: profile.avatarMode,
+  };
+}
+
+function computeProfileInitials(name) {
+  const tokens = String(name || "")
+    .trim()
+    .split(/[\s_-]+/)
+    .map((token) => token.replace(/[^\p{L}\p{N}]/gu, ""))
+    .filter(Boolean);
+
+  if (tokens.length >= 2) {
+    return `${tokens[0][0]}${tokens[1][0]}`.toUpperCase();
+  }
+
+  if (tokens.length === 1) {
+    return tokens[0].slice(0, 2).toUpperCase();
+  }
+
+  return "PB";
+}
+
+function renderProfileAvatars(profile = state.profile) {
+  const initials = computeProfileInitials(profile.name);
+  const hasUploadedAvatar = profile.avatarMode === "uploaded" && Boolean(profile.avatarImageDataUrl);
+
+  ui.profileAvatarRoots.forEach((root) => {
+    const image = root.querySelector(".profile-avatar-image");
+    const fallback = root.querySelector(".profile-avatar-fallback");
+    if (!image || !fallback) {
+      return;
+    }
+
+    fallback.textContent = initials;
+    fallback.hidden = hasUploadedAvatar;
+    image.hidden = !hasUploadedAvatar;
+
+    if (hasUploadedAvatar) {
+      image.src = profile.avatarImageDataUrl;
+    } else {
+      image.removeAttribute("src");
+    }
+  });
+
+  ui.settingsProfileAvatarStatus.textContent = hasUploadedAvatar
+    ? "Custom avatar stored only in this browser on this device."
+    : `Using initials avatar based on Display Name: ${initials}.`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error || new Error("Failed to read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to load selected image"));
+    image.src = dataUrl;
+  });
+}
+
+async function buildAvatarDataUrl(file) {
+  if (!(file instanceof File)) {
+    throw new Error("Please choose an image file");
+  }
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Avatar must be an image");
+  }
+  if (file.size > PROFILE_AVATAR_MAX_BYTES) {
+    throw new Error("Avatar image must be 5 MB or smaller");
+  }
+
+  const sourceDataUrl = await readFileAsDataUrl(file);
+  if (typeof sourceDataUrl !== "string" || !sourceDataUrl.startsWith("data:image/")) {
+    throw new Error("Unsupported avatar image");
+  }
+
+  const image = await loadImage(sourceDataUrl);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  const squareSize = Math.min(sourceWidth, sourceHeight);
+  if (!squareSize) {
+    throw new Error("Avatar image is empty");
+  }
+
+  const offsetX = (sourceWidth - squareSize) / 2;
+  const offsetY = (sourceHeight - squareSize) / 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = PROFILE_AVATAR_SIZE;
+  canvas.height = PROFILE_AVATAR_SIZE;
+
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Avatar canvas is unavailable");
+  }
+
+  context.drawImage(
+    image,
+    offsetX,
+    offsetY,
+    squareSize,
+    squareSize,
+    0,
+    0,
+    PROFILE_AVATAR_SIZE,
+    PROFILE_AVATAR_SIZE
+  );
+
+  return canvas.toDataURL("image/webp", 0.9);
+}
+
+function syncSettingsForm() {
+  ui.settingsProfileNameInput.value = state.profile.name;
+  ui.settingsProfileRoleInput.value = state.profile.role;
+  ui.settingsThemeSelect.value = state.theme;
+  ui.settingsThemeValue.textContent = state.theme === "dark" ? "Dark" : "Light";
+  ui.settingsAlertButtonInput.checked = state.notificationPreferences.buttonPressed;
+  ui.settingsAlertDeniedInput.checked = state.notificationPreferences.accessDenied;
+  ui.settingsAlertFaceInput.checked = state.notificationPreferences.faceNearby;
+}
+
+function applyProfile(profile, persist = true) {
+  state.profile = normalizeProfile({
+    ...state.profile,
+    ...profile,
+  });
+  ui.headerProfileName.textContent = state.profile.name;
+  ui.headerProfileRole.textContent = state.profile.role;
+  ui.popoverProfileName.textContent = state.profile.name;
+  ui.popoverProfileRole.textContent = state.profile.role;
+  renderProfileAvatars();
+  if (persist) {
+    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profileStoragePayload(state.profile)));
+  }
+  syncSettingsForm();
+}
+
+function applyNotificationPreferences(preferences, persist = true) {
+  state.notificationPreferences = {
+    buttonPressed: preferences.buttonPressed !== false,
+    accessDenied: preferences.accessDenied !== false,
+    faceNearby: preferences.faceNearby !== false,
+  };
+  if (persist) {
+    window.localStorage.setItem(
+      NOTIFICATION_SETTINGS_STORAGE_KEY,
+      JSON.stringify(state.notificationPreferences)
+    );
+  }
+  syncSettingsForm();
+  renderNotificationCenter();
+}
+
 function applyTheme(theme, persist = true) {
   state.theme = theme === "dark" ? "dark" : "light";
   document.documentElement.dataset.theme = state.theme;
   ui.themeToggleButton.setAttribute("aria-pressed", String(state.theme === "dark"));
   ui.themeToggleLabel.textContent = state.theme === "dark" ? "Switch to light mode" : "Switch to dark mode";
   ui.profileThemeValue.textContent = state.theme === "dark" ? "Dark" : "Light";
+  ui.settingsThemeValue.textContent = state.theme === "dark" ? "Dark" : "Light";
+  ui.settingsThemeSelect.value = state.theme;
   if (persist) {
     window.localStorage.setItem(THEME_STORAGE_KEY, state.theme);
   }
@@ -83,6 +317,21 @@ function togglePopover(name) {
     return;
   }
   openPopover(name);
+}
+
+function activateSettingsSection(sectionName) {
+  ui.settingsSectionButtons.forEach((button) => {
+    button.classList.toggle("settings-tab-active", button.dataset.settingsSectionTarget === sectionName);
+  });
+  ui.settingsSections.forEach((section) => {
+    section.classList.toggle("settings-section-active", section.dataset.settingsSection === sectionName);
+  });
+}
+
+function openSettings(sectionName = "profile") {
+  closeAllPopovers();
+  activateView("settings");
+  activateSettingsSection(sectionName);
 }
 
 function connectVisionSocket() {
@@ -174,18 +423,76 @@ ui.profileTriggerButton.addEventListener("click", () => {
 });
 
 ui.profileSettingsButton.addEventListener("click", () => {
-  closeAllPopovers();
-  showToast("Profile settings page is planned but not wired yet.");
+  openSettings("profile");
 });
 
 ui.profileNotificationSettingsButton.addEventListener("click", () => {
-  closeAllPopovers();
-  showToast("Notification settings page is planned but not wired yet.");
+  openSettings("notifications");
 });
 
-ui.profileLogoutButton.addEventListener("click", () => {
-  closeAllPopovers();
-  showToast("Local console mode does not use sign-in yet.");
+ui.settingsBackButton.addEventListener("click", () => {
+  activateView("overview");
+});
+
+ui.settingsSectionButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    activateSettingsSection(button.dataset.settingsSectionTarget);
+  });
+});
+
+ui.settingsProfileAvatarUploadButton.addEventListener("click", () => {
+  ui.settingsProfileAvatarInput.click();
+});
+
+ui.settingsProfileAvatarInput.addEventListener("change", async () => {
+  const file = ui.settingsProfileAvatarInput.files?.[0];
+  ui.settingsProfileAvatarInput.value = "";
+  if (!file) {
+    return;
+  }
+
+  try {
+    const avatarDataUrl = await buildAvatarDataUrl(file);
+    await saveProfileAvatarDataUrl(avatarDataUrl);
+    applyProfile({
+      avatarMode: "uploaded",
+      avatarImageDataUrl: avatarDataUrl,
+    });
+    showToast("Avatar saved locally.");
+  } catch (error) {
+    showToast(`Avatar update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
+ui.settingsProfileAvatarResetButton.addEventListener("click", async () => {
+  try {
+    await clearProfileAvatarDataUrl();
+    applyProfile({
+      avatarMode: "initials",
+      avatarImageDataUrl: null,
+    });
+    showToast("Avatar reset to initials.");
+  } catch (error) {
+    showToast(`Avatar reset failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
+ui.settingsProfileSaveButton.addEventListener("click", () => {
+  applyProfile({
+    name: ui.settingsProfileNameInput.value,
+    role: ui.settingsProfileRoleInput.value,
+  });
+  applyTheme(ui.settingsThemeSelect.value);
+  showToast("Profile settings saved locally.");
+});
+
+ui.settingsNotificationsSaveButton.addEventListener("click", () => {
+  applyNotificationPreferences({
+    buttonPressed: ui.settingsAlertButtonInput.checked,
+    accessDenied: ui.settingsAlertDeniedInput.checked,
+    faceNearby: ui.settingsAlertFaceInput.checked,
+  });
+  showToast("Notification settings saved locally.");
 });
 
 ui.openDoorButton.addEventListener("click", () => {
@@ -241,11 +548,23 @@ window.addEventListener("beforeunload", () => {
 });
 
 async function bootstrap() {
+  const storedProfile = getStoredProfile();
+  const storedAvatarDataUrl = await loadProfileAvatarDataUrl();
+  applyProfile(
+    {
+      ...storedProfile,
+      avatarImageDataUrl: storedAvatarDataUrl,
+      avatarMode: storedProfile.avatarMode === "uploaded" && storedAvatarDataUrl ? "uploaded" : "initials",
+    },
+    false
+  );
   applyTheme(getStoredTheme(), false);
+  applyNotificationPreferences(getStoredNotificationPreferences(), false);
+  activateSettingsSection("profile");
   renderNotificationCenter();
 
   const initialView = window.location.hash.replace("#", "") || "overview";
-  activateView(["overview", "cards", "events", "debug"].includes(initialView) ? initialView : "overview");
+  activateView(["overview", "cards", "events", "debug", "settings"].includes(initialView) ? initialView : "overview");
   connectVisionSocket();
 
   try {

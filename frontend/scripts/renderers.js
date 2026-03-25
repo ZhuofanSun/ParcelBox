@@ -95,7 +95,16 @@ function buildNotificationKey(event) {
 
 function isNotificationEvent(event) {
   if (!event || typeof event !== "object") return false;
-  return ["button_pressed", "access_denied", "face_snapshot_captured"].includes(event.type);
+  if (event.type === "button_pressed") {
+    return state.notificationPreferences.buttonPressed;
+  }
+  if (event.type === "access_denied") {
+    return state.notificationPreferences.accessDenied;
+  }
+  if (event.type === "face_snapshot_captured") {
+    return state.notificationPreferences.faceNearby;
+  }
+  return false;
 }
 
 function buildNotificationModel(event) {
@@ -176,6 +185,9 @@ export function renderNotificationCenter() {
 
   const notifications = alertEvents.slice(0, 5);
   ui.notificationsEmpty.hidden = notifications.length > 0;
+  ui.notificationsEmpty.textContent = Object.values(state.notificationPreferences).some(Boolean)
+    ? "No recent high-priority alerts."
+    : "All in-app alert types are currently disabled.";
   ui.notificationsList.innerHTML = notifications
     .map((event) => {
       const model = buildNotificationModel(event);
@@ -460,6 +472,7 @@ export function renderSystemStatus(payload) {
   state.latestSystemStatus = payload;
   ui.systemHostnameValue.textContent = payload?.hostname || "—";
   ui.profileHostValue.textContent = payload?.hostname || "Local device";
+  ui.settingsHostValue.textContent = payload?.hostname || "Local device";
   ui.systemCpuTempValue.textContent = formatTemperature(payload?.cpu?.temperature_c);
   ui.systemCpuUsageValue.textContent = formatPercentage(payload?.cpu?.usage_percent);
   ui.systemMemoryValue.textContent = formatMemory(payload?.memory);

@@ -156,7 +156,7 @@ class EmailConfig:
     timeout_seconds: float = 10.0
     username: str = "yingyingguai71@gmail.com"
     password: str = "tuky jcwb ncpy omnh"
-    from_address: str = "yinnclja@gmail.com"
+    from_address: str = "yingyingguai71@gmail.com"
     to_addresses: list[str] = field(default_factory=lambda: ["sunz99@mcmaster.ca"])
     frontend_url: str = "http://192.168.0.106:8000/"
     request_subject: str = "ParcelBox door open request"

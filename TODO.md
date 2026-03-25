@@ -8,13 +8,19 @@
   - [ ] 记录并收敛“哪些硬件异常自动恢复，哪些异常直接暴露并停下”。
 - [ ] 做超声波空 / 满阈值实机标定，把 `config.py` 里的基线值调成柜体实测值。
 - [ ] 如果 I2C 版 PN532 在长时间运行里还有偶发异常，再评估切到 `PN532 + SPI`。
-- [ ] 启动前端测试台改造：
-  - [ ] `Tabler` 只作为布局骨架、组件和动效参考，业务前端代码继续收敛在 `frontend/`。
-  - [ ] 先把信息架构定成 `Overview`、`Cards & Access`、`Events & Snapshots`、`Debug / Data` 四块。
-  - [ ] 首页补树莓派设备信息卡，至少展示 `CPU 温度`、`CPU 占用`、`内存占用`、`程序运行时长`。
+- [ ] 继续前端测试台收尾：
+  - [x] `Tabler` 只作为布局骨架、组件和动效参考，业务前端代码继续收敛在 `frontend/`。
+  - [x] 已把信息架构定成 `Overview`、`Cards & Access`、`Events & Snapshots`、`Debug / Data` 四块，并补了本地 `Settings` 视图。
+  - [x] 首页已补树莓派设备信息卡，展示 `CPU 温度`、`CPU 占用`、`内存占用`、`程序运行时长` 等运行指标。
   - [x] 已把 `frontend/index.html` 从超长单文件拆回结构入口；样式放到 `frontend/styles/`，脚本放到 `frontend/scripts/`，并补了 `frontend/README.md`。
   - [x] 已接入右上角全局操作区：`dark mode`、通知铃铛、profile trigger。
-  - [ ] 当前不做注册 / 登录，先把单设备调试操作台打磨到足够顺手。
+  - [x] 已落地本地 `Settings` 视图：支持 profile 文案、主题偏好、通知类型开关，并写入浏览器本地存储。
+  - [x] 当前不做注册 / 登录，先把单设备调试操作台打磨到足够顺手。
+  - [x] 已补本地 `Profile Settings`：头像上传 / 重置、`Display Name -> initials avatar` 默认逻辑、头像本地存储。
+  - [ ] 下一步把头像从浏览器本地存储切到后端持久化：前端上传，后端存文件并通过接口回传。
+  - [ ] 再把 `Notification Settings` 拆成“前端本地铃铛偏好”和“设备级邮件投递设置”两层，不再把所有邮件配置硬写在 `config.py`。
+  - [ ] 然后补 `Events & Snapshots` 的图片查看能力，至少支持点击元数据后弹出大图和关联信息。
+  - [x] 不做多用户账号，不做登录 / 注册 / 注销；右上角的 `Log Out` 占位已移除。
 
 ## 已确认信息
 
@@ -548,65 +554,170 @@ iot_locker/
 
 ### Phase 4: Dashboard MVP
 
-- [ ] 明确前端边界与实现方式：
-  - [ ] 前端继续做“单设备调试操作台”，不先做展示型 landing page。
-  - [ ] 不引入新的重量级前端框架；优先沿用当前原生 `HTML + CSS + JS` 结构。
-  - [ ] `Tabler` 只吸收骨架、组件和样式组织方式，不做完整模板迁移。
-  - [ ] 当前首版不做注册 / 登录；若后续需要外网访问，再单独评估轻量鉴权。
+- [x] 明确前端边界与实现方式：
+  - [x] 前端继续做“单设备调试操作台”，不先做展示型 landing page。
+  - [x] 不引入新的重量级前端框架；优先沿用当前原生 `HTML + CSS + JS` 结构。
+  - [x] `Tabler` 只吸收骨架、组件和样式组织方式，不做完整模板迁移。
+  - [x] 当前首版不做注册 / 登录；若后续需要外网访问，再单独评估轻量鉴权。
 - [x] 已完成一轮前端结构拆分，避免继续把所有东西堆进 `frontend/index.html`：
   - [x] 把样式拆到 `frontend/styles/`，区分 `layout`、`theme`、`components`。
   - [x] 把脚本拆到 `frontend/scripts/`，区分 `api`、`renderers`、`formatters`、`ui state / dom`。
   - [x] 在保持“无前端框架”的前提下做最小模块化，不引入新的构建链。
   - [x] 已把共享工具函数和视图渲染逻辑从 `index.html` 内联脚本里抽出去。
   - [x] 新增 `frontend/README.md`，方便后续快速定位主题、布局、渲染和应用入口。
-- [ ] 先完成页面结构和导航分层：
-  - [ ] `Overview`
-  - [ ] `Cards & Access`
-  - [ ] `Events & Snapshots`
-  - [ ] `Debug / Data`
+- [x] 已完成页面结构和导航分层：
+  - [x] `Overview`
+  - [x] `Cards & Access`
+  - [x] `Events & Snapshots`
+  - [x] `Debug / Data`
   - [ ] `Device Test` 可作为第二批补充页面，不强行塞进首版导航。
 - [x] 全局头部和账户入口：
   - [x] 右上角增加全局工具区，参考 `Tabler` 的 topbar 交互风格。
   - [x] 增加 `dark mode` 开关，并把主题选择保存到本地。
-  - [x] 增加通知铃铛入口，首版先展示最近事件和未读状态。
+  - [x] 增加通知铃铛入口，当前只保留高价值提醒和未读状态。
   - [x] 增加 profile 入口卡片 / 下拉菜单，作为后续设置和登出入口。
-  - [ ] 后续再补真正的 profile 页面、通知设置页面和登录 / 登出流程。
-- [ ] `Overview` 首页：
-  - [ ] 保留当前实时视频流和视觉叠框，作为首页核心区域。
-  - [ ] 放首页高频控制：`开门`、`关门`、`手动抓拍`，必要时补 `蜂鸣器` 快捷操作。
-  - [ ] 放设备状态卡：门状态、占用状态、RFID reader 状态、camera mount 状态、最近错误。
-  - [ ] 在角落放树莓派设备信息卡：`CPU 温度`、`CPU 占用`、`内存占用`、`程序运行时长`。
-  - [ ] 放最近事件摘要，让“刚刚发生了什么”在首页就能看到。
+  - [x] 接入本地 `Settings` 视图，先承接 profile 和通知设置，不依赖真实账户系统。
+  - [ ] 后续再补真正的 profile 页面、通知设置后端接口和登录 / 登出流程。
+- [x] `Overview` 首页：
+  - [x] 保留当前实时视频流和视觉叠框，作为首页核心区域。
+  - [x] 已放首页高频控制：`开门`、`关门`、`手动抓拍`、录卡入口。
+  - [x] 已放设备状态卡：门状态、占用状态、RFID reader 状态、camera mount 状态、最近错误。
+  - [x] 已放树莓派设备信息卡：`CPU 温度`、`CPU 占用`、`内存占用`、`程序运行时长`。
+  - [x] 已放最近事件摘要，让“刚刚发生了什么”在首页就能看到。
+  - [ ] `蜂鸣器` 等设备测试快捷操作是否放首页，后续再看实际使用频率。
 - [ ] `Cards & Access` 页面：
-  - [ ] 录卡表单和“等待刷卡”流程单独做成清晰模块。
-  - [ ] 卡列表支持查看 `enabled`、`name`、`access_window` 和最近更新时间。
+  - [ ] 录卡表单和“等待刷卡”流程单独做成清晰模块；当前仍保留在 `Overview`。
+  - [x] 卡列表支持查看 `enabled`、`name`、`access_window` 和最近更新时间。
   - [ ] 卡权限修改、启用 / 禁用和时间窗编辑放到这个页面，不再混在首页。
-  - [ ] 补最近刷卡结果视图，便于联动查看卡配置是否生效。
+  - [x] 已补最近刷卡结果视图，便于联动查看卡配置是否生效。
 - [ ] `Events & Snapshots` 页面：
-  - [ ] 按业务事件展示时间线，而不是只堆原始数据库表。
-  - [ ] 重点展示 `access_attempt`、`door_session`、`button_request`、`snapshot` 之间的关联。
-  - [ ] 有抓拍时给出缩略图 / 文件名 / 触发来源，便于快速检查链路。
+  - [x] 按业务事件展示时间线，而不是只堆原始数据库表。
+  - [x] 已把 `access_attempt`、`door_session`、`button_request`、`snapshot` 混合进统一事件流。
+  - [ ] 有抓拍时补缩略图能力；当前先展示文件名 / 触发来源，便于快速检查链路。
   - [ ] 后续可再补按类别筛选，但首版先保证“最近事件 + 快照关联”能看清。
 - [ ] `Debug / Data` 页面：
-  - [ ] 保留原始数据库表快照查看能力，集中放到这个页面。
-  - [ ] 展示 API 健康状态、运行时信息、最近错误，而不是把这些原始信息塞到首页。
-  - [ ] 展示视觉 / 云台 / RFID / 存储等模块的 runtime 状态，方便排查硬件和后端问题。
-  - [ ] 当前数据库主要按 `rfid_card`、`access_attempt`、`door_session`、`button_request`、`snapshot` 五张表组织。
-- [ ] 后续 profile / auth 扩展：
-  - [ ] profile 页面作为用户入口，集中放 `Profile Settings`、通知设置、登出。
-  - [ ] 通知设置页先预留邮箱通知相关配置入口。
-  - [ ] 登录页和登出流作为后续能力准备，但要等账户模型和权限边界明确后再正式接入。
-  - [ ] 这部分视觉和交互可以继续参考 `Tabler` 的 avatar、dropdown、signin 页面骨架。
+  - [x] 保留原始数据库表快照查看能力，集中放到这个页面。
+  - [x] 已把运行时 JSON 和表数据从首页收纳到这个页面。
+  - [x] 当前数据库主要按 `rfid_card`、`access_attempt`、`door_session`、`button_request`、`snapshot` 五张表组织。
+  - [ ] API 健康状态和更明确的最近错误摘要还可以继续补。
+  - [ ] 视觉 / 云台 / RFID / 存储等模块的 runtime 状态还可以再做更聚合的展示。
+- [ ] 后续 profile / settings 扩展：
+  - [x] 先用本地 `Settings` 视图承接 `Profile Settings` 和通知设置入口。
+  - [ ] profile 页面作为设备级设置入口，集中放 `Profile Settings`、通知设置和本地 UI 偏好。
+  - [ ] 通知设置页后续补邮箱通知相关配置入口和后端设置接口。
+  - [ ] 移除登录 / 登出语义，改成真正符合单设备场景的设置入口。
+  - [ ] 这部分视觉和交互可以继续参考 `Tabler` 的 avatar、dropdown、settings 页面骨架。
+
+#### Profile / Notification / Auth / Media 建议实现顺序
+
+- [ ] Stage 1: 设备级 profile 与头像
+  - [x] `Display Name`、副标题、主题偏好这些 UI 偏好先落了浏览器本地版本。
+  - [x] `initials` 默认头像已经可按 `Display Name` 自动生成。
+  - [x] `uploaded` 自定义头像已经有前端上传 / 重置入口。
+  - [ ] 把头像从浏览器本地存储改成后端持久化：
+    - [ ] 后端固定存到项目数据目录，例如 `data/assets/profile_avatar.webp`。
+    - [ ] profile 元数据通过 `device_profile` 单行表记录显示名、副标题、头像路径和更新时间。
+    - [ ] 前端不再直接保存头像 data URL，只保存后端返回的 avatar URL / version。
+  - [ ] 建议接口：
+    - [ ] `GET /api/settings/profile`
+    - [ ] `PUT /api/settings/profile`
+    - [ ] `POST /api/settings/profile/avatar`
+    - [ ] `DELETE /api/settings/profile/avatar`
+    - [ ] `GET /api/settings/profile/avatar`
+  - [ ] `initials` fallback 逻辑继续保留在前端；只有后端无头像文件时才显示。
+  - [ ] profile trigger、settings 页、后续 profile 页面都复用同一套后端 profile 状态。
+
+- [ ] Stage 2: 设备级通知配置重构
+  - [ ] 明确区分两类设置：
+    - [ ] 前端本地提醒偏好：只影响右上角铃铛显示，继续存在浏览器本地。
+    - [ ] 设备级邮件投递设置：影响后端按钮邮件 / 后续告警邮件，应该落到后端持久化。
+  - [ ] `config.py` 继续保留 SMTP 主机级默认值：
+    - [ ] `smtp_host`
+    - [ ] `smtp_port`
+    - [ ] `use_tls`
+    - [ ] `timeout_seconds`
+    - [ ] `frontend_url`
+    - [ ] `request_subject`
+    - [ ] `request_message`
+    - [ ] `duplicate_request_cooldown_seconds`
+  - [ ] 前端和数据库只承接“邮箱方案”层：
+    - [ ] `username`
+    - [ ] `password`
+    - [ ] `from_address`
+    - [ ] 多个 `to_addresses`
+  - [ ] 后端补显式配置表；单设备场景优先考虑：
+    - [ ] `device_profile`：单行，保存显示名、副标题、头像路径。
+    - [ ] `email_subscription_scheme`：多行，保存不同邮箱方案的名称、`username`、`password`、`from_address`、是否当前启用。
+    - [ ] `email_subscription_recipient`：多行，按方案保存多个订阅邮箱。
+  - [ ] 邮件服务改成“`config.py` 默认 SMTP 参数 + SQLite 当前启用邮箱方案”合并读取。
+  - [ ] 前端通知设置页拆成两个区块：
+    - [ ] `In-App Alerts`
+    - [ ] `Email Subscription Scheme`
+  - [ ] `Email Subscription Scheme` 首版字段：
+    - [ ] `scheme_name`
+    - [ ] `enabled`
+    - [ ] `username`
+    - [ ] `password`
+    - [ ] `from_address`
+  - [ ] 邮箱方案前端交互：
+    - [ ] 顶部提供方案选择器，从数据库里已有方案自动填充。
+    - [ ] 可以删除已有方案。
+    - [ ] 可以修改当前方案后直接覆盖保存。
+    - [ ] 也可以“另存为新方案”。
+    - [ ] 也可以直接清空表单重填一个新方案。
+  - [ ] `to_addresses` 前端交互：
+    - [ ] 一个输入框，一次添加一个邮箱。
+    - [ ] 下方列表展示当前方案的所有订阅邮箱。
+    - [ ] 支持单个删除。
+  - [ ] 建议接口：
+    - [ ] `GET /api/settings/email`
+    - [ ] `PUT /api/settings/email`
+    - [ ] `POST /api/settings/email/schemes`
+    - [ ] `PUT /api/settings/email/schemes/{id}`
+    - [ ] `DELETE /api/settings/email/schemes/{id}`
+    - [ ] `POST /api/settings/email/schemes/{id}/recipients`
+    - [ ] `DELETE /api/settings/email/recipients/{id}`
+    - [ ] `POST /api/settings/email/test`
+  - [ ] 补一个“发送测试邮件”动作，便于验证 SMTP 与收件配置。
+
+- [ ] Stage 3: 图片查看能力
+  - [ ] 后端补按 `snapshot id` 取图的只读接口，不要让前端直接拼本地路径。
+  - [ ] 首版建议：
+    - [ ] `GET /api/snapshots/{id}` 返回元数据
+    - [ ] `GET /api/snapshots/{id}/file` 返回图片文件
+  - [ ] 前端在 `Events & Snapshots` 页补点击查看：
+    - [ ] modal / lightbox 大图预览
+    - [ ] 拍摄时间、触发来源、关联 `access_attempt` / `button_request`
+    - [ ] 上一张 / 下一张切换
+  - [ ] 缩略图可以后补；首版按需加载原图即可。
+  - [ ] 后续再评估图片缓存、缩略图生成、磁盘清理策略。
+
+- [ ] Stage 4: 单设备设置收尾
+  - [x] 去掉 `Log Out` 的占位文案和交互。
+  - [ ] 如果还需要一个危险操作入口，可改成 `Reset Local UI Preferences`。
+  - [ ] profile dropdown 和 settings 页都明确展示“single-device settings”语义，不再暗示账户系统。
+
+#### 额外要提前想清楚的点
+
+- [ ] 头像上传要限制文件类型和大小，避免把超大图片塞进浏览器本地存储。
+- [ ] 如果后面真的加邮箱通知设置，前端要能明确区分：
+  - [ ] “这里只影响铃铛”
+  - [ ] “这里会影响设备实际发邮件”
+- [ ] 快照图片如果开始能直接在前端查看，后面最好补一个简单的磁盘占用 / retention 策略。
+- [ ] 如果设备级邮件设置开始允许前端改 SMTP 凭据，最好同时补：
+  - [ ] 设置修改时间
+  - [ ] 最近一次测试邮件结果
+  - [ ] 关键设置变更的审计记录
 - [ ] 首页和状态页所需的后端补充接口：
-  - [ ] 增加树莓派设备信息接口，返回 `CPU 温度`、`CPU / 内存占用`、必要时的磁盘信息。
-  - [ ] 增加应用运行时信息，至少包括进程启动时间和当前运行时长。
+  - [x] 已增加树莓派设备信息接口，返回 `CPU 温度`、`CPU / 内存占用`、负载、平台等信息。
+  - [x] 已增加应用运行时信息，包括当前运行时长。
   - [ ] 评估是否补一个聚合状态接口，减少首页初始加载时的多次请求。
   - [ ] 若已有接口能满足一部分信息，优先复用，不为了前端重写一套重复状态模型。
 - [ ] 页面实现策略：
-  - [ ] 先用 `Tabler` 的 layout、cards、table、navbar、toast 把当前单页拆出层级。
+  - [x] 已用 `Tabler` 的 layout、cards、table、navbar、toast 思路把当前单页拆出层级。
   - [ ] 先迁移现有已可用能力，再考虑新增设备测试和校准控制。
-  - [ ] 先保留当前 `fetch` / `WebSocket` 逻辑，等页面骨架稳定后再决定是否抽公共模块。
-  - [ ] 在结构拆分完成后，再接 `dark mode`、通知、profile dropdown，避免边加边继续膨胀单文件。
+  - [x] 已先保留当前 `fetch` / `WebSocket` 逻辑，并抽出 `api / renderers / state / dom` 模块。
+  - [x] 已在结构拆分完成后接入 `dark mode`、通知、profile dropdown，避免继续膨胀单文件。
   - [ ] 首页桌面端优先，移动端至少保证可打开、可看状态、可触发关键操作。
 
 检查点

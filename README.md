@@ -405,23 +405,71 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
 ## Current Frontend Direction
 
-- Show a continuous live video stream at `1280x720`
-- Draw detection boxes, frame-center / target-center markers, and tracking hints
-- Provide manual door open / close and manual snapshot capture
-- Run RFID polling automatically in the backend from app startup
-- Provide card enrollment from the page by scanning one UID and assigning a name
-- Show locker status, recent events, card-store snapshot, and latest backend payloads
-- Show hardware button-triggered request notifications in-page when the backend reports them
-- Show standby-aware stream / detection status from backend metadata
+- Keep the frontend as a single-device operations console, not a polished showcase site
+- Keep the implementation as native `HTML + CSS + JS` without a build step
+- Use `Tabler` only as a visual and interaction reference for layout, cards, topbar, and popovers
+- Keep the single-page navigation split into:
+  - `Overview`
+  - `Cards & Access`
+  - `Events & Snapshots`
+  - `Debug / Data`
+  - a local `Settings` view opened from the profile menu
+- Show a continuous live video stream at `1280x720` with face boxes and mount advice on the
+  `Overview` page
+- Keep the high-frequency controls on the homepage: manual door open / close, snapshot capture,
+  and RFID enrollment
+- Show Raspberry Pi runtime metrics, business summary counts, and recent activity on the homepage
+- Keep raw database tables and JSON payloads in `Debug / Data` instead of mixing them into the
+  main monitoring view
+- Keep a right-side global toolbar with:
+  - a `dark mode` toggle
+  - an in-page alert bell
+  - a profile trigger that opens local settings
+- Store current frontend-only preferences in browser `localStorage`:
+  - theme choice
+  - profile display name / subtitle
+  - which high-value in-page alerts appear in the bell
+- Do not introduce real login / logout or account persistence until there is an actual account
+  model and permission boundary in the backend
+
+## Frontend File Layout
+
+The frontend is no longer maintained as one large `index.html` file. Current structure:
+
+- [frontend/README.md](/Users/sunzhuofan/IOT-project/frontend/README.md) documents the frontend
+  split and intended extension points
+- `frontend/index.html`
+  - page structure, view containers, and semantic content only
+- `frontend/styles/theme.css`
+  - theme tokens and light / dark palette variables
+- `frontend/styles/layout.css`
+  - sidebar, workspace, grids, and responsive shell layout
+- `frontend/styles/components.css`
+  - cards, buttons, tables, popovers, settings view, and notification styles
+- `frontend/scripts/dom.js`
+  - DOM references only
+- `frontend/scripts/state.js`
+  - client runtime state and browser storage keys
+- `frontend/scripts/formatters.js`
+  - shared text / time / status formatters
+- `frontend/scripts/renderers.js`
+  - view rendering, collection rows, overlay drawing, toast and notification rendering
+- `frontend/scripts/api.js`
+  - backend `fetch` helpers and refresh actions
+- `frontend/scripts/app.js`
+  - bootstrap, event binding, theme switching, settings persistence, WebSocket, and polling
 
 ## Current Runtime Status
 
 - `main.py` starts a minimal FastAPI app
-- `frontend/index.html` shows the live stream and draws boxes on a canvas overlay
+- `frontend/index.html` now acts as a structured single-page operations console with split
+  `Overview`, `Cards & Access`, `Events & Snapshots`, `Debug / Data`, and local `Settings` views
 - `/api/stream.mjpg` provides the MJPEG stream
 - `/ws/vision` now pushes vision results over WebSocket
 - `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream, detection, locker, camera-mount, and button status
+- `/api/system/status` returns Raspberry Pi runtime metrics such as hostname, CPU temperature,
+  CPU / memory usage, load average, platform, and app uptime
 - Current runtime defaults: `720p`, `30 fps` active stream, `10 fps` standby stream,
   `15 fps` active face-detection loop, `3 fps` standby detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
@@ -438,6 +486,11 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
   window for brief misses
 - The primary face box is smoothed before it reaches the frontend overlay and camera
   mount controller
+- The frontend global toolbar now supports:
+  - local `dark mode`
+  - a high-value alert bell for button presses, denied RFID attempts, and close-range face
+    snapshot events
+  - a profile popover that opens a local browser-backed settings view
 - After the mount finishes a face-lost recovery cycle and still sees no face for long
   enough, vision enters a low-FPS standby mode and exits immediately when a face returns
 - Large enough faces can now trigger one automatic snapshot until the face disappears
@@ -715,6 +768,7 @@ iot_locker/
 │  ├─ led_service.py
 │  ├─ locker_service.py
 │  ├─ occupancy_service.py
+│  ├─ system_status_service.py
 │  ├─ vision_backends.py
 │  └─ vision_service.py
 ├─ web/
@@ -722,9 +776,22 @@ iot_locker/
 │  ├─ routes_control.py
 │  ├─ routes_logs.py
 │  ├─ routes_stream.py
+│  ├─ routes_system.py
 │  └─ schemas.py
 ├─ frontend/
-│  └─ index.html
+│  ├─ README.md
+│  ├─ index.html
+│  ├─ styles/
+│  │  ├─ components.css
+│  │  ├─ layout.css
+│  │  └─ theme.css
+│  └─ scripts/
+│     ├─ api.js
+│     ├─ app.js
+│     ├─ dom.js
+│     ├─ formatters.js
+│     ├─ renderers.js
+│     └─ state.js
 ├─ scripts/
 │  └─ hardware_smoke_test.py
 └─ tests/
