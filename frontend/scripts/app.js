@@ -39,10 +39,64 @@ const PROFILE_DEFAULT_NAME = "ParcelBox Local";
 const PROFILE_DEFAULT_ROLE = "Device operator";
 const PROFILE_AVATAR_SIZE = 192;
 const PROFILE_AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+const STREAM_RETRY_DELAY_MS = 1000;
+const STREAM_WATCHDOG_DELAY_MS = 2500;
 
 function buildVisionWebSocketUrl() {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${window.location.host}/ws/vision`;
+}
+
+function buildStreamImageUrl() {
+  return `/api/stream.mjpg?t=${Date.now()}`;
+}
+
+function clearStreamRetryTimer() {
+  if (state.streamRetryTimer) {
+    window.clearTimeout(state.streamRetryTimer);
+    state.streamRetryTimer = null;
+  }
+}
+
+function clearStreamWatchdogTimer() {
+  if (state.streamWatchdogTimer) {
+    window.clearTimeout(state.streamWatchdogTimer);
+    state.streamWatchdogTimer = null;
+  }
+}
+
+function scheduleStreamReconnect(delayMs = STREAM_RETRY_DELAY_MS) {
+  clearStreamRetryTimer();
+  state.streamRetryTimer = window.setTimeout(() => {
+    state.streamRetryTimer = null;
+    connectStreamImage(true);
+  }, delayMs);
+}
+
+function scheduleStreamWatchdog(expectedUrl) {
+  clearStreamWatchdogTimer();
+  const resolvedUrl = new URL(expectedUrl, window.location.href).href;
+  state.streamWatchdogTimer = window.setTimeout(() => {
+    state.streamWatchdogTimer = null;
+    if (ui.streamImage.currentSrc !== resolvedUrl) {
+      return;
+    }
+    if (!ui.streamImage.naturalWidth || !ui.streamImage.naturalHeight) {
+      connectStreamImage(true);
+    }
+  }, STREAM_WATCHDOG_DELAY_MS);
+}
+
+function connectStreamImage(force = false) {
+  const nextUrl = buildStreamImageUrl();
+  const currentUrl = ui.streamImage.getAttribute("src") || "";
+  if (!force && currentUrl === nextUrl) {
+    return;
+  }
+  clearStreamRetryTimer();
+  clearStreamWatchdogTimer();
+  ui.streamImage.src = nextUrl;
+  scheduleStreamWatchdog(nextUrl);
 }
 
 function getStoredTheme() {
@@ -1160,7 +1214,14 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", resizeOverlay);
-ui.streamImage.addEventListener("load", resizeOverlay);
+ui.streamImage.addEventListener("load", () => {
+  clearStreamRetryTimer();
+  clearStreamWatchdogTimer();
+  resizeOverlay();
+});
+ui.streamImage.addEventListener("error", () => {
+  scheduleStreamReconnect();
+});
 
 window.addEventListener("beforeunload", () => {
   if (state.dashboardPollTimer) {
@@ -1175,6 +1236,9 @@ window.addEventListener("beforeunload", () => {
   if (state.buttonToastTimer) {
     window.clearTimeout(state.buttonToastTimer);
   }
+  clearStreamRetryTimer();
+  clearStreamWatchdogTimer();
+  ui.streamImage.removeAttribute("src");
 });
 
 async function bootstrap() {
@@ -1190,6 +1254,7 @@ async function bootstrap() {
 
   const initialView = window.location.hash.replace("#", "") || "overview";
   activateView(["overview", "cards", "events", "debug", "settings"].includes(initialView) ? initialView : "overview");
+  connectStreamImage(true);
   connectVisionSocket();
 
   try {

@@ -159,6 +159,12 @@ def build_stream_router(
         return StreamingResponse(
             generate(),
             media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     return router

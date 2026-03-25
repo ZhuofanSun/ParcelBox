@@ -45,6 +45,8 @@ export const state = {
     error: null,
     requestToken: 0,
   },
+  streamRetryTimer: null,
+  streamWatchdogTimer: null,
   visionSocket: null,
   reconnectTimer: null,
   dashboardPollTimer: null,
