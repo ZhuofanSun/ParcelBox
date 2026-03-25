@@ -24,12 +24,10 @@
       --warning-soft: rgba(180, 83, 9, 0.14);
       --danger: #be123c;
       --danger-soft: rgba(190, 18, 60, 0.12);
-      --shadow: 0 20px 48px rgba(18, 38, 63, 0.08);
+      --shadow: 0 18px 48px rgba(18, 38, 63, 0.08), 0 2px 8px rgba(18, 38, 63, 0.04);
+      --shadow-hover: 0 24px 60px rgba(18, 38, 63, 0.12), 0 6px 18px rgba(18, 38, 63, 0.06);
       --stream-bg: #09131f;
       --box: #ff6a3d;
-      --frame-center: #1f7ae0;
-      --target-center: #ffd166;
-      --target-line: rgba(255, 209, 102, 0.88);
     }
 
     * {
@@ -63,6 +61,8 @@
     }
 
     .sidebar {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
       position: sticky;
       top: 0;
       height: 100vh;
@@ -75,6 +75,14 @@
         linear-gradient(180deg, rgba(12, 26, 46, 0.96) 0%, rgba(19, 34, 56, 0.98) 100%);
       color: #f5f8ff;
       border-right: 1px solid var(--sidebar-border);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
+    .sidebar::-webkit-scrollbar {
+      width: 0;
+      height: 0;
+      display: none;
     }
 
     .brand-block {
@@ -188,6 +196,12 @@
       align-items: flex-start;
     }
 
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
     .workspace-header h1 {
       margin: 6px 0 10px;
       font-size: clamp(30px, 4vw, 44px);
@@ -215,18 +229,26 @@
       border-radius: 14px;
       padding: 12px 14px;
       color: var(--text);
-      background: rgba(255, 255, 255, 0.72);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 255, 0.88));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.82),
+        0 10px 22px rgba(18, 38, 63, 0.06);
       cursor: pointer;
       transition:
         transform 120ms ease,
         background 120ms ease,
-        border-color 120ms ease;
+        border-color 120ms ease,
+        box-shadow 120ms ease;
     }
 
     .ghost-button:hover {
       transform: translateY(-1px);
       background: #ffffff;
       border-color: rgba(18, 38, 63, 0.2);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.92),
+        0 16px 28px rgba(18, 38, 63, 0.1);
     }
 
     .view-panel {
@@ -269,11 +291,61 @@
     }
 
     .panel {
+      --panel-accent: rgba(26, 115, 232, 0.16);
+      --panel-accent-line: rgba(26, 115, 232, 0.32);
+      position: relative;
+      isolation: isolate;
       border: 1px solid var(--border);
       border-radius: 24px;
-      background: var(--panel);
+      background:
+        radial-gradient(circle at top right, var(--panel-accent), transparent 38%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(248, 251, 255, 0.92));
       box-shadow: var(--shadow);
       overflow: hidden;
+      transition:
+        transform 140ms ease,
+        box-shadow 140ms ease,
+        border-color 140ms ease;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 4px;
+      background: linear-gradient(90deg, var(--panel-accent-line), rgba(255, 255, 255, 0));
+      pointer-events: none;
+    }
+
+    .panel:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-hover);
+      border-color: rgba(18, 38, 63, 0.18);
+    }
+
+    .panel-tone-blue {
+      --panel-accent: rgba(26, 115, 232, 0.16);
+      --panel-accent-line: rgba(26, 115, 232, 0.34);
+    }
+
+    .panel-tone-green {
+      --panel-accent: rgba(21, 128, 61, 0.14);
+      --panel-accent-line: rgba(21, 128, 61, 0.3);
+    }
+
+    .panel-tone-amber {
+      --panel-accent: rgba(180, 83, 9, 0.14);
+      --panel-accent-line: rgba(180, 83, 9, 0.3);
+    }
+
+    .panel-tone-slate {
+      --panel-accent: rgba(96, 115, 138, 0.16);
+      --panel-accent-line: rgba(96, 115, 138, 0.28);
+    }
+
+    .panel-tone-indigo {
+      --panel-accent: rgba(76, 81, 191, 0.16);
+      --panel-accent-line: rgba(76, 81, 191, 0.3);
     }
 
     .panel-header {
@@ -283,7 +355,8 @@
       gap: 12px;
       padding: 18px 20px 16px;
       border-bottom: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.55);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 255, 255, 0.5));
     }
 
     .panel-title {
@@ -360,6 +433,60 @@
         radial-gradient(circle at top, rgba(39, 105, 214, 0.22), transparent 30%),
         linear-gradient(180deg, rgba(5, 17, 31, 0.98) 0%, rgba(9, 19, 31, 1) 100%);
       aspect-ratio: 16 / 9;
+    }
+
+    .live-detail-strip {
+      border-top: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(247, 250, 255, 0.92) 0%, rgba(255, 255, 255, 0.98) 100%);
+    }
+
+    .live-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .live-detail-card {
+      position: relative;
+      overflow: hidden;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 248, 255, 0.88));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.82),
+        0 10px 24px rgba(18, 38, 63, 0.06);
+    }
+
+    .live-detail-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 3px;
+      background: linear-gradient(90deg, rgba(26, 115, 232, 0.32), rgba(255, 255, 255, 0));
+    }
+
+    .live-detail-label {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .live-detail-value {
+      margin-top: 8px;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1.1;
+      word-break: break-word;
+    }
+
+    .live-detail-note {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
     }
 
     #stream {
@@ -456,10 +583,24 @@
     }
 
     .metric-tile {
+      position: relative;
+      overflow: hidden;
       padding: 14px 15px;
       border: 1px solid var(--border);
       border-radius: 18px;
-      background: rgba(248, 251, 255, 0.9);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.9));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.84),
+        0 10px 24px rgba(18, 38, 63, 0.06);
+    }
+
+    .metric-tile::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 3px;
+      background: linear-gradient(90deg, rgba(26, 115, 232, 0.28), rgba(255, 255, 255, 0));
     }
 
     .metric-label {
@@ -519,22 +660,87 @@
     }
 
     .collection-item {
-      padding: 14px 15px;
+      position: relative;
+      overflow: hidden;
+      padding: 16px 16px 16px 18px;
       border: 1px solid var(--border);
-      border-radius: 18px;
-      background: rgba(255, 255, 255, 0.78);
+      border-radius: 20px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(247, 250, 255, 0.9));
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.86),
+        0 12px 28px rgba(18, 38, 63, 0.06);
+      transition:
+        transform 140ms ease,
+        box-shadow 140ms ease,
+        border-color 140ms ease;
+    }
+
+    .collection-item::before {
+      content: "";
+      position: absolute;
+      inset: 12px auto 12px 0;
+      width: 4px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(26, 115, 232, 0.36), rgba(26, 115, 232, 0.06));
+    }
+
+    .collection-item:hover {
+      transform: translateY(-2px);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.92),
+        0 16px 32px rgba(18, 38, 63, 0.1);
+      border-color: rgba(18, 38, 63, 0.18);
+    }
+
+    .collection-item-event::before {
+      background: linear-gradient(180deg, rgba(26, 115, 232, 0.42), rgba(26, 115, 232, 0.06));
+    }
+
+    .collection-item-snapshot::before {
+      background: linear-gradient(180deg, rgba(180, 83, 9, 0.42), rgba(180, 83, 9, 0.08));
+    }
+
+    .collection-item-card::before {
+      background: linear-gradient(180deg, rgba(76, 81, 191, 0.4), rgba(76, 81, 191, 0.08));
+    }
+
+    .collection-item-access::before {
+      background: linear-gradient(180deg, rgba(21, 128, 61, 0.42), rgba(21, 128, 61, 0.08));
+    }
+
+    .collection-kicker {
+      margin-bottom: 8px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
     }
 
     .collection-topline {
       display: flex;
       justify-content: space-between;
       gap: 12px;
-      align-items: baseline;
+      align-items: flex-start;
     }
 
     .collection-title {
-      font-size: 15px;
+      font-size: 16px;
       font-weight: 700;
+    }
+
+    .collection-time {
+      display: inline-flex;
+      align-items: center;
+      padding: 5px 10px;
+      border-radius: 999px;
+      background: rgba(18, 38, 63, 0.06);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
     }
 
     .collection-meta {
@@ -554,11 +760,12 @@
     .tag {
       padding: 5px 9px;
       border-radius: 999px;
-      background: rgba(18, 38, 63, 0.08);
+      background: rgba(18, 38, 63, 0.07);
       color: var(--text);
       font-size: 11px;
       letter-spacing: 0.04em;
       text-transform: uppercase;
+      border: 1px solid rgba(18, 38, 63, 0.06);
     }
 
     .tag-success {
@@ -724,6 +931,10 @@
       .debug-grid {
         grid-template-columns: 1fr;
       }
+
+      .live-detail-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
 
     @media (max-width: 720px) {
@@ -740,7 +951,8 @@
       }
 
       .action-grid,
-      .metric-grid {
+      .metric-grid,
+      .live-detail-grid {
         grid-template-columns: 1fr;
       }
     }
@@ -797,14 +1009,14 @@
             available through the side navigation.
           </p>
         </div>
-        <div>
+        <div class="header-actions">
           <button class="ghost-button" id="header-open-debug-btn" type="button">Open Debug Data</button>
         </div>
       </header>
 
       <section class="view-panel view-panel-active" data-view-panel="overview">
         <div class="overview-grid">
-          <article class="panel panel-hero">
+          <article class="panel panel-hero panel-tone-blue">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Live Overview</h2>
@@ -822,10 +1034,34 @@
               <img id="stream" src="/api/stream.mjpg" alt="Live stream" />
               <canvas id="overlay"></canvas>
             </div>
+            <div class="panel-body live-detail-strip">
+              <div class="live-detail-grid">
+                <div class="live-detail-card">
+                  <div class="live-detail-label">Tracking</div>
+                  <div class="live-detail-value" id="live-target-value">Waiting</div>
+                  <div class="live-detail-note" id="live-target-note">No face box in frame</div>
+                </div>
+                <div class="live-detail-card">
+                  <div class="live-detail-label">Detection Pace</div>
+                  <div class="live-detail-value" id="live-detection-fps-value">—</div>
+                  <div class="live-detail-note" id="live-detection-note">Waiting for runtime info</div>
+                </div>
+                <div class="live-detail-card">
+                  <div class="live-detail-label">Frame Profile</div>
+                  <div class="live-detail-value" id="live-frame-value">—</div>
+                  <div class="live-detail-note" id="live-frame-note">Detection size unavailable</div>
+                </div>
+                <div class="live-detail-card">
+                  <div class="live-detail-label">Last Event</div>
+                  <div class="live-detail-value" id="live-last-event-value">None</div>
+                  <div class="live-detail-note" id="live-last-event-note">No recent events yet</div>
+                </div>
+              </div>
+            </div>
           </article>
 
           <div class="panel-side-stack">
-            <article class="panel">
+            <article class="panel panel-tone-indigo">
               <div class="panel-header">
                 <div>
                   <h2 class="panel-title">Quick Actions</h2>
@@ -856,7 +1092,7 @@
               </div>
             </article>
 
-            <article class="panel">
+            <article class="panel panel-tone-slate">
               <div class="panel-header">
                 <div>
                   <h2 class="panel-title">Runtime Summary</h2>
@@ -892,7 +1128,7 @@
         </div>
 
         <div class="two-column-grid" style="margin-top: 18px;">
-          <article class="panel">
+          <article class="panel panel-tone-green">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Raspberry Pi</h2>
@@ -933,7 +1169,7 @@
             </div>
           </article>
 
-          <article class="panel">
+          <article class="panel panel-tone-amber">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Data Summary</h2>
@@ -968,7 +1204,7 @@
           </article>
         </div>
 
-        <article class="panel" style="margin-top: 18px;">
+        <article class="panel panel-tone-blue" style="margin-top: 18px;">
           <div class="panel-header">
             <div>
               <h2 class="panel-title">Recent Activity</h2>
@@ -986,7 +1222,7 @@
 
       <section class="view-panel" data-view-panel="cards">
         <div class="two-column-grid">
-          <article class="panel">
+          <article class="panel panel-tone-indigo">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Known Cards</h2>
@@ -1004,7 +1240,7 @@
             </div>
           </article>
 
-          <article class="panel">
+          <article class="panel panel-tone-green">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Recent Access Results</h2>
@@ -1020,7 +1256,7 @@
 
       <section class="view-panel" data-view-panel="events">
         <div class="two-column-grid">
-          <article class="panel">
+          <article class="panel panel-tone-blue">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Event Feed</h2>
@@ -1035,7 +1271,7 @@
             </div>
           </article>
 
-          <article class="panel">
+          <article class="panel panel-tone-amber">
             <div class="panel-header">
               <div>
                 <h2 class="panel-title">Recent Snapshots</h2>
@@ -1068,7 +1304,7 @@
           </article>
         </div>
 
-        <article class="panel">
+        <article class="panel panel-tone-slate">
           <div class="panel-header">
             <div>
               <h2 class="panel-title">Raw Database Tables</h2>
@@ -1203,6 +1439,14 @@
       headerOpenDebugButton: document.getElementById("header-open-debug-btn"),
       overviewModeBadge: document.getElementById("overview-mode-badge"),
       overviewMountBadge: document.getElementById("overview-mount-badge"),
+      liveTargetValue: document.getElementById("live-target-value"),
+      liveTargetNote: document.getElementById("live-target-note"),
+      liveDetectionFpsValue: document.getElementById("live-detection-fps-value"),
+      liveDetectionNote: document.getElementById("live-detection-note"),
+      liveFrameValue: document.getElementById("live-frame-value"),
+      liveFrameNote: document.getElementById("live-frame-note"),
+      liveLastEventValue: document.getElementById("live-last-event-value"),
+      liveLastEventNote: document.getElementById("live-last-event-note"),
       doorStateValue: document.getElementById("door-state-value"),
       occupancyStateValue: document.getElementById("occupancy-state-value"),
       occupancyDistanceValue: document.getElementById("occupancy-distance-value"),
@@ -1273,6 +1517,26 @@
       const minute = String(date.getMinutes()).padStart(2, "0");
       const second = String(date.getSeconds()).padStart(2, "0");
       return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+    }
+
+    function formatTimestampLabel(value, fallback = "Time unavailable") {
+      if (value === null || value === undefined || value === "") {
+        return fallback;
+      }
+
+      if (typeof value === "number" && Number.isFinite(value)) {
+        const normalized = value > 1_000_000_000_000 ? value : value * 1000;
+        return formatDateTime(normalized);
+      }
+
+      if (typeof value === "string") {
+        const parsed = Date.parse(value);
+        if (!Number.isNaN(parsed)) {
+          return formatDateTime(parsed);
+        }
+      }
+
+      return String(value);
     }
 
     function formatTimestampField(key, value) {
@@ -1501,7 +1765,7 @@
       container.innerHTML = events
         .map((event) => {
           const title = humanizeToken(event.type || event.event_type || "event");
-          const timeLabel = event.timestamp ? formatDateTime(event.timestamp * 1000) : "Time unavailable";
+          const timeLabel = formatTimestampLabel(event.timestamp);
           const detailLine = describeEvent(event);
           const tags = [];
           if (event.allowed === true) tags.push('<span class="tag tag-success">Allowed</span>');
@@ -1509,10 +1773,11 @@
           if (event.snapshot) tags.push('<span class="tag">Snapshot</span>');
           if (event.source) tags.push(`<span class="tag">${escapeHtml(humanizeToken(event.source))}</span>`);
           return `
-            <div class="collection-item">
+            <div class="collection-item collection-item-event">
+              <div class="collection-kicker">Event</div>
               <div class="collection-topline">
                 <div class="collection-title">${escapeHtml(title)}</div>
-                <div class="metric-label">${escapeHtml(timeLabel)}</div>
+                <div class="collection-time">${escapeHtml(timeLabel)}</div>
               </div>
               <div class="collection-meta">${escapeHtml(detailLine || "No extra details")}</div>
               <div class="collection-tags">${tags.join("")}</div>
@@ -1543,15 +1808,16 @@
             ? '<span class="tag tag-success">Enabled</span>'
             : '<span class="tag tag-danger">Disabled</span>';
           return `
-            <div class="collection-item">
+            <div class="collection-item collection-item-card">
+              <div class="collection-kicker">Card Record</div>
               <div class="collection-topline">
                 <div class="collection-title">${escapeHtml(card.name || "Unnamed Card")}</div>
-                <div class="metric-label">${escapeHtml(card.uid || "Unknown UID")}</div>
+                <div class="collection-time">${escapeHtml(card.uid || "Unknown UID")}</div>
               </div>
               <div class="collection-meta">${escapeHtml(windows)}</div>
               <div class="collection-tags">
                 ${enabledTag}
-                <span class="tag">${escapeHtml(formatDateTime((card.updated_at || 0) * 1000))}</span>
+                <span class="tag">${escapeHtml(formatTimestampLabel(card.updated_at))}</span>
               </div>
             </div>
           `;
@@ -1572,10 +1838,11 @@
             ? '<span class="tag tag-success">Allowed</span>'
             : '<span class="tag tag-danger">Denied</span>';
           return `
-            <div class="collection-item">
+            <div class="collection-item collection-item-access">
+              <div class="collection-kicker">Access Attempt</div>
               <div class="collection-topline">
                 <div class="collection-title">${escapeHtml(attempt.card_uid || "Unknown UID")}</div>
-                <div class="metric-label">${escapeHtml(formatDateTime((attempt.checked_at || 0) * 1000))}</div>
+                <div class="collection-time">${escapeHtml(formatTimestampLabel(attempt.checked_at))}</div>
               </div>
               <div class="collection-meta">${escapeHtml(humanizeToken(attempt.reason || "unknown"))}</div>
               <div class="collection-tags">
@@ -1603,10 +1870,11 @@
               ? `Button #${snapshot.button_request_id}`
               : "Standalone";
           return `
-            <div class="collection-item">
+            <div class="collection-item collection-item-snapshot">
+              <div class="collection-kicker">Snapshot</div>
               <div class="collection-topline">
                 <div class="collection-title">${escapeHtml(snapshot.filename || "Snapshot")}</div>
-                <div class="metric-label">${escapeHtml(formatDateTime((snapshot.captured_at || 0) * 1000))}</div>
+                <div class="collection-time">${escapeHtml(formatTimestampLabel(snapshot.captured_at))}</div>
               </div>
               <div class="collection-meta">${escapeHtml(humanizeToken(snapshot.trigger || "snapshot"))}</div>
               <div class="collection-tags">
@@ -1671,16 +1939,6 @@
       };
     }
 
-    function drawMarker(x, y, radius, fillStyle, strokeStyle) {
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = fillStyle;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = strokeStyle;
-      ctx.stroke();
-    }
-
     function drawBox(box, frameWidth, frameHeight) {
       const topLeft = toOverlayPoint(box.x1, box.y1, frameWidth, frameHeight);
       const bottomRight = toOverlayPoint(box.x2, box.y2, frameWidth, frameHeight);
@@ -1701,25 +1959,6 @@
       ctx.fillRect(x, Math.max(0, y - textHeight), textWidth, textHeight);
       ctx.fillStyle = "#fffaf2";
       ctx.fillText(label, x + 9, Math.max(18, y - 9));
-    }
-
-    function drawTargetGuide(frameWidth, frameHeight) {
-      const advice = latestPayload?.camera_mount;
-      const frameCenterSource = advice?.frame_center || { x: frameWidth / 2, y: frameHeight / 2 };
-      const frameCenter = toOverlayPoint(frameCenterSource.x, frameCenterSource.y, frameWidth, frameHeight);
-      drawMarker(frameCenter.x, frameCenter.y, 6, "#1f7ae0", "#f4f8ff");
-
-      const target = advice?.target_center;
-      if (!target) return;
-
-      const targetCenter = toOverlayPoint(target.x, target.y, frameWidth, frameHeight);
-      ctx.beginPath();
-      ctx.moveTo(frameCenter.x, frameCenter.y);
-      ctx.lineTo(targetCenter.x, targetCenter.y);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "rgba(255, 209, 102, 0.88)";
-      ctx.stroke();
-      drawMarker(targetCenter.x, targetCenter.y, 6, "#ffd166", "#5c4300");
     }
 
     function drawMountAdvice(frameWidth, frameHeight) {
@@ -1757,8 +1996,45 @@
         }
       }
 
-      drawTargetGuide(frameWidth, frameHeight);
       drawMountAdvice(frameWidth, frameHeight);
+    }
+
+    function renderLiveDetailStrip() {
+      const primaryBox = Array.isArray(latestPayload?.boxes) && latestPayload.boxes.length > 0
+        ? latestPayload.boxes[0]
+        : null;
+      const latestEvent = latestEvents[0] || latestLockerStatus?.recent_events?.[0] || null;
+      const activeMode = latestPayload?.active_mode || latestPayload?.mode || "waiting";
+
+      ui.liveTargetValue.textContent = primaryBox
+        ? humanizeToken(primaryBox.label || "target")
+        : humanizeToken(activeMode === "face_hold" ? "predicted hold" : "waiting");
+      ui.liveTargetNote.textContent = primaryBox
+        ? `${(Number(primaryBox.score || 0) * 100).toFixed(0)}% | ${Math.max(0, primaryBox.x2 - primaryBox.x1)}x${Math.max(0, primaryBox.y2 - primaryBox.y1)} px`
+        : "No face box in frame";
+
+      ui.liveDetectionFpsValue.textContent = Number.isFinite(latestPayload?.runtime?.current_detection_fps_target)
+        ? `${latestPayload.runtime.current_detection_fps_target} FPS`
+        : "—";
+      ui.liveDetectionNote.textContent = Number.isFinite(latestPayload?.latency_ms)
+        ? `${humanizeToken(activeMode)} | ${latestPayload.latency_ms.toFixed(0)} ms latency`
+        : `${humanizeToken(activeMode)} | latency unavailable`;
+
+      const frameWidth = latestPayload?.frame_size?.width;
+      const frameHeight = latestPayload?.frame_size?.height;
+      const detectionWidth = latestPayload?.detection_size?.width;
+      const detectionHeight = latestPayload?.detection_size?.height;
+      ui.liveFrameValue.textContent = frameWidth && frameHeight ? `${frameWidth}x${frameHeight}` : "—";
+      ui.liveFrameNote.textContent = detectionWidth && detectionHeight
+        ? `Detection ${detectionWidth}x${detectionHeight}`
+        : "Detection size unavailable";
+
+      ui.liveLastEventValue.textContent = latestEvent
+        ? humanizeToken(latestEvent.type || latestEvent.event_type || "event")
+        : "None";
+      ui.liveLastEventNote.textContent = latestEvent
+        ? `${describeEvent(latestEvent) || "No extra details"}${latestEvent.timestamp ? ` | ${formatDateTime(latestEvent.timestamp * 1000)}` : ""}`
+        : "No recent events yet";
     }
 
     function updateOverviewFromVisionPayload(payload) {
@@ -1772,6 +2048,7 @@
       setPillState(ui.overviewMountBadge, mountStatus, statusToneClass(String(mountAdvice?.status || "")));
 
       ui.debugVisionJson.textContent = JSON.stringify(formatPayloadForDisplay(payload), null, 2);
+      renderLiveDetailStrip();
     }
 
     function renderLockerStatus(payload) {
@@ -1787,6 +2064,7 @@
       ui.lastAccessValue.textContent = describeAccessResult(payload?.last_access_result);
       ui.lastErrorValue.textContent = payload?.last_error || payload?.rfid?.last_error || payload?.occupancy?.last_error || "No runtime errors reported.";
       ui.debugLockerJson.textContent = JSON.stringify(formatPayloadForDisplay(payload), null, 2);
+      renderLiveDetailStrip();
     }
 
     function renderSystemStatus(payload) {
@@ -1864,6 +2142,7 @@
       ui.summarySnapshotsCount.textContent = String(status.snapshot_count || 0);
       ui.summaryDoorSessionsCount.textContent = String(status.door_session_count || 0);
       ui.dbBadge.textContent = `Live ${formatDateTime(Date.now())}`;
+      renderLiveDetailStrip();
     }
 
     function syncButtonStatus(buttonStatus, announce = false) {
@@ -1938,6 +2217,7 @@
         latestEvents,
         "No recent events available."
       );
+      renderLiveDetailStrip();
       return payload;
     }
 
