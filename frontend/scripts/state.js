@@ -52,10 +52,12 @@ export const state = {
   dashboardPollTimer: null,
   buttonToastTimer: null,
   lastHandledButtonEventId: 0,
+  lastButtonToastAt: 0,
   debugTableRowLimit: 25,
 };
 
 export const CARD_ENROLL_TIMEOUT_SECONDS = 10;
 export const DASHBOARD_POLL_INTERVAL_MS = 2000;
+export const BUTTON_NOTIFICATION_COOLDOWN_MS = 5000;
 export const THEME_STORAGE_KEY = "parcelbox.theme";
 export const NOTIFICATION_SETTINGS_STORAGE_KEY = "parcelbox.notification_settings";

@@ -20,11 +20,13 @@ class ButtonService:
         self,
         snapshot_callback=None,
         notification_callback=None,
+        alert_callback=None,
         event_store=None,
         button_factory=Button,
     ) -> None:
         self._snapshot_callback = snapshot_callback
         self._notification_callback = notification_callback
+        self._alert_callback = alert_callback
         self._event_store = event_store
         self._button_factory = button_factory
         self._lock = threading.Lock()
@@ -36,6 +38,7 @@ class ButtonService:
         self._last_error: str | None = None
         self._latest_event: dict | None = None
         self._event_counter = 0
+        self._last_snapshot_at_monotonic = 0.0
 
     def start(self) -> None:
         """Initialize the button watcher and start the worker."""
@@ -46,6 +49,7 @@ class ButtonService:
             self._stop_event.clear()
             self._started = True
             self._last_error = None
+            self._last_snapshot_at_monotonic = 0.0
             self._initialize_button_locked()
 
             if not self._button_enabled:
@@ -71,6 +75,7 @@ class ButtonService:
         with self._lock:
             self._cleanup_button_locked()
             self._started = False
+            self._last_snapshot_at_monotonic = 0.0
         logger.info("Button service stopped")
 
     def get_status(self) -> dict:
@@ -158,14 +163,18 @@ class ButtonService:
     def _record_button_press(self) -> None:
         snapshot = None
         snapshot_error = None
+        snapshot_skipped_reason = None
         notification = None
         notification_error = None
 
-        if self._snapshot_callback is not None:
+        if self._snapshot_callback is not None and self._should_capture_snapshot():
             try:
                 snapshot = self._snapshot_callback()
+                self._last_snapshot_at_monotonic = time.monotonic()
             except Exception as error:
                 snapshot_error = str(error)
+        elif self._snapshot_callback is not None:
+            snapshot_skipped_reason = "cooldown"
 
         if self._notification_callback is not None:
             try:
@@ -194,6 +203,8 @@ class ButtonService:
             }
             if snapshot_error is not None:
                 event["snapshot_error"] = snapshot_error
+            if snapshot_skipped_reason is not None:
+                event["snapshot_skipped_reason"] = snapshot_skipped_reason
             if notification_error is not None:
                 event["notification_error"] = notification_error
             if self._event_store is not None:
@@ -215,6 +226,11 @@ class ButtonService:
             else:
                 self._last_error = None
             self._latest_event = event
+        if self._alert_callback is not None:
+            try:
+                self._alert_callback(copy.deepcopy(event))
+            except Exception as error:
+                logger.warning("Button alert callback failed: %s", error)
         logger.info(
             "Button event recorded: id=%s snapshot=%s notification_status=%s notification_error=%s",
             event["id"],
@@ -222,3 +238,11 @@ class ButtonService:
             None if event.get("notification") is None else event["notification"].get("status"),
             notification_error,
         )
+
+    def _should_capture_snapshot(self) -> bool:
+        cooldown = max(config.alert.button_press_snapshot_cooldown_seconds, 0.0)
+        if cooldown <= 0:
+            return True
+        if self._last_snapshot_at_monotonic <= 0:
+            return True
+        return (time.monotonic() - self._last_snapshot_at_monotonic) >= cooldown

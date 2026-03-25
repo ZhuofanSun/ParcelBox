@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import config
 from services.access_service import AccessService
+from services.alert_service import AlertService
 from services.button_service import ButtonService
 from services.buzzer_service import BuzzerService
 from services.camera_service import CameraService
@@ -48,9 +49,11 @@ profile_settings_service = ProfileSettingsService(event_store)
 email_settings_service = EmailSettingsService(event_store)
 email_service = EmailNotificationService(email_settings_service)
 buzzer_service = BuzzerService()
+alert_service = AlertService(buzzer_service, camera_mount_service)
 button_service = ButtonService(
     snapshot_callback=camera_service.capture_snapshot,
     notification_callback=email_service.send_open_request_email,
+    alert_callback=alert_service.handle_button_pressed,
     event_store=event_store,
 )
 access_service = AccessService(
@@ -62,8 +65,10 @@ locker_service = LockerService(
     access_service,
     occupancy_service,
     snapshot_callback=camera_service.capture_snapshot,
+    alert_callback=alert_service.handle_access_denied,
     event_store=event_store,
 )
+camera_mount_service.set_alert_search_complete_callback(alert_service.on_alert_search_completed)
 led_service = LedService(
     vision_service=vision_service,
     camera_mount_service=camera_mount_service,
@@ -134,9 +139,9 @@ app.include_router(
         event_store,
     )
 )
-app.include_router(build_control_router(locker_service))
+app.include_router(build_control_router(locker_service, alert_service))
 app.include_router(build_cards_router(access_service, locker_service))
-app.include_router(build_logs_router(event_store))
+app.include_router(build_logs_router(event_store, alert_service))
 app.include_router(build_snapshot_router(event_store))
 app.include_router(build_system_router(system_status_service))
 app.include_router(build_settings_router(profile_settings_service, email_settings_service, email_service))

@@ -120,6 +120,13 @@ export async function fetchSnapshotDetail(snapshotId) {
   return payload.snapshot;
 }
 
+export async function silenceAlerts() {
+  const payload = await fetchJson("/api/alerts/silence", {
+    method: "POST",
+  });
+  return payload;
+}
+
 export async function createEmailScheme(scheme) {
   const payload = await fetchJson("/api/settings/email/schemes", {
     method: "POST",

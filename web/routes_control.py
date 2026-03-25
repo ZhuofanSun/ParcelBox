@@ -12,7 +12,7 @@ from web.schemas import LockerActionPayload
 logger = logging.getLogger(__name__)
 
 
-def build_control_router(locker_service: LockerService) -> APIRouter:
+def build_control_router(locker_service: LockerService, alert_service=None) -> APIRouter:
     """Create control endpoints for the locker workflow."""
     router = APIRouter()
 
@@ -35,5 +35,11 @@ def build_control_router(locker_service: LockerService) -> APIRouter:
     def locker_close(payload: LockerActionPayload) -> dict:
         logger.info("HTTP locker_close request: source=%s", payload.source)
         return {"event": locker_service.close_door(source=payload.source)}
+
+    @router.post("/api/alerts/silence")
+    def silence_alerts() -> dict:
+        silenced = False if alert_service is None else bool(alert_service.silence())
+        logger.info("HTTP alerts_silence request: silenced=%s", silenced)
+        return {"silenced": silenced}
 
     return router

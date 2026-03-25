@@ -19,6 +19,8 @@ import {
   statusToneClass,
 } from "./formatters.js";
 
+const BUTTON_NOTIFICATION_COOLDOWN_MS = 5000;
+
 export function setPillState(element, label, tone) {
   if (!element) return;
   element.textContent = label;
@@ -121,6 +123,13 @@ function buildNotificationKey(event) {
 
 function isNotificationEvent(event) {
   if (!event || typeof event !== "object") return false;
+  if (
+    event.type === "unauthorized_card_alarm" ||
+    event.type === "button_press_burst_alarm" ||
+    event.type === "access_denied_burst_alarm"
+  ) {
+    return true;
+  }
   if (event.type === "button_pressed") {
     return state.notificationPreferences.buttonPressed;
   }
@@ -133,9 +142,67 @@ function isNotificationEvent(event) {
   return false;
 }
 
+function notificationEventsWithCooldown(events) {
+  const filteredEvents = [];
+  let lastButtonNotificationAt = null;
+
+  for (const event of Array.isArray(events) ? events : []) {
+    if (!isNotificationEvent(event)) {
+      continue;
+    }
+
+    if (event.type === "button_pressed") {
+      const timestampMs = Number(event.timestamp) * 1000;
+      if (Number.isFinite(timestampMs)) {
+        if (
+          lastButtonNotificationAt !== null &&
+          Math.abs(lastButtonNotificationAt - timestampMs) < BUTTON_NOTIFICATION_COOLDOWN_MS
+        ) {
+          continue;
+        }
+        lastButtonNotificationAt = timestampMs;
+      }
+    }
+
+    filteredEvents.push(event);
+  }
+
+  return filteredEvents;
+}
+
 function buildNotificationModel(event) {
   const timeLabel = formatTimestampLabel(event.timestamp);
   const snapshotFile = snapshotLabel(event.snapshot);
+
+  if (event.type === "unauthorized_card_alarm") {
+    return {
+      title: "Unauthorized Card Alarm",
+      kicker: "Security Alarm",
+      toneClass: "notification-item-danger",
+      meta: event.uid ? `Unauthorized RFID scan | UID ${event.uid}` : "Unauthorized RFID scan detected",
+      timeLabel,
+    };
+  }
+
+  if (event.type === "button_press_burst_alarm") {
+    return {
+      title: "Button Spam Alarm",
+      kicker: "Security Alarm",
+      toneClass: "notification-item-danger",
+      meta: "Hardware button was pressed rapidly five times.",
+      timeLabel,
+    };
+  }
+
+  if (event.type === "access_denied_burst_alarm") {
+    return {
+      title: "Repeated RFID Denials",
+      kicker: "Security Alarm",
+      toneClass: "notification-item-danger",
+      meta: "Multiple unauthorized card scans were detected in a short window.",
+      timeLabel,
+    };
+  }
 
   if (event.type === "button_pressed") {
     const notificationStatus = event.notification?.status
@@ -180,14 +247,14 @@ function buildNotificationModel(event) {
 }
 
 export function markNotificationsSeen() {
-  const alertEvents = Array.isArray(state.latestEvents) ? state.latestEvents.filter(isNotificationEvent) : [];
+  const alertEvents = notificationEventsWithCooldown(state.latestEvents);
   state.seenNotificationKey = buildNotificationKey(alertEvents[0]);
   state.notificationUnreadCount = 0;
   renderNotificationCenter();
 }
 
 export function renderNotificationCenter() {
-  const alertEvents = Array.isArray(state.latestEvents) ? state.latestEvents.filter(isNotificationEvent) : [];
+  const alertEvents = notificationEventsWithCooldown(state.latestEvents);
   const latestAlert = alertEvents[0] || null;
   const latestKey = buildNotificationKey(latestAlert);
 
@@ -678,15 +745,29 @@ export function syncButtonStatus(buttonStatus, announce = false) {
     return;
   }
 
+  const eventTimestampMs = Number(buttonEvent.timestamp) * 1000;
+  if (
+    Number.isFinite(eventTimestampMs) &&
+    state.lastButtonToastAt > 0 &&
+    Math.abs(eventTimestampMs - state.lastButtonToastAt) < BUTTON_NOTIFICATION_COOLDOWN_MS
+  ) {
+    return;
+  }
+  if (Number.isFinite(eventTimestampMs)) {
+    state.lastButtonToastAt = eventTimestampMs;
+  }
+
   const errorMessage = buttonEvent.snapshot_error;
   const notification = buttonEvent.notification;
   const notificationError = buttonEvent.notification_error;
   const fileLabel = snapshotLabel(buttonEvent.snapshot);
   const photoMessage = errorMessage
     ? `snapshot failed (${errorMessage})`
-    : fileLabel
-      ? `photo saved as ${fileLabel}`
-      : "photo saved locally";
+    : buttonEvent.snapshot_skipped_reason === "cooldown"
+      ? "snapshot cooldown active"
+      : fileLabel
+        ? `photo saved as ${fileLabel}`
+        : "photo saved locally";
 
   let notificationMessage = "email notification not configured";
   if (notificationError) {

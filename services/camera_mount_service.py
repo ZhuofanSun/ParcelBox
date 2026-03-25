@@ -37,6 +37,8 @@ class CameraMountService:
         self._tracking_face_active = False
         self._face_lost_deadline_at: float | None = None
         self._face_recovery_waypoints: list[float] = []
+        self._external_search_active = False
+        self._alert_search_complete_callback = None
         self._standby_anchor_at: float | None = None
         self._last_seen_version = 0
         self._last_tracking_move_at = 0.0
@@ -63,6 +65,7 @@ class CameraMountService:
             self._tracking_face_active = False
             self._face_lost_deadline_at = None
             self._face_recovery_waypoints = []
+            self._external_search_active = False
             self._standby_anchor_at = None
             self._last_seen_version = 0
             self._last_tracking_move_at = 0.0
@@ -99,6 +102,7 @@ class CameraMountService:
             self._tracking_face_active = False
             self._face_lost_deadline_at = None
             self._face_recovery_waypoints = []
+            self._external_search_active = False
             self._standby_anchor_at = None
             self._latest_advice = self._build_idle_advice()
             self._last_seen_version = 0
@@ -207,6 +211,42 @@ class CameraMountService:
         with self._lock:
             return copy.deepcopy(self._latest_advice)
 
+    def is_search_active(self) -> bool:
+        """Return whether the mount is currently in a search sweep."""
+        with self._lock:
+            return self._external_search_active or bool(self._face_recovery_waypoints) or self._latest_advice.get("status") == "searching"
+
+    def set_alert_search_complete_callback(self, callback) -> None:
+        """Register a callback fired when an externally-triggered search finishes."""
+        with self._lock:
+            self._alert_search_complete_callback = callback
+
+    def request_alert_search_once(self) -> bool:
+        """Start one face-search sweep if there is no visible face and no active search."""
+        payload = None
+        if self._vision_service is not None:
+            try:
+                payload = self._vision_service.get_boxes()
+            except Exception:
+                payload = None
+
+        target = self._extract_face_target(payload or {})
+        with self._lock:
+            if not self._started or not self._servo_control_enabled:
+                return False
+            if self._external_search_active or self._face_recovery_waypoints:
+                return False
+            if self._latest_advice.get("status") == "searching":
+                return False
+            if payload and payload.get("status") == "ok" and target is not None:
+                return False
+            self._start_face_recovery_locked()
+            self._external_search_active = True
+
+        if payload:
+            self._process_payload(payload)
+        return True
+
     def _worker_loop(self) -> None:
         while not self._stop_event.is_set():
             try:
@@ -226,13 +266,22 @@ class CameraMountService:
             self._process_payload(payload, version=version)
 
     def _process_payload(self, payload: dict, version: int | None = None) -> dict:
+        callback = None
         with self._lock:
             advice = self._build_advice(payload, started=self._started)
             self._latest_advice = advice
             self._log_advice_change_locked(advice)
+            if self._external_search_active and advice.get("status") != "searching":
+                self._external_search_active = False
+                callback = self._alert_search_complete_callback
             movement_request = self._build_movement_request_locked(advice, version=version)
 
         self._execute_movement_request(movement_request)
+        if callable(callback):
+            try:
+                callback()
+            except Exception as error:
+                logger.warning("Alert-search completion callback failed: %s", error)
         return copy.deepcopy(advice)
 
     def _initialize_servos_locked(self) -> None:

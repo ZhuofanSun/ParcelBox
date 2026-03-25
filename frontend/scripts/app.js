@@ -31,6 +31,7 @@ import {
   runSnapshotAction,
   saveProfileSettings,
   sendEmailTest,
+  silenceAlerts,
   updateEmailScheme,
   uploadProfileAvatar,
 } from "./api.js";
@@ -705,6 +706,7 @@ function openPopover(name) {
   if (name === "notifications") {
     setPopoverState(ui.notificationsTriggerButton, ui.notificationsPopover, true);
     markNotificationsSeen();
+    silenceAlerts().catch(() => {});
     return;
   }
   if (name === "profile") {

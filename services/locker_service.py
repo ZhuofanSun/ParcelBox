@@ -24,12 +24,14 @@ class LockerService:
         occupancy_service: OccupancyService | None = None,
         servo_factory=Servo,
         snapshot_callback=None,
+        alert_callback=None,
         event_store=None,
     ) -> None:
         self._access_service = access_service
         self._occupancy_service = occupancy_service
         self._servo_factory = servo_factory
         self._snapshot_callback = snapshot_callback
+        self._alert_callback = alert_callback
         self._event_store = event_store
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -202,6 +204,11 @@ class LockerService:
                 source,
                 access_result["reason"],
             )
+            if self._alert_callback is not None:
+                try:
+                    self._alert_callback(copy.deepcopy(event))
+                except Exception as error:
+                    logger.warning("Access-denied alert callback failed: %s", error)
             return copy.deepcopy(event)
 
     def note_no_card_present(self) -> None:

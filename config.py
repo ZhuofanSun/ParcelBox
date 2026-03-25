@@ -109,6 +109,31 @@ class BuzzerConfig:
 
 
 @dataclass
+class AlertConfig:
+    """Runtime rules for local audible alarms and burst detection."""
+
+    button_press_snapshot_cooldown_seconds: float = 5.0
+    button_press_notification_cooldown_seconds: float = 5.0
+    button_press_burst_threshold: int = 5
+    button_press_burst_window_seconds: float = 6.0
+
+    access_denied_burst_threshold: int = 3
+    access_denied_burst_window_seconds: float = 8.0
+
+    unauthorized_card_beep_duration: float = 0.06
+    unauthorized_card_beep_repeat: int = 1
+    unauthorized_card_beep_interval: float = 0.07
+
+    medium_alarm_beep_duration: float = 0.32
+    medium_alarm_beep_repeat: int = 4
+    medium_alarm_beep_interval: float = 0.12
+
+    severe_alarm_beep_duration: float = 0.48
+    severe_alarm_beep_repeat: int = 8
+    severe_alarm_beep_interval: float = 0.12
+
+
+@dataclass
 class LedConfig:
     """RGB LED runtime settings."""
 
@@ -211,6 +236,7 @@ class AppConfig:
     door: DoorConfig = field(default_factory=DoorConfig)
     rfid: RFIDConfig = field(default_factory=RFIDConfig)
     buzzer: BuzzerConfig = field(default_factory=BuzzerConfig)
+    alert: AlertConfig = field(default_factory=AlertConfig)
     led: LedConfig = field(default_factory=LedConfig)
     ultrasonic: UltrasonicConfig = field(default_factory=UltrasonicConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
