@@ -73,6 +73,10 @@ body {
     color 180ms ease;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
 button,
 input {
   font: inherit;

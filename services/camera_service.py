@@ -36,6 +36,7 @@ class CameraService:
         self._latest_stream_timestamp: float = 0.0
         self._started = False
         self._stream_standby_provider: Callable[[], bool] | None = None
+        self._snapshot_prune_callback: Callable[[list[Path]], int | None] | None = None
         self._last_applied_stream_fps: int | None = None
 
     @property
@@ -113,6 +114,10 @@ class CameraService:
     def set_stream_standby_provider(self, provider: Callable[[], bool] | None) -> None:
         """Set a callback that reports whether the shared stream should run in standby mode."""
         self._stream_standby_provider = provider
+
+    def set_snapshot_prune_callback(self, callback: Callable[[list[Path]], int | None] | None) -> None:
+        """Set a callback that runs after old snapshot files are pruned."""
+        self._snapshot_prune_callback = callback
 
     def get_stream_fps_target(self) -> int:
         """Return the current stream FPS target."""
@@ -274,7 +279,12 @@ class CameraService:
             suffix += 1
 
         self.save_snapshot(output_path)
-        self._prune_snapshot_directory(target_dir)
+        deleted_paths = self._prune_snapshot_directory(target_dir)
+        if deleted_paths and self._snapshot_prune_callback is not None:
+            try:
+                self._snapshot_prune_callback(deleted_paths)
+            except Exception as error:
+                logger.warning("Snapshot prune callback failed: %s", error)
         logger.info("Snapshot saved: %s", output_path.name)
         return {
             "filename": output_path.name,
@@ -282,16 +292,18 @@ class CameraService:
             "saved_at": timestamp.isoformat(),
         }
 
-    def _prune_snapshot_directory(self, directory: Path) -> None:
+    def _prune_snapshot_directory(self, directory: Path) -> list[Path]:
         snapshot_files = sorted(path for path in directory.iterdir() if path.is_file())
         if len(snapshot_files) <= self.SNAPSHOT_MAX_FILES:
-            return
+            return []
 
         deleted = 0
+        deleted_paths: list[Path] = []
         for stale_path in snapshot_files[: self.SNAPSHOT_PRUNE_COUNT]:
             try:
                 stale_path.unlink()
                 deleted += 1
+                deleted_paths.append(stale_path)
             except FileNotFoundError:
                 continue
         if deleted:
@@ -300,3 +312,4 @@ class CameraService:
                 deleted,
                 max(len(snapshot_files) - deleted, 0),
             )
+        return deleted_paths

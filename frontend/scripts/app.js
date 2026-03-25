@@ -5,12 +5,13 @@ import {
   THEME_STORAGE_KEY,
   state,
 } from "./state.js";
-import { humanizeToken, statusToneClass } from "./formatters.js";
+import { describeEvent, humanizeToken, snapshotLabel, statusToneClass } from "./formatters.js";
 import {
   drawOverlay,
   markNotificationsSeen,
   renderDatabaseTables,
   renderNotificationCenter,
+  renderSnapshotViewer,
   resizeOverlay,
   setPillState,
   showToast,
@@ -24,6 +25,7 @@ import {
   enrollCard,
   fetchEmailSettings,
   fetchProfileSettings,
+  fetchSnapshotDetail,
   refreshDashboardData,
   runLockerAction,
   runSnapshotAction,
@@ -447,6 +449,83 @@ function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
+function normalizeSnapshotId(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function uniqueSnapshotItems(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    if (!item || !item.id || seen.has(item.id)) {
+      return false;
+    }
+    seen.add(item.id);
+    return true;
+  });
+}
+
+function buildEventSnapshotViewerItems(events) {
+  return uniqueSnapshotItems(
+    (Array.isArray(events) ? events : [])
+      .map((event) => {
+        const id = normalizeSnapshotId(event?.snapshot?.storage_id ?? event?.storage_id);
+        if (!id) {
+          return null;
+        }
+        return {
+          id,
+          title: snapshotLabel(event.snapshot) || humanizeToken(event.type || event.event_type || "snapshot"),
+          trigger: event?.snapshot?.trigger || "snapshot",
+          capturedAt: event?.snapshot?.captured_at || event?.snapshot?.saved_at || event?.timestamp || null,
+          contextLabel: humanizeToken(event.type || event.event_type || "event"),
+          contextNote: describeEvent(event) || "Snapshot linked to this event.",
+        };
+      })
+      .filter(Boolean)
+  );
+}
+
+function buildTableSnapshotViewerItems(snapshots) {
+  return uniqueSnapshotItems(
+    (Array.isArray(snapshots) ? snapshots : [])
+      .map((snapshot) => {
+        const id = normalizeSnapshotId(snapshot?.id ?? snapshot?.storage_id);
+        if (!id) {
+          return null;
+        }
+        const contextLabel =
+          snapshot?.access_attempt_id !== null && snapshot?.access_attempt_id !== undefined
+            ? `Access #${snapshot.access_attempt_id}`
+            : snapshot?.button_request_id !== null && snapshot?.button_request_id !== undefined
+              ? `Button #${snapshot.button_request_id}`
+              : "Standalone";
+        return {
+          id,
+          title: snapshot.filename || "Snapshot",
+          trigger: snapshot.trigger || "snapshot",
+          capturedAt: snapshot.captured_at || null,
+          contextLabel,
+          contextNote: `${humanizeToken(snapshot.trigger || "snapshot")} snapshot stored on the device.`,
+        };
+      })
+      .filter(Boolean)
+  );
+}
+
+function snapshotViewerItemsForSource(sourceKey) {
+  switch (sourceKey) {
+    case ui.overviewEventsList.id:
+      return buildEventSnapshotViewerItems(state.latestEvents.slice(0, 6));
+    case ui.eventsFeedList.id:
+      return buildEventSnapshotViewerItems(state.latestEvents);
+    case ui.snapshotList.id:
+      return buildTableSnapshotViewerItems(state.latestDatabasePayload?.tables?.snapshot || []);
+    default:
+      return [];
+  }
+}
+
 function addEmailRecipientToDraft() {
   const pending = ui.settingsEmailRecipientInput.value.trim().toLowerCase();
   if (!pending) {
@@ -600,6 +679,113 @@ function openSettings(sectionName = "profile") {
   closeAllPopovers();
   activateView("settings");
   activateSettingsSection(sectionName);
+}
+
+function closeSnapshotViewer() {
+  state.snapshotViewer.open = false;
+  state.snapshotViewer.sourceKey = null;
+  state.snapshotViewer.items = [];
+  state.snapshotViewer.currentIndex = 0;
+  state.snapshotViewer.snapshot = null;
+  state.snapshotViewer.loading = false;
+  state.snapshotViewer.error = null;
+  state.snapshotViewer.requestToken += 1;
+  renderSnapshotViewer();
+}
+
+async function loadSnapshotViewerSnapshot(snapshotId) {
+  const normalizedSnapshotId = normalizeSnapshotId(snapshotId);
+  if (!normalizedSnapshotId || !state.snapshotViewer.open) {
+    return;
+  }
+
+  const requestToken = state.snapshotViewer.requestToken + 1;
+  state.snapshotViewer.requestToken = requestToken;
+  state.snapshotViewer.loading = true;
+  state.snapshotViewer.error = null;
+  state.snapshotViewer.snapshot = null;
+  renderSnapshotViewer();
+
+  try {
+    const snapshot = await fetchSnapshotDetail(normalizedSnapshotId);
+    if (!state.snapshotViewer.open || state.snapshotViewer.requestToken !== requestToken) {
+      return;
+    }
+    state.snapshotViewer.snapshot = snapshot;
+    state.snapshotViewer.loading = false;
+    state.snapshotViewer.error = null;
+    renderSnapshotViewer();
+  } catch (error) {
+    if (!state.snapshotViewer.open || state.snapshotViewer.requestToken !== requestToken) {
+      return;
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    state.snapshotViewer.snapshot = null;
+    state.snapshotViewer.loading = false;
+    state.snapshotViewer.error =
+      /not found|no longer available|404/i.test(message)
+        ? "This snapshot is no longer stored on the device."
+        : `Failed to load snapshot: ${message}`;
+    renderSnapshotViewer();
+  }
+}
+
+function openSnapshotViewer(snapshotId, sourceKey) {
+  const normalizedSnapshotId = normalizeSnapshotId(snapshotId);
+  if (!normalizedSnapshotId) {
+    return;
+  }
+
+  closeAllPopovers();
+  const items = snapshotViewerItemsForSource(sourceKey);
+  const fallbackItem = {
+    id: normalizedSnapshotId,
+    title: "Snapshot",
+    trigger: "snapshot",
+    capturedAt: null,
+    contextLabel: "Standalone",
+    contextNote: "Snapshot lookup from the ParcelBox device.",
+  };
+  const nextItems = items.length ? items : [fallbackItem];
+  let currentIndex = nextItems.findIndex((item) => item.id === normalizedSnapshotId);
+  if (currentIndex === -1) {
+    nextItems.unshift(fallbackItem);
+    currentIndex = 0;
+  }
+
+  state.snapshotViewer.open = true;
+  state.snapshotViewer.sourceKey = sourceKey || null;
+  state.snapshotViewer.items = nextItems;
+  state.snapshotViewer.currentIndex = currentIndex;
+  state.snapshotViewer.snapshot = null;
+  state.snapshotViewer.loading = false;
+  state.snapshotViewer.error = null;
+  renderSnapshotViewer();
+  loadSnapshotViewerSnapshot(normalizedSnapshotId);
+}
+
+function stepSnapshotViewer(offset) {
+  if (!state.snapshotViewer.open) {
+    return;
+  }
+  const nextIndex = state.snapshotViewer.currentIndex + offset;
+  if (nextIndex < 0 || nextIndex >= state.snapshotViewer.items.length) {
+    return;
+  }
+  state.snapshotViewer.currentIndex = nextIndex;
+  loadSnapshotViewerSnapshot(state.snapshotViewer.items[nextIndex].id);
+}
+
+function handleSnapshotLauncherClick(event) {
+  const target = event.target instanceof Element ? event.target.closest("[data-snapshot-id]") : null;
+  if (!target) {
+    return;
+  }
+  const snapshotId = normalizeSnapshotId(target.dataset.snapshotId);
+  if (!snapshotId) {
+    return;
+  }
+  openSnapshotViewer(snapshotId, target.dataset.snapshotSource || "");
 }
 
 function connectVisionSocket() {
@@ -879,6 +1065,43 @@ ui.settingsEmailTestButton.addEventListener("click", async () => {
   }
 });
 
+ui.overviewEventsList.addEventListener("click", handleSnapshotLauncherClick);
+ui.eventsFeedList.addEventListener("click", handleSnapshotLauncherClick);
+ui.snapshotList.addEventListener("click", handleSnapshotLauncherClick);
+
+ui.snapshotViewerCloseButton.addEventListener("click", () => {
+  closeSnapshotViewer();
+});
+
+ui.snapshotViewerPrevButton.addEventListener("click", () => {
+  stepSnapshotViewer(-1);
+});
+
+ui.snapshotViewerNextButton.addEventListener("click", () => {
+  stepSnapshotViewer(1);
+});
+
+ui.snapshotViewerBackdrop.addEventListener("click", (event) => {
+  if (event.target === ui.snapshotViewerBackdrop) {
+    closeSnapshotViewer();
+  }
+});
+
+ui.snapshotViewerImage.addEventListener("error", () => {
+  if (!state.snapshotViewer.open) {
+    return;
+  }
+  state.snapshotViewer.snapshot = state.snapshotViewer.snapshot
+    ? {
+        ...state.snapshotViewer.snapshot,
+        file_exists: false,
+        file_url: null,
+      }
+    : null;
+  state.snapshotViewer.error = "This snapshot file is no longer available on the device.";
+  renderSnapshotViewer();
+});
+
 ui.debugTableLimitSelect.addEventListener("change", () => {
   const nextLimit = Number(ui.debugTableLimitSelect.value);
   state.debugTableRowLimit = Number.isFinite(nextLimit) && nextLimit >= 0 ? nextLimit : 25;
@@ -917,7 +1140,22 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (state.snapshotViewer.open) {
+      closeSnapshotViewer();
+      return;
+    }
     closeAllPopovers();
+    return;
+  }
+  if (!state.snapshotViewer.open) {
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    stepSnapshotViewer(-1);
+  } else if (event.key === "ArrowRight") {
+    event.preventDefault();
+    stepSnapshotViewer(1);
   }
 });
 
@@ -948,6 +1186,7 @@ async function bootstrap() {
   loadEmailSchemeDraft(blankEmailSchemeDraft());
   activateSettingsSection("profile");
   renderNotificationCenter();
+  renderSnapshotViewer();
 
   const initialView = window.location.hash.replace("#", "") || "overview";
   activateView(["overview", "cards", "events", "debug", "settings"].includes(initialView) ? initialView : "overview");

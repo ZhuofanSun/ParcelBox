@@ -51,6 +51,21 @@ export function renderEmptyCollection(container, message) {
   container.innerHTML = `<div class="placeholder-block">${escapeHtml(message)}</div>`;
 }
 
+function normalizeSnapshotId(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function snapshotRelationLabel(snapshot, fallbackLabel = "Standalone") {
+  if (snapshot?.access_attempt_id !== null && snapshot?.access_attempt_id !== undefined) {
+    return `Access #${snapshot.access_attempt_id}`;
+  }
+  if (snapshot?.button_request_id !== null && snapshot?.button_request_id !== undefined) {
+    return `Button #${snapshot.button_request_id}`;
+  }
+  return fallbackLabel;
+}
+
 export function renderEventCollection(container, events, emptyMessage) {
   if (!Array.isArray(events) || events.length === 0) {
     renderEmptyCollection(container, emptyMessage);
@@ -62,13 +77,24 @@ export function renderEventCollection(container, events, emptyMessage) {
       const title = humanizeToken(event.type || event.event_type || "event");
       const timeLabel = formatTimestampLabel(event.timestamp);
       const detailLine = describeEvent(event);
+      const snapshotId = normalizeSnapshotId(event?.snapshot?.storage_id ?? event?.storage_id);
+      const isSnapshotOpenable = snapshotId !== null;
       const tags = [];
       if (event.allowed === true) tags.push('<span class="tag tag-success">Allowed</span>');
       if (event.allowed === false) tags.push('<span class="tag tag-danger">Denied</span>');
       if (event.snapshot) tags.push('<span class="tag">Snapshot</span>');
       if (event.source) tags.push(`<span class="tag">${escapeHtml(humanizeToken(event.source))}</span>`);
+      if (isSnapshotOpenable) {
+        tags.push('<span class="tag tag-action">View Photo</span>');
+      }
+
+      const rootTag = isSnapshotOpenable ? "button" : "div";
+      const rootAttributes = isSnapshotOpenable
+        ? `type="button" class="collection-item collection-item-event collection-item-button" data-snapshot-id="${snapshotId}" data-snapshot-source="${escapeHtml(container.id || "events")}" aria-label="Open snapshot for ${escapeHtml(title)}"`
+        : 'class="collection-item collection-item-event"';
+
       return `
-        <div class="collection-item collection-item-event">
+        <${rootTag} ${rootAttributes}>
           <div class="collection-kicker">Event</div>
           <div class="collection-topline">
             <div class="collection-title">${escapeHtml(title)}</div>
@@ -76,7 +102,7 @@ export function renderEventCollection(container, events, emptyMessage) {
           </div>
           <div class="collection-meta">${escapeHtml(detailLine || "No extra details")}</div>
           <div class="collection-tags">${tags.join("")}</div>
-        </div>
+        </${rootTag}>
       `;
     })
     .join("");
@@ -282,13 +308,16 @@ export function renderSnapshotCollection(container, snapshots) {
   container.innerHTML = snapshots
     .slice(0, 10)
     .map((snapshot) => {
-      const relation = snapshot.access_attempt_id !== null && snapshot.access_attempt_id !== undefined
-        ? `Access #${snapshot.access_attempt_id}`
-        : snapshot.button_request_id !== null && snapshot.button_request_id !== undefined
-          ? `Button #${snapshot.button_request_id}`
-          : "Standalone";
+      const relation = snapshotRelationLabel(snapshot);
+      const snapshotId = normalizeSnapshotId(snapshot?.id ?? snapshot?.storage_id);
       return `
-        <div class="collection-item collection-item-snapshot">
+        <button
+          class="collection-item collection-item-snapshot collection-item-button"
+          type="button"
+          data-snapshot-id="${snapshotId}"
+          data-snapshot-source="${escapeHtml(container.id || "snapshots")}"
+          aria-label="Open snapshot ${escapeHtml(snapshot.filename || "Snapshot")}"
+        >
           <div class="collection-kicker">Snapshot</div>
           <div class="collection-topline">
             <div class="collection-title">${escapeHtml(snapshot.filename || "Snapshot")}</div>
@@ -297,11 +326,73 @@ export function renderSnapshotCollection(container, snapshots) {
           <div class="collection-meta">${escapeHtml(humanizeToken(snapshot.trigger || "snapshot"))}</div>
           <div class="collection-tags">
             <span class="tag">${escapeHtml(relation)}</span>
+            <span class="tag tag-action">View Photo</span>
           </div>
-        </div>
+        </button>
       `;
     })
     .join("");
+}
+
+export function renderSnapshotViewer() {
+  const viewer = state.snapshotViewer;
+  const item = viewer.items[viewer.currentIndex] || null;
+  const snapshot = viewer.snapshot;
+  const fileUrl =
+    !viewer.loading && !viewer.error && snapshot?.file_exists !== false && typeof snapshot?.file_url === "string"
+      ? snapshot.file_url
+      : null;
+
+  ui.snapshotViewerBackdrop.hidden = !viewer.open;
+  document.body.classList.toggle("modal-open", viewer.open);
+
+  if (!viewer.open) {
+    ui.snapshotViewerImage.hidden = true;
+    ui.snapshotViewerImage.removeAttribute("src");
+    ui.snapshotViewerEmpty.hidden = true;
+    ui.snapshotViewerOpenLink.hidden = true;
+    ui.snapshotViewerOpenLink.removeAttribute("href");
+    return;
+  }
+
+  ui.snapshotViewerTitle.textContent = snapshot?.filename || item?.title || "Snapshot";
+  ui.snapshotViewerSubtitle.textContent = formatTimestampLabel(snapshot?.captured_at || item?.capturedAt);
+  ui.snapshotViewerTrigger.textContent = humanizeToken(snapshot?.trigger || item?.trigger || "snapshot");
+  ui.snapshotViewerRelation.textContent = snapshotRelationLabel(snapshot, item?.contextLabel || "Standalone");
+  ui.snapshotViewerCounter.textContent = viewer.items.length
+    ? `${viewer.currentIndex + 1} / ${viewer.items.length}`
+    : "0 / 0";
+  ui.snapshotViewerStatus.textContent = viewer.error
+    ? viewer.error
+    : viewer.loading
+      ? "Loading snapshot from the ParcelBox device..."
+      : item?.contextNote || "Stored on the ParcelBox device.";
+
+  if (fileUrl) {
+    if (ui.snapshotViewerImage.dataset.currentUrl !== fileUrl) {
+      ui.snapshotViewerImage.src = fileUrl;
+      ui.snapshotViewerImage.dataset.currentUrl = fileUrl;
+    }
+    ui.snapshotViewerImage.hidden = false;
+    ui.snapshotViewerEmpty.hidden = true;
+    ui.snapshotViewerOpenLink.hidden = false;
+    ui.snapshotViewerOpenLink.href = fileUrl;
+  } else {
+    ui.snapshotViewerImage.hidden = true;
+    ui.snapshotViewerImage.removeAttribute("src");
+    delete ui.snapshotViewerImage.dataset.currentUrl;
+    ui.snapshotViewerEmpty.hidden = false;
+    ui.snapshotViewerEmpty.textContent = viewer.error
+      ? viewer.error
+      : viewer.loading
+        ? "Loading snapshot from the device..."
+        : "Snapshot file is unavailable.";
+    ui.snapshotViewerOpenLink.hidden = true;
+    ui.snapshotViewerOpenLink.removeAttribute("href");
+  }
+
+  ui.snapshotViewerPrevButton.disabled = viewer.currentIndex <= 0;
+  ui.snapshotViewerNextButton.disabled = viewer.currentIndex >= viewer.items.length - 1;
 }
 
 export function setControlButtonsDisabled(disabled) {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -35,6 +36,16 @@ class EventStoreTests(unittest.TestCase):
         self.addCleanup(store.stop)
         return store
 
+    def build_snapshot_payload(self, filename: str, *, trigger: str, saved_at: str) -> dict:
+        path = Path(self.temp_dir.name) / filename
+        path.write_bytes(b"snapshot")
+        return {
+            "path": str(path),
+            "filename": filename,
+            "saved_at": saved_at,
+            "trigger": trigger,
+        }
+
     def test_record_access_attempt_and_open_session_persist_snapshot(self) -> None:
         store = self.build_store()
 
@@ -44,12 +55,11 @@ class EventStoreTests(unittest.TestCase):
             allowed=True,
             reason="granted",
             checked_at=1774128429.0,
-            snapshot={
-                "path": "/tmp/door_opened.jpg",
-                "filename": "door_opened.jpg",
-                "saved_at": "2026-03-21T12:00:00",
-                "trigger": "rfid",
-            },
+            snapshot=self.build_snapshot_payload(
+                "door_opened.jpg",
+                trigger="rfid",
+                saved_at="2026-03-21T12:00:00",
+            ),
         )
         session = store.open_door_session(
             access_attempt_id=attempt["id"],
@@ -96,12 +106,11 @@ class EventStoreTests(unittest.TestCase):
         request = store.record_button_request(
             pressed_at=1774128429.0,
             notification={"status": "sent", "timestamp": 1774128430.0},
-            snapshot={
-                "path": "/tmp/button.jpg",
-                "filename": "button.jpg",
-                "saved_at": "2026-03-21T12:00:00",
-                "trigger": "button",
-            },
+            snapshot=self.build_snapshot_payload(
+                "button.jpg",
+                trigger="button",
+                saved_at="2026-03-21T12:00:00",
+            ),
         )
 
         self.assertIsInstance(request["id"], int)
@@ -158,20 +167,18 @@ class EventStoreTests(unittest.TestCase):
         store.record_button_request(
             pressed_at=1774128430.0,
             notification={"status": "duplicate_filtered"},
-            snapshot={
-                "path": "/tmp/button.jpg",
-                "filename": "button.jpg",
-                "saved_at": "2026-03-21T12:00:00",
-                "trigger": "button",
-            },
+            snapshot=self.build_snapshot_payload(
+                "button.jpg",
+                trigger="button",
+                saved_at="2026-03-21T12:00:00",
+            ),
         )
         store.record_snapshot(
-            {
-                "path": "/tmp/manual.jpg",
-                "filename": "manual.jpg",
-                "saved_at": "2026-03-21T12:00:01",
-                "trigger": "manual",
-            },
+            self.build_snapshot_payload(
+                "manual.jpg",
+                trigger="manual",
+                saved_at="2026-03-21T12:00:01",
+            ),
             default_trigger="manual",
             default_timestamp=1774128431.0,
         )
@@ -228,6 +235,98 @@ class EventStoreTests(unittest.TestCase):
             {entry["email"] for entry in snapshot["email_subscription_recipient"]},
             {"frontdesk@example.com", "support@example.com"},
         )
+
+    def test_start_reconciles_snapshot_rows_when_files_are_missing(self) -> None:
+        existing_path = Path(self.temp_dir.name) / "existing.jpg"
+        stale_path = Path(self.temp_dir.name) / "stale.jpg"
+        existing_path.write_bytes(b"existing")
+        stale_path.write_bytes(b"stale")
+
+        first_store = self.build_store()
+        first_store.record_snapshot(
+            {
+                "path": str(existing_path),
+                "filename": existing_path.name,
+                "saved_at": "2026-03-25T04:00:00",
+                "trigger": "manual",
+            },
+            default_trigger="manual",
+            default_timestamp=1774425600.0,
+        )
+        first_store.record_snapshot(
+            {
+                "path": str(stale_path),
+                "filename": stale_path.name,
+                "saved_at": "2026-03-25T04:00:01",
+                "trigger": "manual",
+            },
+            default_trigger="manual",
+            default_timestamp=1774425601.0,
+        )
+        first_store.stop()
+
+        stale_path.unlink()
+
+        second_store = EventStore()
+        second_store.start()
+        self.addCleanup(second_store.stop)
+
+        snapshot_rows = second_store.get_table_snapshot()["snapshot"]
+        self.assertEqual([row["filename"] for row in snapshot_rows], [existing_path.name])
+
+    def test_delete_snapshots_by_paths_removes_matching_snapshot_rows(self) -> None:
+        store = self.build_store()
+        first_path = Path(self.temp_dir.name) / "delete_me.jpg"
+        second_path = Path(self.temp_dir.name) / "keep_me.jpg"
+        first_path.write_bytes(b"first")
+        second_path.write_bytes(b"second")
+
+        store.record_snapshot(
+            {
+                "path": str(first_path),
+                "filename": first_path.name,
+                "saved_at": "2026-03-25T04:10:00",
+                "trigger": "manual",
+            },
+            default_trigger="manual",
+            default_timestamp=1774426200.0,
+        )
+        store.record_snapshot(
+            {
+                "path": str(second_path),
+                "filename": second_path.name,
+                "saved_at": "2026-03-25T04:10:01",
+                "trigger": "manual",
+            },
+            default_trigger="manual",
+            default_timestamp=1774426201.0,
+        )
+
+        deleted = store.delete_snapshots_by_paths([first_path, Path(os.path.relpath(second_path, Path.cwd()))])
+
+        self.assertEqual(deleted, 2)
+        self.assertEqual(store.get_table_snapshot()["snapshot"], [])
+
+    def test_get_snapshot_returns_detail_record(self) -> None:
+        store = self.build_store()
+        snapshot = store.record_snapshot(
+            self.build_snapshot_payload(
+                "detail.jpg",
+                trigger="manual",
+                saved_at="2026-03-25T04:15:00",
+            ),
+            default_trigger="manual",
+            default_timestamp=1774426500.0,
+        )
+
+        stored_snapshot = store.get_snapshot(snapshot["storage_id"])
+
+        self.assertIsNotNone(stored_snapshot)
+        self.assertEqual(stored_snapshot["id"], snapshot["storage_id"])
+        self.assertEqual(stored_snapshot["storage_id"], snapshot["storage_id"])
+        self.assertEqual(stored_snapshot["filename"], "detail.jpg")
+        self.assertEqual(stored_snapshot["access_attempt_id"], None)
+        self.assertEqual(stored_snapshot["button_request_id"], None)
 
 
 if __name__ == "__main__":

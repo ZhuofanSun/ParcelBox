@@ -29,6 +29,7 @@ from web.routes_cards import build_cards_router
 from web.routes_control import build_control_router
 from web.routes_logs import build_logs_router
 from web.routes_settings import build_settings_router
+from web.routes_snapshots import build_snapshot_router
 from web.routes_stream import begin_stream_shutdown, build_stream_router, reset_stream_shutdown_state
 from web.routes_system import build_system_router
 
@@ -37,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 camera_service = CameraService()
 event_store = EventStore()
+camera_service.set_snapshot_prune_callback(event_store.delete_snapshots_by_paths)
 vision_service = VisionService(camera_service, event_store=event_store)
 camera_mount_service = CameraMountService(vision_service)
 vision_service.set_standby_anchor_provider(camera_mount_service.get_standby_anchor_timestamp)
@@ -135,6 +137,7 @@ app.include_router(
 app.include_router(build_control_router(locker_service))
 app.include_router(build_cards_router(access_service, locker_service))
 app.include_router(build_logs_router(event_store))
+app.include_router(build_snapshot_router(event_store))
 app.include_router(build_system_router(system_status_service))
 app.include_router(build_settings_router(profile_settings_service, email_settings_service, email_service))
 

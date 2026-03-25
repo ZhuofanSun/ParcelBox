@@ -25,6 +25,7 @@ class EventStore:
         self._database_url = database_url or config.storage.database_url
         self._db_path = self._resolve_db_path(self._database_url)
         self._schema_path = Path(__file__).with_name("schema.sql")
+        self._project_root = Path(__file__).resolve().parent.parent
         self._lock = threading.Lock()
         self._started = False
         self._last_error: str | None = None
@@ -40,7 +41,10 @@ class EventStore:
                 connection.executescript(self._load_schema_sql())
                 self._normalize_email_subscription_recipient_table_with_connection(connection)
                 self._normalize_email_subscription_scheme_state_with_connection(connection)
+                deleted_snapshots = self._delete_missing_snapshot_rows_with_connection(connection)
                 connection.commit()
+            if deleted_snapshots:
+                logger.info("SQLite event store startup cleanup removed %s stale snapshot rows", deleted_snapshots)
             self._started = True
             self._last_error = None
             logger.info("SQLite event store started at %s", self._db_path)
@@ -57,6 +61,9 @@ class EventStore:
         with self._lock:
             try:
                 with self._connect() as connection:
+                    deleted_snapshots = self._delete_missing_snapshot_rows_with_connection(connection)
+                    if deleted_snapshots:
+                        connection.commit()
                     card_count = self._scalar(connection, "SELECT COUNT(*) FROM rfid_card")
                     access_attempt_count = self._scalar(connection, "SELECT COUNT(*) FROM access_attempt")
                     door_session_count = self._scalar(connection, "SELECT COUNT(*) FROM door_session")
@@ -754,12 +761,37 @@ class EventStore:
 
         return stored_snapshot
 
+    def get_snapshot(self, snapshot_id: int) -> dict | None:
+        """Return one stored snapshot entry if it still exists on disk."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    deleted_snapshots = self._delete_missing_snapshot_rows_with_connection(connection)
+                    if deleted_snapshots:
+                        connection.commit()
+                    row = self._snapshot_row_by_id_with_connection(connection, int(snapshot_id))
+            except Exception as error:
+                self._last_error = str(error)
+                return None
+
+            self._last_error = None
+
+        return None if row is None else self._row_to_snapshot_detail(row)
+
+    def resolve_snapshot_path(self, value: str | Path | None) -> Path | None:
+        """Resolve one stored snapshot path relative to the project root."""
+        return self._resolve_snapshot_path(value)
+
     def get_table_snapshot(self) -> dict:
         """Return all persisted business tables for live UI inspection."""
         self._ensure_started()
         with self._lock:
             try:
                 with self._connect() as connection:
+                    deleted_snapshots = self._delete_missing_snapshot_rows_with_connection(connection)
+                    if deleted_snapshots:
+                        connection.commit()
                     card_rows = connection.execute(
                         """
                         SELECT uid, name, enabled, access_window, created_at, updated_at
@@ -880,6 +912,9 @@ class EventStore:
         with self._lock:
             try:
                 with self._connect() as connection:
+                    deleted_snapshots = self._delete_missing_snapshot_rows_with_connection(connection)
+                    if deleted_snapshots:
+                        connection.commit()
                     if category == "locker":
                         events = self._list_locker_events_with_connection(connection)
                     elif category == "button":
@@ -900,6 +935,44 @@ class EventStore:
 
         events.sort(key=self._event_sort_key, reverse=True)
         return events[:safe_limit]
+
+    def delete_snapshots_by_paths(self, paths: list[str | Path]) -> int:
+        """Delete stored snapshot rows whose file paths match the given paths."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    deleted = self._delete_snapshot_rows_for_paths_with_connection(connection, paths)
+                    if deleted:
+                        connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return 0
+
+            self._last_error = None
+
+        if deleted:
+            logger.info("SQLite event store removed %s snapshot rows after file prune", deleted)
+        return deleted
+
+    def reconcile_snapshot_files(self) -> int:
+        """Remove snapshot rows whose files no longer exist on disk."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    deleted = self._delete_missing_snapshot_rows_with_connection(connection)
+                    if deleted:
+                        connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return 0
+
+            self._last_error = None
+
+        if deleted:
+            logger.info("SQLite event store reconciled %s stale snapshot rows", deleted)
+        return deleted
 
     def _insert_access_attempt_with_connection(
         self,
@@ -1144,12 +1217,50 @@ class EventStore:
     def _snapshot_row_by_id_with_connection(self, connection, snapshot_id: int):
         return connection.execute(
             """
-            SELECT id, path, filename, trigger, captured_at
+            SELECT id, path, filename, trigger, captured_at, access_attempt_id, button_request_id
             FROM snapshot
             WHERE id = ?
             """,
             (int(snapshot_id),),
         ).fetchone()
+
+    def _delete_missing_snapshot_rows_with_connection(self, connection) -> int:
+        rows = connection.execute("SELECT id, path FROM snapshot").fetchall()
+        stale_ids = [
+            int(row["id"])
+            for row in rows
+            if self._resolve_snapshot_path(row["path"]) is None
+            or not self._resolve_snapshot_path(row["path"]).exists()
+        ]
+        return self._delete_snapshot_rows_by_ids_with_connection(connection, stale_ids)
+
+    def _delete_snapshot_rows_for_paths_with_connection(self, connection, paths: list[str | Path]) -> int:
+        target_paths = {
+            resolved_path
+            for resolved_path in (self._resolve_snapshot_path(path) for path in paths)
+            if resolved_path is not None
+        }
+        if not target_paths:
+            return 0
+
+        rows = connection.execute("SELECT id, path FROM snapshot").fetchall()
+        matching_ids = [
+            int(row["id"])
+            for row in rows
+            if self._resolve_snapshot_path(row["path"]) in target_paths
+        ]
+        return self._delete_snapshot_rows_by_ids_with_connection(connection, matching_ids)
+
+    @staticmethod
+    def _delete_snapshot_rows_by_ids_with_connection(connection, snapshot_ids: list[int]) -> int:
+        if not snapshot_ids:
+            return 0
+        placeholders = ", ".join("?" for _ in snapshot_ids)
+        cursor = connection.execute(
+            f"DELETE FROM snapshot WHERE id IN ({placeholders})",
+            tuple(int(snapshot_id) for snapshot_id in snapshot_ids),
+        )
+        return int(cursor.rowcount or 0)
 
     def _list_locker_events_with_connection(self, connection) -> list[dict]:
         events: list[dict] = []
@@ -1522,6 +1633,20 @@ class EventStore:
         }
 
     @staticmethod
+    def _row_to_snapshot_detail(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "storage_id": int(row["id"]),
+            "path": row["path"],
+            "filename": row["filename"],
+            "trigger": row["trigger"],
+            "saved_at": row["captured_at"],
+            "captured_at": row["captured_at"],
+            "access_attempt_id": row["access_attempt_id"],
+            "button_request_id": row["button_request_id"],
+        }
+
+    @staticmethod
     def _row_to_access_attempt(row) -> dict:
         return {
             "id": int(row["id"]),
@@ -1666,6 +1791,14 @@ class EventStore:
     @staticmethod
     def _coerce_bool(value) -> int:
         return 1 if bool(value) else 0
+
+    def _resolve_snapshot_path(self, value: str | Path | None) -> Path | None:
+        if value is None:
+            return None
+        path = Path(str(value))
+        if not path.is_absolute():
+            path = self._project_root / path
+        return path.resolve(strict=False)
 
     @staticmethod
     def _resolve_db_path(database_url: str) -> Path:

@@ -457,8 +457,7 @@
               <div>
                 <h2 class="panel-title">Recent Snapshots</h2>
                 <p class="panel-copy">
-                  Stored snapshot metadata. Image preview can be added later once a snapshot-serving
-                  route is exposed.
+                  Stored snapshot metadata with click-to-view preview from the ParcelBox device.
                 </p>
               </div>
             </div>
@@ -951,6 +950,53 @@
   </div>
 
   <div class="toast" id="button-toast" aria-live="polite"></div>
+
+  <div class="snapshot-viewer-backdrop" id="snapshot-viewer-backdrop" hidden>
+    <div
+      class="snapshot-viewer"
+      id="snapshot-viewer"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="snapshot-viewer-title"
+    >
+      <div class="snapshot-viewer-header">
+        <div class="snapshot-viewer-copy">
+          <div class="section-kicker">Snapshot Viewer</div>
+          <h2 class="snapshot-viewer-title" id="snapshot-viewer-title">Snapshot</h2>
+          <div class="snapshot-viewer-subtitle" id="snapshot-viewer-subtitle">Captured time unavailable</div>
+          <div class="snapshot-viewer-meta-row">
+            <span class="tag" id="snapshot-viewer-trigger">Snapshot</span>
+            <span class="tag" id="snapshot-viewer-relation">Standalone</span>
+            <span class="snapshot-viewer-counter" id="snapshot-viewer-counter">1 / 1</span>
+          </div>
+        </div>
+        <div class="snapshot-viewer-header-actions">
+          <a
+            class="ghost-button snapshot-viewer-open-link"
+            id="snapshot-viewer-open-link"
+            href="#"
+            target="_blank"
+            rel="noreferrer"
+            hidden
+          >
+            Open Image
+          </a>
+          <button class="ghost-button" id="snapshot-viewer-close-btn" type="button">Close</button>
+        </div>
+      </div>
+
+      <div class="snapshot-viewer-stage">
+        <img id="snapshot-viewer-image" alt="Snapshot preview" hidden />
+        <div class="snapshot-viewer-empty" id="snapshot-viewer-empty">Loading snapshot from the device...</div>
+      </div>
+
+      <div class="snapshot-viewer-footer">
+        <button class="secondary-button" id="snapshot-viewer-prev-btn" type="button">Previous</button>
+        <div class="snapshot-viewer-status" id="snapshot-viewer-status">Stored on the ParcelBox device.</div>
+        <button class="secondary-button" id="snapshot-viewer-next-btn" type="button">Next</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="./scripts/app.js"></script>
 </body>

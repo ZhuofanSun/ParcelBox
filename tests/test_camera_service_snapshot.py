@@ -52,6 +52,23 @@ class CameraServiceSnapshotTests(unittest.TestCase):
             self.assertIn("20200101_000050.jpg", remaining_files)
             self.assertIn(result["filename"], remaining_files)
 
+    def test_capture_snapshot_reports_pruned_paths_to_callback(self) -> None:
+        camera = FakeSnapshotCamera()
+        service = CameraService(camera=camera)
+        pruned_paths: list[Path] = []
+        service.set_snapshot_prune_callback(lambda paths: pruned_paths.extend(paths))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            for index in range(100):
+                (temp_path / f"20200101_{index:06d}.jpg").write_bytes(b"old-snapshot")
+
+            service.capture_snapshot(temp_dir)
+
+            self.assertEqual(len(pruned_paths), 50)
+            self.assertEqual(pruned_paths[0].name, "20200101_000000.jpg")
+            self.assertEqual(pruned_paths[-1].name, "20200101_000049.jpg")
+
 
 if __name__ == "__main__":
     unittest.main()

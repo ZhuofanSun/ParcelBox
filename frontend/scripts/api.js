@@ -115,6 +115,11 @@ export async function fetchEmailSettings() {
   return payload.email;
 }
 
+export async function fetchSnapshotDetail(snapshotId) {
+  const payload = await fetchJson(`/api/snapshots/${snapshotId}`, { headers: {} });
+  return payload.snapshot;
+}
+
 export async function createEmailScheme(scheme) {
   const payload = await fetchJson("/api/settings/email/schemes", {
     method: "POST",
