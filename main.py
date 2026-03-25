@@ -20,12 +20,14 @@ from services.email_service import EmailNotificationService
 from services.led_service import LedService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
+from services.profile_settings_service import ProfileSettingsService
 from services.system_status_service import SystemStatusService
 from services.vision_service import VisionService
 from data.event_store import EventStore
 from web.routes_cards import build_cards_router
 from web.routes_control import build_control_router
 from web.routes_logs import build_logs_router
+from web.routes_settings import build_settings_router
 from web.routes_stream import begin_stream_shutdown, build_stream_router, reset_stream_shutdown_state
 from web.routes_system import build_system_router
 
@@ -39,6 +41,7 @@ camera_mount_service = CameraMountService(vision_service)
 vision_service.set_standby_anchor_provider(camera_mount_service.get_standby_anchor_timestamp)
 camera_service.set_stream_standby_provider(vision_service.is_standby_active)
 system_status_service = SystemStatusService()
+profile_settings_service = ProfileSettingsService(event_store)
 email_service = EmailNotificationService()
 buzzer_service = BuzzerService()
 button_service = ButtonService(
@@ -131,6 +134,7 @@ app.include_router(build_control_router(locker_service))
 app.include_router(build_cards_router(access_service, locker_service))
 app.include_router(build_logs_router(event_store))
 app.include_router(build_system_router(system_status_service))
+app.include_router(build_settings_router(profile_settings_service))
 
 frontend_dir = Path(__file__).resolve().parent / "frontend"
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

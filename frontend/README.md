@@ -20,9 +20,6 @@
   - 所有当前页面依赖的 DOM 引用和 canvas context。
 - `scripts/state.js`
   - 前端运行时状态和轮询 / WebSocket 常量。
-- `scripts/avatar-storage.js`
-  - profile 头像图片的浏览器本地存储。
-  - 当前直接走压缩后的浏览器 `localStorage`，避免跨浏览器的本地图片持久化差异。
 - `scripts/formatters.js`
   - 时间、标签、状态文本、人类可读化等纯函数。
 - `scripts/renderers.js`
@@ -57,8 +54,8 @@
   - 头像上传 / 重置
   - `Display Name -> initials` 默认头像
   - 通知铃铛里三类提醒的开关
-- 当前这些设置都只写入浏览器本地存储，不回写后端。
-- 文本类 profile 偏好和压缩后的头像图片当前都写 `localStorage`。
+- 主题和铃铛筛选仍写浏览器本地存储。
+- profile 名称、角色和头像现在走后端设备级持久化。
 
 ## Planned UI Extensions
 

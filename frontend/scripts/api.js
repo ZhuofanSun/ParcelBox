@@ -78,6 +78,37 @@ export async function refreshDashboardData() {
   }
 }
 
+export async function fetchProfileSettings() {
+  const payload = await fetchJson("/api/settings/profile", { headers: {} });
+  return payload.profile;
+}
+
+export async function saveProfileSettings(profile) {
+  const payload = await fetchJson("/api/settings/profile", {
+    method: "PUT",
+    body: JSON.stringify({
+      name: profile.name,
+      role: profile.role,
+    }),
+  });
+  return payload.profile;
+}
+
+export async function uploadProfileAvatar(dataUrl) {
+  const payload = await fetchJson("/api/settings/profile/avatar", {
+    method: "POST",
+    body: JSON.stringify({ data_url: dataUrl }),
+  });
+  return payload.profile;
+}
+
+export async function deleteProfileAvatar() {
+  const payload = await fetchJson("/api/settings/profile/avatar", {
+    method: "DELETE",
+  });
+  return payload.profile;
+}
+
 export async function enrollCard() {
   const name = ui.cardEnrollNameInput.value.trim();
   if (!name) {

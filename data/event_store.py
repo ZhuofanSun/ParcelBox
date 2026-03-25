@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 class EventStore:
     """Persist the simplified locker data model in SQLite."""
 
+    _UNSET = object()
+
     def __init__(self, database_url: str | None = None) -> None:
         self._database_url = database_url or config.storage.database_url
         self._db_path = self._resolve_db_path(self._database_url)
@@ -143,6 +145,115 @@ class EventStore:
         if row is None:
             return None
         return self._row_to_card(row)
+
+    def get_device_profile(self) -> dict:
+        """Return the single-device profile settings row."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    row = connection.execute(
+                        """
+                        SELECT id, name, role, avatar_path, avatar_updated_at, updated_at
+                        FROM device_profile
+                        WHERE id = 1
+                        """
+                    ).fetchone()
+            except Exception as error:
+                self._last_error = str(error)
+                return self._default_device_profile()
+
+            self._last_error = None
+
+        if row is None:
+            return self._default_device_profile()
+        return self._row_to_device_profile(row)
+
+    def upsert_device_profile(
+        self,
+        *,
+        name: str | None = None,
+        role: str | None = None,
+        avatar_path=_UNSET,
+        avatar_updated_at=_UNSET,
+        updated_at=None,
+    ) -> dict:
+        """Insert or update the single-device profile row."""
+        self._ensure_started()
+        updated_at_text = self._timestamp_to_text(updated_at)
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    existing = connection.execute(
+                        """
+                        SELECT id, name, role, avatar_path, avatar_updated_at, updated_at
+                        FROM device_profile
+                        WHERE id = 1
+                        """
+                    ).fetchone()
+
+                    existing_profile = (
+                        self._row_to_device_profile(existing)
+                        if existing is not None
+                        else self._default_device_profile()
+                    )
+
+                    next_name = str(name).strip() if isinstance(name, str) and str(name).strip() else existing_profile["name"]
+                    next_role = str(role).strip() if isinstance(role, str) and str(role).strip() else existing_profile["role"]
+                    next_avatar_path = existing_profile["avatar_path"] if avatar_path is self._UNSET else avatar_path
+                    if avatar_updated_at is self._UNSET:
+                        next_avatar_updated_at_text = (
+                            None
+                            if existing_profile["avatar_updated_at"] is None
+                            else self._timestamp_to_text(existing_profile["avatar_updated_at"])
+                        )
+                    elif avatar_updated_at is None:
+                        next_avatar_updated_at_text = None
+                    else:
+                        next_avatar_updated_at_text = self._timestamp_to_text(avatar_updated_at)
+
+                    connection.execute(
+                        """
+                        INSERT INTO device_profile (
+                            id,
+                            name,
+                            role,
+                            avatar_path,
+                            avatar_updated_at,
+                            updated_at
+                        ) VALUES (1, ?, ?, ?, ?, ?)
+                        ON CONFLICT(id) DO UPDATE SET
+                            name = excluded.name,
+                            role = excluded.role,
+                            avatar_path = excluded.avatar_path,
+                            avatar_updated_at = excluded.avatar_updated_at,
+                            updated_at = excluded.updated_at
+                        """,
+                        (
+                            next_name,
+                            next_role,
+                            None if next_avatar_path is None else str(next_avatar_path),
+                            next_avatar_updated_at_text,
+                            updated_at_text,
+                        ),
+                    )
+                    connection.commit()
+                    row = connection.execute(
+                        """
+                        SELECT id, name, role, avatar_path, avatar_updated_at, updated_at
+                        FROM device_profile
+                        WHERE id = 1
+                        """
+                    ).fetchone()
+            except Exception as error:
+                self._last_error = str(error)
+                return self._default_device_profile()
+
+            self._last_error = None
+
+        if row is None:
+            return self._default_device_profile()
+        return self._row_to_device_profile(row)
 
     def upsert_card(self, card: dict) -> dict:
         """Insert or update one RFID card record."""
@@ -980,6 +1091,15 @@ class EventStore:
             "button_request_id": row["button_request_id"],
         }
 
+    def _row_to_device_profile(self, row) -> dict:
+        return {
+            "name": row["name"],
+            "role": row["role"],
+            "avatar_path": row["avatar_path"],
+            "avatar_updated_at": self._timestamp_to_epoch(row["avatar_updated_at"]),
+            "updated_at": self._timestamp_to_epoch(row["updated_at"]),
+        }
+
     def _row_to_card(self, row) -> dict:
         return {
             "uid": row["uid"],
@@ -988,6 +1108,16 @@ class EventStore:
             "access_windows": self._deserialize_access_window(row["access_window"]),
             "created_at": self._timestamp_to_epoch(row["created_at"]),
             "updated_at": self._timestamp_to_epoch(row["updated_at"]),
+        }
+
+    @staticmethod
+    def _default_device_profile() -> dict:
+        return {
+            "name": "ParcelBox Local",
+            "role": "Device operator",
+            "avatar_path": None,
+            "avatar_updated_at": None,
+            "updated_at": None,
         }
 
     @staticmethod

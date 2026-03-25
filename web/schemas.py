@@ -28,3 +28,12 @@ class CardUpdatePayload(BaseModel):
 
 class LockerActionPayload(BaseModel):
     source: str = "api"
+
+
+class ProfileSettingsPayload(BaseModel):
+    name: str | None = None
+    role: str | None = None
+
+
+class ProfileAvatarUploadPayload(BaseModel):
+    data_url: str

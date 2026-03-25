@@ -1,13 +1,7 @@
 import { ui } from "./dom.js";
 import {
-  clearProfileAvatarDataUrl,
-  loadProfileAvatarDataUrl,
-  saveProfileAvatarDataUrl,
-} from "./avatar-storage.js";
-import {
   DASHBOARD_POLL_INTERVAL_MS,
   NOTIFICATION_SETTINGS_STORAGE_KEY,
-  PROFILE_STORAGE_KEY,
   THEME_STORAGE_KEY,
   state,
 } from "./state.js";
@@ -23,10 +17,14 @@ import {
   updateOverviewFromVisionPayload,
 } from "./renderers.js";
 import {
+  deleteProfileAvatar,
   enrollCard,
+  fetchProfileSettings,
   refreshDashboardData,
   runLockerAction,
   runSnapshotAction,
+  saveProfileSettings,
+  uploadProfileAvatar,
 } from "./api.js";
 
 const PROFILE_DEFAULT_NAME = "ParcelBox Local";
@@ -42,24 +40,6 @@ function buildVisionWebSocketUrl() {
 function getStoredTheme() {
   const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
   return storedTheme === "dark" ? "dark" : "light";
-}
-
-function getStoredProfile() {
-  try {
-    const raw = window.localStorage.getItem(PROFILE_STORAGE_KEY);
-    if (!raw) {
-      return { ...state.profile };
-    }
-    const parsed = JSON.parse(raw);
-    return normalizeProfile({
-      ...state.profile,
-      name: parsed?.name,
-      role: parsed?.role,
-      avatarMode: parsed?.avatarMode,
-    });
-  } catch {
-    return { ...state.profile };
-  }
 }
 
 function getStoredNotificationPreferences() {
@@ -84,24 +64,25 @@ function normalizeProfile(profile) {
     name: typeof profile?.name === "string" && profile.name.trim() ? profile.name.trim() : PROFILE_DEFAULT_NAME,
     role: typeof profile?.role === "string" && profile.role.trim() ? profile.role.trim() : PROFILE_DEFAULT_ROLE,
     avatarMode: profile?.avatarMode === "uploaded" ? "uploaded" : "initials",
-    avatarImageDataUrl:
-      typeof profile?.avatarImageDataUrl === "string" && profile.avatarImageDataUrl.trim()
-        ? profile.avatarImageDataUrl
+    avatarImageUrl:
+      typeof profile?.avatarImageUrl === "string" && profile.avatarImageUrl.trim()
+        ? profile.avatarImageUrl
         : null,
   };
 
-  if (normalized.avatarMode === "uploaded" && !normalized.avatarImageDataUrl) {
+  if (normalized.avatarMode === "uploaded" && !normalized.avatarImageUrl) {
     normalized.avatarMode = "initials";
   }
 
   return normalized;
 }
 
-function profileStoragePayload(profile) {
+function profileFromServer(profile) {
   return {
-    name: profile.name,
-    role: profile.role,
-    avatarMode: profile.avatarMode,
+    name: profile?.name,
+    role: profile?.role,
+    avatarMode: profile?.has_avatar ? "uploaded" : "initials",
+    avatarImageUrl: profile?.avatar_url || null,
   };
 }
 
@@ -125,7 +106,7 @@ function computeProfileInitials(name) {
 
 function renderProfileAvatars(profile = state.profile) {
   const initials = computeProfileInitials(profile.name);
-  const hasUploadedAvatar = profile.avatarMode === "uploaded" && Boolean(profile.avatarImageDataUrl);
+  const hasUploadedAvatar = profile.avatarMode === "uploaded" && Boolean(profile.avatarImageUrl);
 
   ui.profileAvatarRoots.forEach((root) => {
     const image = root.querySelector(".profile-avatar-image");
@@ -139,14 +120,14 @@ function renderProfileAvatars(profile = state.profile) {
     image.hidden = !hasUploadedAvatar;
 
     if (hasUploadedAvatar) {
-      image.src = profile.avatarImageDataUrl;
+      image.src = profile.avatarImageUrl;
     } else {
       image.removeAttribute("src");
     }
   });
 
   ui.settingsProfileAvatarStatus.textContent = hasUploadedAvatar
-    ? "Custom avatar stored only in this browser on this device."
+    ? "Custom avatar is stored on the ParcelBox device and served back to this page."
     : `Using initials avatar based on Display Name: ${initials}.`;
 }
 
@@ -228,7 +209,24 @@ function syncSettingsForm() {
   ui.settingsAlertFaceInput.checked = state.notificationPreferences.faceNearby;
 }
 
-function applyProfile(profile, persist = true) {
+function captureProfileSettingsDraft() {
+  return {
+    name: ui.settingsProfileNameInput.value,
+    role: ui.settingsProfileRoleInput.value,
+    theme: ui.settingsThemeSelect.value,
+  };
+}
+
+function restoreProfileSettingsDraft(draft) {
+  if (!draft) {
+    return;
+  }
+  ui.settingsProfileNameInput.value = draft.name;
+  ui.settingsProfileRoleInput.value = draft.role;
+  ui.settingsThemeSelect.value = draft.theme;
+}
+
+function applyProfile(profile, options = {}) {
   state.profile = normalizeProfile({
     ...state.profile,
     ...profile,
@@ -238,10 +236,10 @@ function applyProfile(profile, persist = true) {
   ui.popoverProfileName.textContent = state.profile.name;
   ui.popoverProfileRole.textContent = state.profile.role;
   renderProfileAvatars();
-  if (persist) {
-    window.localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(profileStoragePayload(state.profile)));
-  }
   syncSettingsForm();
+  if (options.preserveSettingsDraft) {
+    restoreProfileSettingsDraft(options.draft || captureProfileSettingsDraft());
+  }
 }
 
 function applyNotificationPreferences(preferences, persist = true) {
@@ -450,40 +448,41 @@ ui.settingsProfileAvatarInput.addEventListener("change", async () => {
   if (!file) {
     return;
   }
+  const draft = captureProfileSettingsDraft();
 
   try {
     const avatarDataUrl = await buildAvatarDataUrl(file);
-    await saveProfileAvatarDataUrl(avatarDataUrl);
-    applyProfile({
-      avatarMode: "uploaded",
-      avatarImageDataUrl: avatarDataUrl,
-    });
-    showToast("Avatar saved locally.");
+    const profile = await uploadProfileAvatar(avatarDataUrl);
+    applyProfile(profileFromServer(profile), { preserveSettingsDraft: true, draft });
+    showToast("Avatar uploaded to the ParcelBox device.");
   } catch (error) {
     showToast(`Avatar update failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 });
 
 ui.settingsProfileAvatarResetButton.addEventListener("click", async () => {
+  const draft = captureProfileSettingsDraft();
   try {
-    await clearProfileAvatarDataUrl();
-    applyProfile({
-      avatarMode: "initials",
-      avatarImageDataUrl: null,
-    });
+    const profile = await deleteProfileAvatar();
+    applyProfile(profileFromServer(profile), { preserveSettingsDraft: true, draft });
     showToast("Avatar reset to initials.");
   } catch (error) {
     showToast(`Avatar reset failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 });
 
-ui.settingsProfileSaveButton.addEventListener("click", () => {
-  applyProfile({
-    name: ui.settingsProfileNameInput.value,
-    role: ui.settingsProfileRoleInput.value,
-  });
+ui.settingsProfileSaveButton.addEventListener("click", async () => {
   applyTheme(ui.settingsThemeSelect.value);
-  showToast("Profile settings saved locally.");
+  try {
+    const profile = await saveProfileSettings({
+      name: ui.settingsProfileNameInput.value,
+      role: ui.settingsProfileRoleInput.value,
+    });
+    applyProfile(profileFromServer(profile));
+    showToast("Profile settings saved on the ParcelBox device.");
+  } catch (error) {
+    showToast(`Profile settings update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 });
 
 ui.settingsNotificationsSaveButton.addEventListener("click", () => {
@@ -548,16 +547,7 @@ window.addEventListener("beforeunload", () => {
 });
 
 async function bootstrap() {
-  const storedProfile = getStoredProfile();
-  const storedAvatarDataUrl = await loadProfileAvatarDataUrl();
-  applyProfile(
-    {
-      ...storedProfile,
-      avatarImageDataUrl: storedAvatarDataUrl,
-      avatarMode: storedProfile.avatarMode === "uploaded" && storedAvatarDataUrl ? "uploaded" : "initials",
-    },
-    false
-  );
+  applyProfile(state.profile);
   applyTheme(getStoredTheme(), false);
   applyNotificationPreferences(getStoredNotificationPreferences(), false);
   activateSettingsSection("profile");
@@ -568,6 +558,8 @@ async function bootstrap() {
   connectVisionSocket();
 
   try {
+    const profile = await fetchProfileSettings();
+    applyProfile(profileFromServer(profile));
     await refreshDashboardData();
   } catch (error) {
     ui.dbBadge.textContent = "Sync Error";

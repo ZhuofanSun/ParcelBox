@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS snapshot (
     )
 );
 
+CREATE TABLE IF NOT EXISTS device_profile (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    avatar_path TEXT,
+    avatar_updated_at TEXT,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_rfid_card_updated_at
 ON rfid_card(updated_at DESC);
 

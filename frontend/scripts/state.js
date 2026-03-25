@@ -8,7 +8,7 @@ export const state = {
     name: "ParcelBox Local",
     role: "Device operator",
     avatarMode: "initials",
-    avatarImageDataUrl: null,
+    avatarImageUrl: null,
   },
   notificationPreferences: {
     buttonPressed: true,
@@ -29,5 +29,4 @@ export const state = {
 export const CARD_ENROLL_TIMEOUT_SECONDS = 10;
 export const DASHBOARD_POLL_INTERVAL_MS = 2000;
 export const THEME_STORAGE_KEY = "parcelbox.theme";
-export const PROFILE_STORAGE_KEY = "parcelbox.profile";
 export const NOTIFICATION_SETTINGS_STORAGE_KEY = "parcelbox.notification_settings";

@@ -17,7 +17,7 @@
   - [x] 已落地本地 `Settings` 视图：支持 profile 文案、主题偏好、通知类型开关，并写入浏览器本地存储。
   - [x] 当前不做注册 / 登录，先把单设备调试操作台打磨到足够顺手。
   - [x] 已补本地 `Profile Settings`：头像上传 / 重置、`Display Name -> initials avatar` 默认逻辑、头像本地存储。
-  - [ ] 下一步把头像从浏览器本地存储切到后端持久化：前端上传，后端存文件并通过接口回传。
+  - [x] 已把头像切到后端持久化：前端上传，后端存文件并通过接口回传。
   - [ ] 再把 `Notification Settings` 拆成“前端本地铃铛偏好”和“设备级邮件投递设置”两层，不再把所有邮件配置硬写在 `config.py`。
   - [ ] 然后补 `Events & Snapshots` 的图片查看能力，至少支持点击元数据后弹出大图和关联信息。
   - [x] 不做多用户账号，不做登录 / 注册 / 注销；右上角的 `Log Out` 占位已移除。
@@ -610,22 +610,22 @@ iot_locker/
 
 #### Profile / Notification / Auth / Media 建议实现顺序
 
-- [ ] Stage 1: 设备级 profile 与头像
+- [x] Stage 1: 设备级 profile 与头像
   - [x] `Display Name`、副标题、主题偏好这些 UI 偏好先落了浏览器本地版本。
   - [x] `initials` 默认头像已经可按 `Display Name` 自动生成。
   - [x] `uploaded` 自定义头像已经有前端上传 / 重置入口。
-  - [ ] 把头像从浏览器本地存储改成后端持久化：
-    - [ ] 后端固定存到项目数据目录，例如 `data/assets/profile_avatar.webp`。
-    - [ ] profile 元数据通过 `device_profile` 单行表记录显示名、副标题、头像路径和更新时间。
-    - [ ] 前端不再直接保存头像 data URL，只保存后端返回的 avatar URL / version。
-  - [ ] 建议接口：
-    - [ ] `GET /api/settings/profile`
-    - [ ] `PUT /api/settings/profile`
-    - [ ] `POST /api/settings/profile/avatar`
-    - [ ] `DELETE /api/settings/profile/avatar`
-    - [ ] `GET /api/settings/profile/avatar`
-  - [ ] `initials` fallback 逻辑继续保留在前端；只有后端无头像文件时才显示。
-  - [ ] profile trigger、settings 页、后续 profile 页面都复用同一套后端 profile 状态。
+  - [x] 已把头像从浏览器本地存储改成后端持久化：
+    - [x] 后端固定存到项目数据目录，例如 `data/assets/profile_avatar.webp`。
+    - [x] profile 元数据通过 `device_profile` 单行表记录显示名、副标题、头像路径和更新时间。
+    - [x] 前端不再直接保存头像 data URL，改成读取后端返回的 avatar URL。
+  - [x] 已补接口：
+    - [x] `GET /api/settings/profile`
+    - [x] `PUT /api/settings/profile`
+    - [x] `POST /api/settings/profile/avatar`
+    - [x] `DELETE /api/settings/profile/avatar`
+    - [x] `GET /api/settings/profile/avatar`
+  - [x] `initials` fallback 逻辑继续保留在前端；只有后端无头像文件时才显示。
+  - [x] profile trigger、settings 页会复用同一套后端 profile 状态。
 
 - [ ] Stage 2: 设备级通知配置重构
   - [ ] 明确区分两类设置：
