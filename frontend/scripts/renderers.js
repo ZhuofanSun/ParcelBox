@@ -85,7 +85,7 @@ export function renderEventCollection(container, events, emptyMessage) {
       if (event.snapshot) tags.push('<span class="tag">Snapshot</span>');
       if (event.source) tags.push(`<span class="tag">${escapeHtml(humanizeToken(event.source))}</span>`);
       if (isSnapshotOpenable) {
-        tags.push('<span class="tag tag-action">View Photo</span>');
+        tags.push('<span class="tag tag-action">Open Viewer</span>');
       }
 
       const rootTag = isSnapshotOpenable ? "button" : "div";
@@ -326,7 +326,7 @@ export function renderSnapshotCollection(container, snapshots) {
           <div class="collection-meta">${escapeHtml(humanizeToken(snapshot.trigger || "snapshot"))}</div>
           <div class="collection-tags">
             <span class="tag">${escapeHtml(relation)}</span>
-            <span class="tag tag-action">View Photo</span>
+            <span class="tag tag-action">Open Viewer</span>
           </div>
         </button>
       `;

@@ -1611,8 +1611,10 @@ pre {
 
 .snapshot-viewer {
   width: min(1040px, calc(100vw - 48px));
+  height: min(860px, calc(100vh - 48px));
   max-height: calc(100vh - 48px);
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
   padding: 22px;
   border: 1px solid rgba(80, 116, 171, 0.22);
@@ -1676,10 +1678,10 @@ pre {
 
 .snapshot-viewer-stage {
   position: relative;
-  min-height: min(62vh, 680px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
   border: 1px solid rgba(18, 38, 63, 0.12);
   border-radius: 24px;
   background:
@@ -1691,8 +1693,13 @@ pre {
 .snapshot-viewer-image {
   display: block;
   max-width: 100%;
-  max-height: min(60vh, 640px);
+  max-height: 100%;
+  width: auto;
+  height: auto;
   object-fit: contain;
+  border-radius: 18px;
+  background: #000000;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .snapshot-viewer-empty {
@@ -1943,11 +1950,17 @@ pre {
     align-items: stretch;
   }
 
+  .snapshot-viewer {
+    width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
+    max-height: calc(100vh - 24px);
+  }
+
   .snapshot-viewer-status {
     text-align: left;
   }
 
   .snapshot-viewer-stage {
-    min-height: 44vh;
+    min-height: 0;
   }
 }
