@@ -93,14 +93,69 @@ function buildNotificationKey(event) {
   ].join("|");
 }
 
+function isNotificationEvent(event) {
+  if (!event || typeof event !== "object") return false;
+  return ["button_pressed", "access_denied", "face_snapshot_captured"].includes(event.type);
+}
+
+function buildNotificationModel(event) {
+  const timeLabel = formatTimestampLabel(event.timestamp);
+  const snapshotFile = snapshotLabel(event.snapshot);
+
+  if (event.type === "button_pressed") {
+    const notificationStatus = event.notification?.status
+      ? humanizeToken(event.notification.status)
+      : event.notification_error
+        ? "Email failed"
+        : "Local event";
+    return {
+      title: "Button Pressed",
+      kicker: "Open Request",
+      toneClass: "notification-item-amber",
+      meta: snapshotFile
+        ? `Hardware button | ${snapshotFile} | ${notificationStatus}`
+        : `Hardware button | ${notificationStatus}`,
+      timeLabel,
+    };
+  }
+
+  if (event.type === "access_denied") {
+    const reason = humanizeToken(event.reason || "denied");
+    const uid = event.uid ? `UID ${event.uid}` : "Unknown UID";
+    return {
+      title: "RFID Access Denied",
+      kicker: "Access Control",
+      toneClass: "notification-item-danger",
+      meta: snapshotFile
+        ? `${reason} | ${uid} | ${snapshotFile}`
+        : `${reason} | ${uid}`,
+      timeLabel,
+    };
+  }
+
+  return {
+    title: "Face Nearby",
+    kicker: "Vision Alert",
+    toneClass: "notification-item-blue",
+    meta: snapshotFile
+      ? `Close-range face snapshot | ${snapshotFile}`
+      : "Close-range face detected by vision service",
+    timeLabel,
+  };
+}
+
 export function markNotificationsSeen() {
-  state.seenNotificationKey = buildNotificationKey(state.latestEvents[0]);
+  const alertEvents = Array.isArray(state.latestEvents) ? state.latestEvents.filter(isNotificationEvent) : [];
+  state.seenNotificationKey = buildNotificationKey(alertEvents[0]);
   state.notificationUnreadCount = 0;
   renderNotificationCenter();
 }
 
 export function renderNotificationCenter() {
-  const latestKey = buildNotificationKey(state.latestEvents[0]);
+  const alertEvents = Array.isArray(state.latestEvents) ? state.latestEvents.filter(isNotificationEvent) : [];
+  const latestAlert = alertEvents[0] || null;
+  const latestKey = buildNotificationKey(latestAlert);
+
   if (latestKey && state.latestNotificationKey === null) {
     state.latestNotificationKey = latestKey;
     if (state.seenNotificationKey === null) {
@@ -110,31 +165,28 @@ export function renderNotificationCenter() {
     state.latestNotificationKey = latestKey;
     if (state.activePopover === "notifications") {
       state.seenNotificationKey = latestKey;
-      state.notificationUnreadCount = 0;
-    } else if (latestKey !== state.seenNotificationKey) {
-      state.notificationUnreadCount = Math.min(state.notificationUnreadCount + 1, 9);
     }
   }
 
+  state.notificationUnreadCount = latestKey && latestKey !== state.seenNotificationKey ? 1 : 0;
   ui.notificationsUnreadDot.hidden = state.notificationUnreadCount === 0;
   ui.notificationsUnreadCount.textContent = state.notificationUnreadCount > 0
-    ? `${state.notificationUnreadCount} new`
+    ? "Unread"
     : "All read";
 
-  const notifications = Array.isArray(state.latestEvents) ? state.latestEvents.slice(0, 5) : [];
+  const notifications = alertEvents.slice(0, 5);
   ui.notificationsEmpty.hidden = notifications.length > 0;
   ui.notificationsList.innerHTML = notifications
     .map((event) => {
-      const title = humanizeToken(event.type || event.event_type || "event");
-      const timeLabel = formatTimestampLabel(event.timestamp);
-      const detailLine = describeEvent(event) || "No extra details";
+      const model = buildNotificationModel(event);
       return `
-        <div class="notification-item">
+        <div class="notification-item ${model.toneClass}">
+          <div class="notification-kicker">${escapeHtml(model.kicker)}</div>
           <div class="notification-topline">
-            <div class="notification-title">${escapeHtml(title)}</div>
-            <div class="notification-time">${escapeHtml(timeLabel)}</div>
+            <div class="notification-title">${escapeHtml(model.title)}</div>
+            <div class="notification-time">${escapeHtml(model.timeLabel)}</div>
           </div>
-          <div class="notification-meta">${escapeHtml(detailLine)}</div>
+          <div class="notification-meta">${escapeHtml(model.meta)}</div>
         </div>
       `;
     })

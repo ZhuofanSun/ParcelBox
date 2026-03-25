@@ -41,7 +41,7 @@
 
 - 右上角全局工具区已经接入：
   - `dark mode` 开关，主题选择写入 `localStorage`
-  - 通知铃铛，当前展示最近业务事件
+  - 通知铃铛，当前只展示高价值提醒：按钮按下、未授权刷卡、近距离人脸触发
   - profile trigger，下拉菜单承接后续设置与登出入口
 
 ## Planned UI Extensions

@@ -30,12 +30,16 @@
 }
 
 .workspace {
+  position: relative;
+  isolation: isolate;
   padding: 28px;
   display: grid;
   gap: 22px;
 }
 
 .workspace-header {
+  position: relative;
+  z-index: 40;
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -64,6 +68,8 @@
 }
 
 .view-panel {
+  position: relative;
+  z-index: 1;
   display: none;
   opacity: 0;
   transform: translateY(10px);

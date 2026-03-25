@@ -137,18 +137,32 @@
   gap: 10px;
 }
 
+.header-actions {
+  position: relative;
+  z-index: 80;
+  padding: 8px;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(240, 246, 255, 0.56));
+  box-shadow:
+    0 18px 34px rgba(18, 38, 63, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px) saturate(1.08);
+}
+
 .toolbar-popover-wrap {
   position: relative;
+  z-index: 1;
 }
 
 .toolbar-button,
 .profile-trigger {
   border: 1px solid var(--border);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 250, 255, 0.88));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(236, 244, 255, 0.92));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 10px 22px rgba(18, 38, 63, 0.06);
+    0 12px 24px rgba(18, 38, 63, 0.08);
   transition:
     transform 120ms ease,
     background 120ms ease,
@@ -179,17 +193,17 @@
 .toolbar-button:hover,
 .profile-trigger:hover {
   transform: translateY(-1px);
-  background: #ffffff;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 1), rgba(241, 247, 255, 0.96));
   border-color: rgba(18, 38, 63, 0.2);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 16px 28px rgba(18, 38, 63, 0.1);
+    0 18px 30px rgba(18, 38, 63, 0.12);
 }
 
 .toolbar-button-active,
 .profile-trigger-active {
-  border-color: rgba(26, 115, 232, 0.28);
-  background: linear-gradient(180deg, rgba(235, 244, 255, 0.96), rgba(228, 239, 255, 0.9));
+  border-color: rgba(26, 115, 232, 0.34);
+  background: linear-gradient(180deg, rgba(231, 241, 255, 0.98), rgba(221, 235, 255, 0.94));
   color: var(--accent);
 }
 
@@ -273,15 +287,18 @@
 .topbar-popover {
   position: absolute;
   top: calc(100% + 12px);
-  z-index: 30;
+  z-index: 220;
   width: min(360px, calc(100vw - 48px));
   padding: 14px;
-  border: 1px solid var(--border);
+  border: 1px solid rgba(80, 116, 171, 0.24);
   border-radius: 22px;
   background:
-    radial-gradient(circle at top right, rgba(26, 115, 232, 0.12), transparent 42%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 255, 0.94));
-  box-shadow: var(--shadow-hover);
+    radial-gradient(circle at top right, rgba(26, 115, 232, 0.16), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(245, 249, 255, 0.98));
+  box-shadow:
+    0 24px 56px rgba(18, 38, 63, 0.18),
+    0 2px 10px rgba(18, 38, 63, 0.08);
+  backdrop-filter: blur(18px) saturate(1.08);
 }
 
 .topbar-popover-right {
@@ -358,10 +375,37 @@
   border: 1px solid var(--border);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.9));
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 248, 255, 0.92));
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.84),
     0 10px 24px rgba(18, 38, 63, 0.06);
+}
+
+.notification-item-blue {
+  border-color: rgba(26, 115, 232, 0.16);
+  background:
+    linear-gradient(180deg, rgba(245, 249, 255, 0.98), rgba(236, 244, 255, 0.94));
+}
+
+.notification-item-amber {
+  border-color: rgba(180, 83, 9, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 250, 242, 0.98), rgba(255, 246, 232, 0.94));
+}
+
+.notification-item-danger {
+  border-color: rgba(190, 18, 60, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 245, 247, 0.98), rgba(255, 237, 241, 0.94));
+}
+
+.notification-kicker {
+  margin-bottom: 8px;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 700;
 }
 
 .notification-topline {
@@ -1094,6 +1138,14 @@ pre {
     0 12px 24px rgba(0, 0, 0, 0.24);
 }
 
+:root[data-theme="dark"] .header-actions {
+  border-color: rgba(144, 166, 196, 0.18);
+  background: linear-gradient(180deg, rgba(15, 24, 37, 0.74), rgba(10, 18, 28, 0.6));
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
 :root[data-theme="dark"] .ghost-button:hover,
 :root[data-theme="dark"] .toolbar-button:hover,
 :root[data-theme="dark"] .profile-trigger:hover,
@@ -1141,6 +1193,25 @@ pre {
   background:
     radial-gradient(circle at top right, rgba(121, 173, 255, 0.16), transparent 42%),
     linear-gradient(180deg, rgba(16, 27, 42, 0.98), rgba(12, 21, 34, 0.96));
+  border-color: rgba(121, 173, 255, 0.22);
+}
+
+:root[data-theme="dark"] .notification-item-blue {
+  border-color: rgba(121, 173, 255, 0.22);
+  background:
+    linear-gradient(180deg, rgba(20, 36, 57, 0.98), rgba(14, 29, 47, 0.94));
+}
+
+:root[data-theme="dark"] .notification-item-amber {
+  border-color: rgba(243, 191, 103, 0.22);
+  background:
+    linear-gradient(180deg, rgba(48, 35, 17, 0.98), rgba(34, 24, 11, 0.94));
+}
+
+:root[data-theme="dark"] .notification-item-danger {
+  border-color: rgba(255, 122, 151, 0.22);
+  background:
+    linear-gradient(180deg, rgba(56, 21, 32, 0.98), rgba(39, 15, 23, 0.94));
 }
 
 :root[data-theme="dark"] .secondary-button {
