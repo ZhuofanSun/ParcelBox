@@ -54,15 +54,19 @@
   - 头像上传 / 重置
   - `Display Name -> initials` 默认头像
   - 通知铃铛里三类提醒的开关
+  - 设备级邮件方案：
+    - 方案选择 / 覆盖保存 / 另存为新方案 / 删除
+    - `username` / `password` / `from_address`
+    - 多个订阅邮箱
+    - 测试邮件
 - 主题和铃铛筛选仍写浏览器本地存储。
-- profile 名称、角色和头像现在走后端设备级持久化。
+- profile 名称、角色、头像，以及邮件方案现在都走后端设备级持久化。
 
 ## Planned UI Extensions
 
 - profile / settings：
   - 设备级 profile 页面和更完整的本机设置
-  - 邮件通知设置和后端设置接口
-  - 后端持久化头像和邮件订阅方案
+  - `Events & Snapshots` 的图片预览与查看
 
 ## Tabler Usage Boundary
 

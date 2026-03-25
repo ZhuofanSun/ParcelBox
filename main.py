@@ -17,6 +17,7 @@ from services.buzzer_service import BuzzerService
 from services.camera_service import CameraService
 from services.camera_mount_service import CameraMountService
 from services.email_service import EmailNotificationService
+from services.email_settings_service import EmailSettingsService
 from services.led_service import LedService
 from services.locker_service import LockerService
 from services.occupancy_service import OccupancyService
@@ -42,7 +43,8 @@ vision_service.set_standby_anchor_provider(camera_mount_service.get_standby_anch
 camera_service.set_stream_standby_provider(vision_service.is_standby_active)
 system_status_service = SystemStatusService()
 profile_settings_service = ProfileSettingsService(event_store)
-email_service = EmailNotificationService()
+email_settings_service = EmailSettingsService(event_store)
+email_service = EmailNotificationService(email_settings_service)
 buzzer_service = BuzzerService()
 button_service = ButtonService(
     snapshot_callback=camera_service.capture_snapshot,
@@ -134,7 +136,7 @@ app.include_router(build_control_router(locker_service))
 app.include_router(build_cards_router(access_service, locker_service))
 app.include_router(build_logs_router(event_store))
 app.include_router(build_system_router(system_status_service))
-app.include_router(build_settings_router(profile_settings_service))
+app.include_router(build_settings_router(profile_settings_service, email_settings_service, email_service))
 
 frontend_dir = Path(__file__).resolve().parent / "frontend"
 app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")

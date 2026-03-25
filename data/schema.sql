@@ -67,6 +67,27 @@ CREATE TABLE IF NOT EXISTS device_profile (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS email_subscription_scheme (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+    username TEXT NOT NULL DEFAULT '',
+    password TEXT NOT NULL DEFAULT '',
+    from_address TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS email_subscription_recipient (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scheme_id INTEGER NOT NULL,
+    email TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (scheme_id) REFERENCES email_subscription_scheme(id) ON DELETE CASCADE,
+    UNIQUE (scheme_id, email)
+);
+
 CREATE INDEX IF NOT EXISTS idx_rfid_card_updated_at
 ON rfid_card(updated_at DESC);
 
@@ -90,3 +111,9 @@ ON snapshot(captured_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_trigger
 ON snapshot(trigger);
+
+CREATE INDEX IF NOT EXISTS idx_email_subscription_scheme_updated_at
+ON email_subscription_scheme(updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_email_subscription_recipient_scheme_id
+ON email_subscription_recipient(scheme_id);

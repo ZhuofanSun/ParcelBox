@@ -30,6 +30,7 @@ export async function fetchJson(path, options = {}) {
 
 export async function refreshDatabaseView() {
   const payload = await fetchJson("/api/logs/tables", { headers: {} });
+  state.latestDatabasePayload = payload;
   renderDatabaseTables(payload);
   return payload;
 }
@@ -107,6 +108,42 @@ export async function deleteProfileAvatar() {
     method: "DELETE",
   });
   return payload.profile;
+}
+
+export async function fetchEmailSettings() {
+  const payload = await fetchJson("/api/settings/email", { headers: {} });
+  return payload.email;
+}
+
+export async function createEmailScheme(scheme) {
+  const payload = await fetchJson("/api/settings/email/schemes", {
+    method: "POST",
+    body: JSON.stringify(scheme),
+  });
+  return payload.email;
+}
+
+export async function updateEmailScheme(schemeId, scheme) {
+  const payload = await fetchJson(`/api/settings/email/schemes/${schemeId}`, {
+    method: "PUT",
+    body: JSON.stringify(scheme),
+  });
+  return payload.email;
+}
+
+export async function deleteEmailScheme(schemeId) {
+  const payload = await fetchJson(`/api/settings/email/schemes/${schemeId}`, {
+    method: "DELETE",
+  });
+  return payload.email;
+}
+
+export async function sendEmailTest(schemeId) {
+  const payload = await fetchJson("/api/settings/email/test", {
+    method: "POST",
+    body: JSON.stringify({ scheme_id: schemeId }),
+  });
+  return payload.result;
 }
 
 export async function enrollCard() {

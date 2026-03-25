@@ -489,8 +489,15 @@ export function renderSystemStatus(payload) {
 export function renderDatabaseTables(payload) {
   const tables = payload.tables || {};
   const status = payload.status || {};
+  const tableLimit = Number(state.debugTableRowLimit) || 0;
+  const limitRows = (rows) => {
+    if (!Array.isArray(rows)) {
+      return [];
+    }
+    return tableLimit > 0 ? rows.slice(0, tableLimit) : rows;
+  };
 
-  renderTableRows(ui.rfidCardBody, tables.rfid_card || [], [
+  renderTableRows(ui.rfidCardBody, limitRows(tables.rfid_card), [
     { key: "uid" },
     { key: "name" },
     { key: "enabled" },
@@ -498,7 +505,7 @@ export function renderDatabaseTables(payload) {
     { key: "created_at" },
     { key: "updated_at" },
   ]);
-  renderTableRows(ui.accessAttemptBody, tables.access_attempt || [], [
+  renderTableRows(ui.accessAttemptBody, limitRows(tables.access_attempt), [
     { key: "id" },
     { key: "card_uid" },
     { key: "source" },
@@ -506,7 +513,7 @@ export function renderDatabaseTables(payload) {
     { key: "reason" },
     { key: "checked_at" },
   ]);
-  renderTableRows(ui.doorSessionBody, tables.door_session || [], [
+  renderTableRows(ui.doorSessionBody, limitRows(tables.door_session), [
     { key: "id" },
     { key: "access_attempt_id" },
     { key: "open_source" },
@@ -518,7 +525,7 @@ export function renderDatabaseTables(payload) {
     { key: "occupancy_distance_cm" },
     { key: "occupancy_measured_at" },
   ]);
-  renderTableRows(ui.buttonRequestBody, tables.button_request || [], [
+  renderTableRows(ui.buttonRequestBody, limitRows(tables.button_request), [
     { key: "id" },
     { key: "pressed_at" },
     { key: "email_sent" },
@@ -526,7 +533,7 @@ export function renderDatabaseTables(payload) {
     { key: "email_sent_at" },
     { key: "email_error" },
   ]);
-  renderTableRows(ui.snapshotBody, tables.snapshot || [], [
+  renderTableRows(ui.snapshotBody, limitRows(tables.snapshot), [
     { key: "id" },
     { key: "path" },
     { key: "filename" },
@@ -534,6 +541,23 @@ export function renderDatabaseTables(payload) {
     { key: "captured_at" },
     { key: "access_attempt_id" },
     { key: "button_request_id" },
+  ]);
+  renderTableRows(ui.emailSubscriptionSchemeBody, limitRows(tables.email_subscription_scheme), [
+    { key: "id" },
+    { key: "name" },
+    { key: "enabled" },
+    { key: "username" },
+    { key: "password" },
+    { key: "from_address" },
+    { key: "created_at" },
+    { key: "updated_at" },
+  ]);
+  renderTableRows(ui.emailSubscriptionRecipientBody, limitRows(tables.email_subscription_recipient), [
+    { key: "id" },
+    { key: "scheme_id" },
+    { key: "email" },
+    { key: "created_at" },
+    { key: "updated_at" },
   ]);
 
   renderCardCollection(ui.cardsPageList, tables.rfid_card || []);

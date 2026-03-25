@@ -38,6 +38,9 @@ class EventStore:
             self._db_path.parent.mkdir(parents=True, exist_ok=True)
             with self._connect() as connection:
                 connection.executescript(self._load_schema_sql())
+                self._normalize_email_subscription_recipient_table_with_connection(connection)
+                self._normalize_email_subscription_scheme_state_with_connection(connection)
+                connection.commit()
             self._started = True
             self._last_error = None
             logger.info("SQLite event store started at %s", self._db_path)
@@ -254,6 +257,254 @@ class EventStore:
         if row is None:
             return self._default_device_profile()
         return self._row_to_device_profile(row)
+
+    def list_email_subscription_schemes(self) -> list[dict]:
+        """Return all stored email subscription schemes with recipients."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    rows = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            name,
+                            enabled,
+                            username,
+                            password,
+                            from_address,
+                            created_at,
+                            updated_at
+                        FROM email_subscription_scheme
+                        ORDER BY enabled DESC, updated_at DESC, id DESC
+                        """
+                    ).fetchall()
+                    schemes = [
+                        self._row_to_email_subscription_scheme(
+                            row,
+                            self._list_email_subscription_recipients_with_connection(connection, int(row["id"])),
+                        )
+                        for row in rows
+                    ]
+            except Exception as error:
+                self._last_error = str(error)
+                return []
+
+            self._last_error = None
+
+        return schemes
+
+    def get_email_subscription_scheme(self, scheme_id: int) -> dict | None:
+        """Return one stored email subscription scheme with recipients."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    row = self._email_subscription_scheme_row_by_id_with_connection(connection, int(scheme_id))
+                    if row is None:
+                        return None
+                    recipients = self._list_email_subscription_recipients_with_connection(connection, int(scheme_id))
+            except Exception as error:
+                self._last_error = str(error)
+                return None
+
+            self._last_error = None
+
+        return self._row_to_email_subscription_scheme(row, recipients)
+
+    def get_active_email_subscription_scheme(self) -> dict | None:
+        """Return the current enabled email delivery scheme."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    row = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            name,
+                            enabled,
+                            username,
+                            password,
+                            from_address,
+                            created_at,
+                            updated_at
+                        FROM email_subscription_scheme
+                        WHERE enabled = 1
+                        ORDER BY updated_at DESC, id DESC
+                        LIMIT 1
+                        """
+                    ).fetchone()
+                    if row is None:
+                        return None
+                    recipients = self._list_email_subscription_recipients_with_connection(connection, int(row["id"]))
+            except Exception as error:
+                self._last_error = str(error)
+                return None
+
+            self._last_error = None
+
+        return self._row_to_email_subscription_scheme(row, recipients)
+
+    def create_email_subscription_scheme(
+        self,
+        *,
+        name: str,
+        enabled: bool = False,
+        username: str = "",
+        password: str = "",
+        from_address: str = "",
+        recipients: list[str] | None = None,
+        created_at=None,
+        updated_at=None,
+    ) -> dict | None:
+        """Create one email subscription scheme and its recipients."""
+        self._ensure_started()
+        created_at_text = self._timestamp_to_text(created_at)
+        updated_at_text = self._timestamp_to_text(updated_at if updated_at is not None else created_at)
+        next_enabled = bool(enabled)
+
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    if next_enabled:
+                        self._disable_email_subscription_schemes_with_connection(connection)
+                    cursor = connection.execute(
+                        """
+                        INSERT INTO email_subscription_scheme (
+                            name,
+                            enabled,
+                            username,
+                            password,
+                            from_address,
+                            created_at,
+                            updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            str(name),
+                            self._coerce_bool(next_enabled),
+                            str(username),
+                            str(password),
+                            str(from_address),
+                            created_at_text,
+                            updated_at_text,
+                        ),
+                    )
+                    scheme_id = int(cursor.lastrowid)
+                    self._replace_email_subscription_recipients_with_connection(
+                        connection,
+                        scheme_id,
+                        recipients or [],
+                        created_at_text=created_at_text,
+                        updated_at_text=updated_at_text,
+                    )
+                    connection.commit()
+                    row = self._email_subscription_scheme_row_by_id_with_connection(connection, scheme_id)
+                    recipient_rows = self._list_email_subscription_recipients_with_connection(connection, scheme_id)
+            except Exception as error:
+                self._last_error = str(error)
+                return None
+
+            self._last_error = None
+
+        if row is None:
+            return None
+        return self._row_to_email_subscription_scheme(row, recipient_rows)
+
+    def update_email_subscription_scheme(
+        self,
+        scheme_id: int,
+        *,
+        name: str | None = None,
+        enabled: bool | None = None,
+        username=_UNSET,
+        password=_UNSET,
+        from_address=_UNSET,
+        recipients=_UNSET,
+        updated_at=None,
+    ) -> dict | None:
+        """Update one stored email subscription scheme and optionally replace recipients."""
+        self._ensure_started()
+        updated_at_text = self._timestamp_to_text(updated_at)
+        scheme_id = int(scheme_id)
+
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    row = self._email_subscription_scheme_row_by_id_with_connection(connection, scheme_id)
+                    if row is None:
+                        return None
+
+                    existing_enabled = bool(row["enabled"])
+                    next_name = str(name).strip() if isinstance(name, str) and str(name).strip() else row["name"]
+                    next_enabled = existing_enabled if enabled is None else bool(enabled)
+                    next_username = row["username"] if username is self._UNSET else str(username)
+                    next_password = row["password"] if password is self._UNSET else str(password)
+                    next_from_address = row["from_address"] if from_address is self._UNSET else str(from_address)
+                    if next_enabled:
+                        self._disable_email_subscription_schemes_with_connection(connection, exclude_scheme_id=scheme_id)
+
+                    connection.execute(
+                        """
+                        UPDATE email_subscription_scheme
+                        SET
+                            name = ?,
+                            enabled = ?,
+                            username = ?,
+                            password = ?,
+                            from_address = ?,
+                            updated_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            next_name,
+                            self._coerce_bool(next_enabled),
+                            next_username,
+                            next_password,
+                            next_from_address,
+                            updated_at_text,
+                            scheme_id,
+                        ),
+                    )
+                    if recipients is not self._UNSET:
+                        self._replace_email_subscription_recipients_with_connection(
+                            connection,
+                            scheme_id,
+                            list(recipients),
+                            updated_at_text=updated_at_text,
+                        )
+                    connection.commit()
+                    row = self._email_subscription_scheme_row_by_id_with_connection(connection, scheme_id)
+                    recipient_rows = self._list_email_subscription_recipients_with_connection(connection, scheme_id)
+            except Exception as error:
+                self._last_error = str(error)
+                return None
+
+            self._last_error = None
+
+        if row is None:
+            return None
+        return self._row_to_email_subscription_scheme(row, recipient_rows)
+
+    def delete_email_subscription_scheme(self, scheme_id: int) -> bool:
+        """Delete one email subscription scheme and all of its recipients."""
+        self._ensure_started()
+        with self._lock:
+            try:
+                with self._connect() as connection:
+                    cursor = connection.execute(
+                        "DELETE FROM email_subscription_scheme WHERE id = ?",
+                        (int(scheme_id),),
+                    )
+                    connection.commit()
+            except Exception as error:
+                self._last_error = str(error)
+                return False
+
+            self._last_error = None
+
+        return cursor.rowcount > 0
 
     def upsert_card(self, card: dict) -> dict:
         """Insert or update one RFID card record."""
@@ -567,6 +818,33 @@ class EventStore:
                         ORDER BY id DESC
                         """
                     ).fetchall()
+                    email_scheme_rows = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            name,
+                            enabled,
+                            username,
+                            password,
+                            from_address,
+                            created_at,
+                            updated_at
+                        FROM email_subscription_scheme
+                        ORDER BY id DESC
+                        """
+                    ).fetchall()
+                    email_recipient_rows = connection.execute(
+                        """
+                        SELECT
+                            id,
+                            scheme_id,
+                            email,
+                            created_at,
+                            updated_at
+                        FROM email_subscription_recipient
+                        ORDER BY id DESC
+                        """
+                    ).fetchall()
             except Exception as error:
                 self._last_error = str(error)
                 return {
@@ -575,6 +853,8 @@ class EventStore:
                     "door_session": [],
                     "button_request": [],
                     "snapshot": [],
+                    "email_subscription_scheme": [],
+                    "email_subscription_recipient": [],
                 }
 
             self._last_error = None
@@ -585,6 +865,12 @@ class EventStore:
             "door_session": [self._row_to_door_session(row) for row in door_session_rows],
             "button_request": [self._row_to_button_request(row) for row in button_request_rows],
             "snapshot": [self._row_to_snapshot_table_entry(row) for row in snapshot_rows],
+            "email_subscription_scheme": [
+                self._row_to_email_subscription_scheme_table_entry(row) for row in email_scheme_rows
+            ],
+            "email_subscription_recipient": [
+                self._row_to_email_subscription_recipient(row) for row in email_recipient_rows
+            ],
         }
 
     def list_events(self, limit: int = 50, *, category: str | None = None) -> list[dict]:
@@ -1031,6 +1317,199 @@ class EventStore:
             return None
         return self._row_to_snapshot(row)
 
+    def _email_subscription_scheme_row_by_id_with_connection(self, connection, scheme_id: int):
+        return connection.execute(
+            """
+            SELECT
+                id,
+                name,
+                enabled,
+                username,
+                password,
+                from_address,
+                created_at,
+                updated_at
+            FROM email_subscription_scheme
+            WHERE id = ?
+            """,
+            (int(scheme_id),),
+        ).fetchone()
+
+    def _list_email_subscription_recipients_with_connection(self, connection, scheme_id: int) -> list[dict]:
+        rows = connection.execute(
+            """
+            SELECT id, scheme_id, email, created_at, updated_at
+            FROM email_subscription_recipient
+            WHERE scheme_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (int(scheme_id),),
+        ).fetchall()
+        return [self._row_to_email_subscription_recipient(row) for row in rows]
+
+    def _replace_email_subscription_recipients_with_connection(
+        self,
+        connection,
+        scheme_id: int,
+        recipients: list[str],
+        *,
+        created_at_text: str | None = None,
+        updated_at_text: str | None = None,
+    ) -> None:
+        connection.execute(
+            "DELETE FROM email_subscription_recipient WHERE scheme_id = ?",
+            (int(scheme_id),),
+        )
+        inserted_at_text = created_at_text or updated_at_text or self._timestamp_to_text(time.time())
+        updated_text = updated_at_text or inserted_at_text
+        for email in recipients:
+            connection.execute(
+                """
+                INSERT INTO email_subscription_recipient (
+                    scheme_id,
+                    email,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    int(scheme_id),
+                    str(email),
+                    inserted_at_text,
+                    updated_text,
+                ),
+            )
+
+    def _disable_email_subscription_schemes_with_connection(self, connection, exclude_scheme_id: int | None = None) -> None:
+        if exclude_scheme_id is None:
+            connection.execute("UPDATE email_subscription_scheme SET enabled = 0")
+            return
+        connection.execute(
+            "UPDATE email_subscription_scheme SET enabled = 0 WHERE id != ?",
+            (int(exclude_scheme_id),),
+        )
+
+    def _normalize_email_subscription_scheme_state_with_connection(self, connection) -> None:
+        columns = self._table_columns_with_connection(connection, "email_subscription_scheme")
+        if not columns:
+            return
+
+        has_is_active = "is_active" in columns
+        chosen_id: int | None = None
+
+        if has_is_active:
+            row = connection.execute(
+                """
+                SELECT id
+                FROM email_subscription_scheme
+                WHERE is_active = 1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is not None:
+                chosen_id = int(row["id"])
+
+        if chosen_id is None:
+            row = connection.execute(
+                """
+                SELECT id
+                FROM email_subscription_scheme
+                WHERE enabled = 1
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+            if row is not None:
+                chosen_id = int(row["id"])
+
+        if chosen_id is None:
+            connection.execute("UPDATE email_subscription_scheme SET enabled = 0")
+            if has_is_active:
+                connection.execute("UPDATE email_subscription_scheme SET is_active = 0")
+        else:
+            connection.execute(
+                """
+                UPDATE email_subscription_scheme
+                SET enabled = CASE WHEN id = ? THEN 1 ELSE 0 END
+                """,
+                (chosen_id,),
+            )
+            if has_is_active:
+                connection.execute(
+                    """
+                    UPDATE email_subscription_scheme
+                    SET is_active = CASE WHEN id = ? THEN 1 ELSE 0 END
+                    """,
+                    (chosen_id,),
+                )
+
+        connection.execute("DROP INDEX IF EXISTS idx_email_subscription_scheme_single_active")
+        connection.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_email_subscription_scheme_single_enabled
+            ON email_subscription_scheme(enabled)
+            WHERE enabled = 1
+            """
+        )
+
+    def _normalize_email_subscription_recipient_table_with_connection(self, connection) -> None:
+        columns = self._table_columns_with_connection(connection, "email_subscription_recipient")
+        if not columns:
+            return
+
+        fk_rows = connection.execute("PRAGMA foreign_key_list(email_subscription_recipient)").fetchall()
+        fk_targets = {str(row["table"]) for row in fk_rows}
+        if fk_targets == {"email_subscription_scheme"}:
+            return
+
+        connection.execute("DROP INDEX IF EXISTS idx_email_subscription_recipient_scheme_id")
+        connection.execute("ALTER TABLE email_subscription_recipient RENAME TO email_subscription_recipient_old")
+        connection.execute(
+            """
+            CREATE TABLE email_subscription_recipient (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                scheme_id INTEGER NOT NULL,
+                email TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (scheme_id) REFERENCES email_subscription_scheme(id) ON DELETE CASCADE,
+                UNIQUE (scheme_id, email)
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO email_subscription_recipient (
+                id,
+                scheme_id,
+                email,
+                created_at,
+                updated_at
+            )
+            SELECT
+                id,
+                scheme_id,
+                email,
+                created_at,
+                updated_at
+            FROM email_subscription_recipient_old
+            ORDER BY id ASC
+            """
+        )
+        connection.execute("DROP TABLE email_subscription_recipient_old")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_email_subscription_recipient_scheme_id
+            ON email_subscription_recipient(scheme_id)
+            """
+        )
+
+    @staticmethod
+    def _table_columns_with_connection(connection, table_name: str) -> set[str]:
+        rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+        return {str(row["name"]) for row in rows}
+
     @staticmethod
     def _row_to_snapshot(row) -> dict:
         return {
@@ -1089,6 +1568,43 @@ class EventStore:
             "captured_at": row["captured_at"],
             "access_attempt_id": row["access_attempt_id"],
             "button_request_id": row["button_request_id"],
+        }
+
+    @staticmethod
+    def _row_to_email_subscription_scheme_table_entry(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "name": row["name"],
+            "enabled": bool(row["enabled"]),
+            "username": row["username"],
+            "password": row["password"],
+            "from_address": row["from_address"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _row_to_email_subscription_scheme(row, recipients: list[dict]) -> dict:
+        return {
+            "id": int(row["id"]),
+            "name": row["name"],
+            "enabled": bool(row["enabled"]),
+            "username": row["username"],
+            "password": row["password"],
+            "from_address": row["from_address"],
+            "recipients": recipients,
+            "created_at": EventStore._timestamp_to_epoch(row["created_at"]),
+            "updated_at": EventStore._timestamp_to_epoch(row["updated_at"]),
+        }
+
+    @staticmethod
+    def _row_to_email_subscription_recipient(row) -> dict:
+        return {
+            "id": int(row["id"]),
+            "scheme_id": int(row["scheme_id"]),
+            "email": row["email"],
+            "created_at": EventStore._timestamp_to_epoch(row["created_at"]),
+            "updated_at": EventStore._timestamp_to_epoch(row["updated_at"]),
         }
 
     def _row_to_device_profile(self, row) -> dict:

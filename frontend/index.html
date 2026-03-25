@@ -495,8 +495,21 @@
             </div>
           </div>
           <div class="panel-body">
+            <div class="table-toolbar">
+              <div class="helper-text">Apply one global row limit to every raw table below.</div>
+              <div class="table-toolbar-controls">
+                <label class="settings-label" for="debug-table-limit-select">Rows Per Table</label>
+                <select class="settings-select table-limit-select" id="debug-table-limit-select">
+                  <option value="10">Latest 10</option>
+                  <option value="25" selected>Latest 25</option>
+                  <option value="50">Latest 50</option>
+                  <option value="100">Latest 100</option>
+                  <option value="0">All Rows</option>
+                </select>
+              </div>
+            </div>
             <div class="table-stack">
-              <div class="table-card">
+              <div class="table-card table-card-indigo">
                 <div class="table-title">RFID Card</div>
                 <div class="table-wrap">
                   <table>
@@ -515,7 +528,7 @@
                 </div>
               </div>
 
-              <div class="table-card">
+              <div class="table-card table-card-green">
                 <div class="table-title">Access Attempt</div>
                 <div class="table-wrap">
                   <table>
@@ -534,7 +547,7 @@
                 </div>
               </div>
 
-              <div class="table-card">
+              <div class="table-card table-card-slate">
                 <div class="table-title">Door Session</div>
                 <div class="table-wrap">
                   <table>
@@ -557,7 +570,7 @@
                 </div>
               </div>
 
-              <div class="table-card">
+              <div class="table-card table-card-amber">
                 <div class="table-title">Button Request</div>
                 <div class="table-wrap">
                   <table>
@@ -576,7 +589,7 @@
                 </div>
               </div>
 
-              <div class="table-card">
+              <div class="table-card table-card-blue">
                 <div class="table-title">Snapshot</div>
                 <div class="table-wrap">
                   <table>
@@ -592,6 +605,45 @@
                       </tr>
                     </thead>
                     <tbody id="table-snapshot-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="table-card table-card-indigo">
+                <div class="table-title">Email Subscription Scheme</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>id</th>
+                        <th>name</th>
+                        <th>enabled</th>
+                        <th>username</th>
+                        <th>password</th>
+                        <th>from_address</th>
+                        <th>created_at</th>
+                        <th>updated_at</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-email-subscription-scheme-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="table-card table-card-green">
+                <div class="table-title">Email Subscription Recipient</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>id</th>
+                        <th>scheme_id</th>
+                        <th>email</th>
+                        <th>created_at</th>
+                        <th>updated_at</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-email-subscription-recipient-body"></tbody>
                   </table>
                 </div>
               </div>
@@ -625,7 +677,7 @@
 
             <section class="settings-section settings-section-active" data-settings-section="profile">
               <div class="settings-grid">
-                <article class="settings-card">
+                <article class="settings-card settings-card-blue">
                   <div class="settings-card-header">
                     <div>
                       <div class="settings-kicker">Console Identity</div>
@@ -676,7 +728,7 @@
                   </div>
                 </article>
 
-                <article class="settings-card settings-card-muted">
+                <article class="settings-card settings-card-slate">
                   <div class="settings-kicker">Device Context</div>
                   <h3 class="settings-title">Current Runtime Context</h3>
                   <div class="kv-grid">
@@ -706,65 +758,188 @@
             </section>
 
             <section class="settings-section" data-settings-section="notifications">
-              <div class="settings-grid">
-                <article class="settings-card">
-                  <div class="settings-kicker">In-App Alerts</div>
-                  <h3 class="settings-title">Notification Settings</h3>
-                  <div class="helper-text">
-                    These switches only control what appears in the top-right notification bell. They do
-                    not change backend email behavior.
-                  </div>
-                  <div class="settings-toggle-stack">
-                    <label class="settings-toggle-row">
-                      <span class="settings-toggle-copy">
-                        <span class="settings-toggle-title">Button Pressed</span>
-                        <span class="settings-toggle-note">Notify when the hardware request button is pressed.</span>
-                      </span>
-                      <input class="settings-toggle-input" id="settings-alert-button-input" type="checkbox" />
-                    </label>
-                    <label class="settings-toggle-row">
-                      <span class="settings-toggle-copy">
-                        <span class="settings-toggle-title">Denied RFID</span>
-                        <span class="settings-toggle-note">Notify when a card is rejected or unauthorized.</span>
-                      </span>
-                      <input class="settings-toggle-input" id="settings-alert-denied-input" type="checkbox" />
-                    </label>
-                    <label class="settings-toggle-row">
-                      <span class="settings-toggle-copy">
-                        <span class="settings-toggle-title">Face Nearby</span>
-                        <span class="settings-toggle-note">Notify when the close-range face trigger captures a vision snapshot.</span>
-                      </span>
-                      <input class="settings-toggle-input" id="settings-alert-face-input" type="checkbox" />
-                    </label>
-                  </div>
-                  <div class="settings-actions">
-                    <button class="primary-button" id="settings-notifications-save-btn" type="button">Save Notification Settings</button>
-                  </div>
-                </article>
+              <div class="settings-grid-notification-page">
+                <div class="settings-grid-notification-top">
+                  <div class="settings-column-stack">
+                    <article class="settings-card settings-card-blue">
+                    <div class="settings-kicker">In-App Alerts</div>
+                    <h3 class="settings-title">Notification Settings</h3>
+                    <div class="helper-text">
+                      These switches only control what appears in the top-right notification bell. They do
+                      not change backend email behavior.
+                    </div>
+                    <div class="settings-toggle-stack">
+                      <label class="settings-toggle-row">
+                        <span class="settings-toggle-copy">
+                          <span class="settings-toggle-title">Button Pressed</span>
+                          <span class="settings-toggle-note">Notify when the hardware request button is pressed.</span>
+                        </span>
+                        <input class="settings-toggle-input" id="settings-alert-button-input" type="checkbox" />
+                      </label>
+                      <label class="settings-toggle-row">
+                        <span class="settings-toggle-copy">
+                          <span class="settings-toggle-title">Denied RFID</span>
+                          <span class="settings-toggle-note">Notify when a card is rejected or unauthorized.</span>
+                        </span>
+                        <input class="settings-toggle-input" id="settings-alert-denied-input" type="checkbox" />
+                      </label>
+                      <label class="settings-toggle-row">
+                        <span class="settings-toggle-copy">
+                          <span class="settings-toggle-title">Face Nearby</span>
+                          <span class="settings-toggle-note">Notify when the close-range face trigger captures a vision snapshot.</span>
+                        </span>
+                        <input class="settings-toggle-input" id="settings-alert-face-input" type="checkbox" />
+                      </label>
+                    </div>
+                    <div class="settings-actions">
+                      <button class="primary-button" id="settings-notifications-save-btn" type="button">Save Notification Settings</button>
+                    </div>
+                    </article>
 
-                <article class="settings-card settings-card-muted">
-                  <div class="settings-kicker">Alert Rules</div>
-                  <h3 class="settings-title">Current Bell Behavior</h3>
-                  <div class="collection-list">
-                    <div class="collection-item collection-item-amber">
-                      <div class="collection-kicker">Manual Request</div>
-                      <div class="collection-title">Button press alerts</div>
-                      <div class="collection-meta">High-signal hardware requests stay visible until the bell is opened.</div>
+                    <article class="settings-card settings-card-amber">
+                    <div class="settings-kicker">Alert Rules</div>
+                    <h3 class="settings-title">Current Bell Behavior</h3>
+                    <div class="collection-list">
+                      <div class="collection-item collection-item-amber">
+                        <div class="collection-kicker">Manual Request</div>
+                        <div class="collection-title">Button press alerts</div>
+                        <div class="collection-meta">High-signal hardware requests stay visible until the bell is opened.</div>
+                      </div>
+                      <div class="collection-item collection-item-danger">
+                        <div class="collection-kicker">Access Control</div>
+                        <div class="collection-title">Denied RFID alerts</div>
+                        <div class="collection-meta">Rejected cards surface immediately so access rules can be checked quickly.</div>
+                      </div>
+                      <div class="collection-item collection-item-event">
+                        <div class="collection-kicker">Vision Alert</div>
+                        <div class="collection-title">Face nearby alerts</div>
+                        <div class="collection-meta">The current trigger is backed by the close-range vision snapshot event.</div>
+                      </div>
                     </div>
-                    <div class="collection-item collection-item-danger">
-                      <div class="collection-kicker">Access Control</div>
-                      <div class="collection-title">Denied RFID alerts</div>
-                      <div class="collection-meta">Rejected cards surface immediately so access rules can be checked quickly.</div>
+                    <div class="helper-text">
+                      Opening the notification bell marks the current alert set as read. Email delivery now lives
+                      in the scheme editor instead of sharing state with the bell.
                     </div>
-                    <div class="collection-item collection-item-event">
-                      <div class="collection-kicker">Vision Alert</div>
-                      <div class="collection-title">Face nearby alerts</div>
-                      <div class="collection-meta">The current trigger is backed by the close-range vision snapshot event.</div>
+                    </article>
+                  </div>
+
+                  <article class="settings-card settings-card-indigo">
+                  <div class="settings-kicker">Device Email</div>
+                  <h3 class="settings-title">Email Subscription Schemes</h3>
+                  <div class="helper-text">
+                    SMTP host, TLS, subject, cooldown, and frontend URL still come from backend config.
+                    This form manages the sender identity and subscription recipients stored in SQLite.
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-email-scheme-select">Saved Scheme</label>
+                    <div class="inline-action-row">
+                      <select class="settings-select" id="settings-email-scheme-select">
+                        <option value="">New scheme draft</option>
+                      </select>
+                      <button class="secondary-button" id="settings-email-new-scheme-btn" type="button">New Draft</button>
                     </div>
                   </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-email-scheme-name-input">Scheme Name</label>
+                    <input id="settings-email-scheme-name-input" type="text" placeholder="ParcelBox Gmail" />
+                  </div>
+                  <label class="settings-toggle-row">
+                    <span class="settings-toggle-copy">
+                      <span class="settings-toggle-title">Enable This Scheme</span>
+                      <span class="settings-toggle-note">Only one saved scheme can be enabled at a time. Saving this on automatically disables the others for live button emails.</span>
+                    </span>
+                    <input class="settings-toggle-input" id="settings-email-enabled-input" type="checkbox" />
+                  </label>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-email-username-input">SMTP Username</label>
+                    <input id="settings-email-username-input" type="email" placeholder="sender@example.com" />
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-email-password-input">Password</label>
+                    <div class="password-field-wrap">
+                      <input id="settings-email-password-input" type="password" placeholder="App password or SMTP secret" />
+                      <button
+                        class="field-inline-icon"
+                        id="settings-email-password-visibility-btn"
+                        type="button"
+                        aria-label="Show password"
+                        aria-pressed="false"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8">
+                          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"></path>
+                          <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-email-from-address-input">From Address</label>
+                    <input id="settings-email-from-address-input" type="email" placeholder="leave blank to use username" />
+                  </div>
+                  <div class="field-stack">
+                    <label class="settings-label" for="settings-email-recipient-input">Recipient Subscription</label>
+                    <div class="inline-action-row">
+                      <input id="settings-email-recipient-input" type="email" placeholder="name@example.com" />
+                      <button class="secondary-button" id="settings-email-recipient-add-btn" type="button">Add</button>
+                    </div>
+                    <div class="helper-text">
+                      Add one email at a time. The current scheme stores the whole subscription list.
+                    </div>
+                  </div>
+                  <div class="recipient-pill-list" id="settings-email-recipient-list"></div>
+                  <div class="helper-text" id="settings-email-recipient-empty">No recipient emails added yet.</div>
+                  <div class="settings-actions settings-actions-wrap">
+                    <button class="primary-button" id="settings-email-save-btn" type="button">Save Scheme</button>
+                    <button class="secondary-button" id="settings-email-save-as-new-btn" type="button">Save As New</button>
+                    <button class="secondary-button" id="settings-email-test-btn" type="button">Send Test Email</button>
+                    <button class="secondary-button" id="settings-email-delete-btn" type="button">Delete Scheme</button>
+                  </div>
+                  </article>
+                </div>
+
+                <article class="settings-card settings-card-slate settings-card-span-full">
+                  <div class="settings-kicker">SMTP Runtime</div>
+                  <h3 class="settings-title">Fixed Delivery Host</h3>
                   <div class="helper-text">
-                    Opening the notification bell marks the current alert set as read. Later this page can
-                    also host email delivery preferences once there is a backend settings API.
+                    These values stay on the backend in config. The scheme editor only supplies sender credentials and recipients.
+                  </div>
+                  <div class="kv-grid">
+                    <div class="kv-row">
+                      <span class="kv-label">Email Enabled</span>
+                      <span class="kv-value" id="settings-email-config-enabled-value">On</span>
+                    </div>
+                    <div class="kv-row">
+                      <span class="kv-label">SMTP Host</span>
+                      <span class="kv-value" id="settings-email-config-host-value">-</span>
+                    </div>
+                    <div class="kv-row">
+                      <span class="kv-label">Port</span>
+                      <span class="kv-value" id="settings-email-config-port-value">-</span>
+                    </div>
+                    <div class="kv-row">
+                      <span class="kv-label">TLS</span>
+                      <span class="kv-value" id="settings-email-config-tls-value">-</span>
+                    </div>
+                    <div class="kv-row">
+                      <span class="kv-label">Timeout</span>
+                      <span class="kv-value" id="settings-email-config-timeout-value">-</span>
+                    </div>
+                    <div class="kv-row">
+                      <span class="kv-label">Duplicate Cooldown</span>
+                      <span class="kv-value" id="settings-email-config-cooldown-value">-</span>
+                    </div>
+                  </div>
+                  <div class="collection-list">
+                    <div class="collection-item collection-item-event">
+                      <div class="collection-kicker">Enabled Delivery Scheme</div>
+                      <div class="collection-title" id="settings-email-active-scheme-value">No enabled scheme</div>
+                      <div class="collection-meta" id="settings-email-active-recipients-value">Enable a scheme to send button request emails.</div>
+                    </div>
+                    <div class="collection-item collection-item-card">
+                      <div class="collection-kicker">Email Content</div>
+                      <div class="collection-title" id="settings-email-config-subject-value">-</div>
+                      <div class="collection-meta" id="settings-email-config-frontend-url-value">-</div>
+                    </div>
                   </div>
                 </article>
               </div>

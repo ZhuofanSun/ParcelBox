@@ -9,6 +9,7 @@ import { humanizeToken, statusToneClass } from "./formatters.js";
 import {
   drawOverlay,
   markNotificationsSeen,
+  renderDatabaseTables,
   renderNotificationCenter,
   resizeOverlay,
   setPillState,
@@ -17,13 +18,18 @@ import {
   updateOverviewFromVisionPayload,
 } from "./renderers.js";
 import {
+  createEmailScheme,
+  deleteEmailScheme,
   deleteProfileAvatar,
   enrollCard,
+  fetchEmailSettings,
   fetchProfileSettings,
   refreshDashboardData,
   runLockerAction,
   runSnapshotAction,
   saveProfileSettings,
+  sendEmailTest,
+  updateEmailScheme,
   uploadProfileAvatar,
 } from "./api.js";
 
@@ -207,6 +213,270 @@ function syncSettingsForm() {
   ui.settingsAlertButtonInput.checked = state.notificationPreferences.buttonPressed;
   ui.settingsAlertDeniedInput.checked = state.notificationPreferences.accessDenied;
   ui.settingsAlertFaceInput.checked = state.notificationPreferences.faceNearby;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function normalizeSchemeId(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeEmailScheme(rawScheme) {
+  return {
+    id: normalizeSchemeId(rawScheme?.id),
+    name: typeof rawScheme?.name === "string" ? rawScheme.name : "",
+    enabled: rawScheme?.enabled !== false,
+    username: typeof rawScheme?.username === "string" ? rawScheme.username : "",
+    password: typeof rawScheme?.password === "string" ? rawScheme.password : "",
+    from_address: typeof rawScheme?.from_address === "string" ? rawScheme.from_address : "",
+    recipients: Array.isArray(rawScheme?.recipients)
+      ? rawScheme.recipients
+          .map((entry) => ({
+            id: normalizeSchemeId(entry?.id),
+            email: typeof entry?.email === "string" ? entry.email : "",
+          }))
+          .filter((entry) => entry.email)
+      : [],
+  };
+}
+
+function blankEmailSchemeDraft() {
+  return {
+    selectedSchemeId: null,
+    name: "",
+    enabled: state.emailSettings.schemes.length === 0,
+    username: "",
+    password: "",
+    from_address: "",
+    recipients: [],
+  };
+}
+
+function schemeToDraft(scheme) {
+  if (!scheme) {
+    return blankEmailSchemeDraft();
+  }
+  return {
+    selectedSchemeId: scheme.id,
+    name: scheme.name,
+    enabled: scheme.enabled !== false,
+    username: scheme.username || "",
+    password: scheme.password || "",
+    from_address: scheme.from_address || "",
+    recipients: scheme.recipients.map((entry) => entry.email),
+  };
+}
+
+function currentSelectedEmailScheme() {
+  return state.emailSettings.schemes.find((scheme) => scheme.id === state.emailSettings.selectedSchemeId) || null;
+}
+
+function captureEmailSchemeDraft() {
+  return {
+    selectedSchemeId: state.emailSettings.selectedSchemeId,
+    name: ui.settingsEmailSchemeNameInput.value.trim(),
+    enabled: ui.settingsEmailEnabledInput.checked,
+    username: ui.settingsEmailUsernameInput.value.trim(),
+    password: ui.settingsEmailPasswordInput.value,
+    from_address: ui.settingsEmailFromAddressInput.value.trim(),
+    recipients: [...state.emailSettings.draftRecipients],
+  };
+}
+
+function loadEmailSchemeDraft(draft) {
+  state.emailSettings.selectedSchemeId = normalizeSchemeId(draft?.selectedSchemeId);
+  ui.settingsEmailSchemeNameInput.value = draft?.name || "";
+  ui.settingsEmailEnabledInput.checked = draft?.enabled !== false;
+  ui.settingsEmailUsernameInput.value = draft?.username || "";
+  ui.settingsEmailPasswordInput.value = draft?.password || "";
+  ui.settingsEmailFromAddressInput.value = draft?.from_address || "";
+  state.emailSettings.draftRecipients = Array.isArray(draft?.recipients)
+    ? draft.recipients.map((email) => String(email || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  ui.settingsEmailRecipientInput.value = "";
+  ui.settingsEmailPasswordInput.type = "password";
+  ui.settingsEmailPasswordVisibilityButton.setAttribute("aria-pressed", "false");
+  ui.settingsEmailPasswordVisibilityButton.setAttribute("aria-label", "Show password");
+  renderEmailSchemeSelect();
+  renderEmailRecipientDraft();
+  const hasSelectedScheme = state.emailSettings.selectedSchemeId !== null;
+  ui.settingsEmailDeleteButton.disabled = !hasSelectedScheme;
+  ui.settingsEmailTestButton.disabled = !hasSelectedScheme;
+}
+
+function renderEmailSchemeSelect() {
+  const options = ['<option value="">New scheme draft</option>'].concat(
+    state.emailSettings.schemes.map((scheme) => {
+      const suffix = scheme.enabled ? " (Enabled)" : "";
+      return `<option value="${scheme.id}">${escapeHtml(scheme.name)}${suffix}</option>`;
+    })
+  );
+  ui.settingsEmailSchemeSelect.innerHTML = options.join("");
+  ui.settingsEmailSchemeSelect.value = state.emailSettings.selectedSchemeId ? String(state.emailSettings.selectedSchemeId) : "";
+}
+
+function renderEmailRecipientDraft() {
+  const recipients = state.emailSettings.draftRecipients;
+  ui.settingsEmailRecipientEmpty.hidden = recipients.length > 0;
+  ui.settingsEmailRecipientList.innerHTML = recipients
+    .map(
+      (email, index) => `
+        <button class="recipient-pill" type="button" data-email-recipient-index="${index}">
+          <span class="recipient-pill-label">${escapeHtml(email)}</span>
+          <span class="recipient-pill-remove">Remove</span>
+        </button>
+      `
+    )
+    .join("");
+}
+
+function renderEmailConfigSummary() {
+  const activeScheme = state.emailSettings.schemes.find((scheme) => scheme.enabled) || null;
+  ui.settingsEmailConfigEnabledValue.textContent = state.emailSettings.enabled ? "On" : "Off";
+  ui.settingsEmailConfigHostValue.textContent = state.emailSettings.smtpHost || "-";
+  ui.settingsEmailConfigPortValue.textContent = state.emailSettings.smtpPort ? String(state.emailSettings.smtpPort) : "-";
+  ui.settingsEmailConfigTlsValue.textContent = state.emailSettings.useTls ? "Enabled" : "Disabled";
+  ui.settingsEmailConfigTimeoutValue.textContent = state.emailSettings.timeoutSeconds
+    ? `${state.emailSettings.timeoutSeconds}s`
+    : "-";
+  ui.settingsEmailConfigCooldownValue.textContent = state.emailSettings.duplicateRequestCooldownSeconds
+    ? `${state.emailSettings.duplicateRequestCooldownSeconds}s`
+    : "0s";
+  ui.settingsEmailConfigSubjectValue.textContent = state.emailSettings.requestSubject || "No subject configured";
+  ui.settingsEmailConfigFrontendUrlValue.textContent = state.emailSettings.frontendUrl || "No frontend URL configured";
+
+  if (!activeScheme) {
+    ui.settingsEmailActiveSchemeValue.textContent = "No enabled scheme";
+    ui.settingsEmailActiveRecipientsValue.textContent =
+      "Enable a scheme to send hardware button request emails.";
+    return;
+  }
+
+  ui.settingsEmailActiveSchemeValue.textContent = activeScheme.name;
+  ui.settingsEmailActiveRecipientsValue.textContent = `${activeScheme.recipients.length} recipient(s) | ${
+    activeScheme.from_address || activeScheme.username || "from address falls back to username"
+  }`;
+}
+
+function applyEmailSettings(settings, options = {}) {
+  state.emailSettings.enabled = settings?.enabled !== false;
+  state.emailSettings.smtpHost = typeof settings?.smtp_host === "string" ? settings.smtp_host : "";
+  state.emailSettings.smtpPort = Number(settings?.smtp_port) || 0;
+  state.emailSettings.useTls = settings?.use_tls !== false;
+  state.emailSettings.timeoutSeconds = Number(settings?.timeout_seconds) || 0;
+  state.emailSettings.frontendUrl = typeof settings?.frontend_url === "string" ? settings.frontend_url : "";
+  state.emailSettings.requestSubject = typeof settings?.request_subject === "string" ? settings.request_subject : "";
+  state.emailSettings.requestMessage = typeof settings?.request_message === "string" ? settings.request_message : "";
+  state.emailSettings.duplicateRequestCooldownSeconds =
+    Number(settings?.duplicate_request_cooldown_seconds) || 0;
+  state.emailSettings.schemes = Array.isArray(settings?.schemes) ? settings.schemes.map(normalizeEmailScheme) : [];
+  state.emailSettings.activeSchemeId = normalizeSchemeId(settings?.active_scheme_id);
+
+  const preferredSelected =
+    options.selectedSchemeId !== undefined
+      ? normalizeSchemeId(options.selectedSchemeId)
+      : state.emailSettings.selectedSchemeId;
+  const selectedExists = state.emailSettings.schemes.some((scheme) => scheme.id === preferredSelected);
+  state.emailSettings.selectedSchemeId = selectedExists
+    ? preferredSelected
+    : state.emailSettings.activeSchemeId || state.emailSettings.schemes[0]?.id || null;
+
+  renderEmailConfigSummary();
+  renderEmailSchemeSelect();
+
+  const draft =
+    options.preserveDraft && options.draft
+      ? {
+          ...options.draft,
+          selectedSchemeId:
+            state.emailSettings.selectedSchemeId && options.draft.selectedSchemeId === state.emailSettings.selectedSchemeId
+              ? state.emailSettings.selectedSchemeId
+              : normalizeSchemeId(options.draft.selectedSchemeId),
+        }
+      : schemeToDraft(currentSelectedEmailScheme());
+  loadEmailSchemeDraft(draft);
+}
+
+function emailDraftSignature(draft) {
+  return JSON.stringify({
+    selectedSchemeId: normalizeSchemeId(draft?.selectedSchemeId),
+    name: String(draft?.name || "").trim(),
+    enabled: draft?.enabled !== false,
+    username: String(draft?.username || "").trim(),
+    password: String(draft?.password || ""),
+    from_address: String(draft?.from_address || "").trim(),
+    recipients: Array.isArray(draft?.recipients)
+      ? draft.recipients.map((email) => String(email || "").trim().toLowerCase()).filter(Boolean)
+      : [],
+  });
+}
+
+function isEmailSchemeDirty() {
+  const baseline = schemeToDraft(currentSelectedEmailScheme());
+  const draft = captureEmailSchemeDraft();
+  return emailDraftSignature(draft) !== emailDraftSignature(baseline);
+}
+
+function confirmDiscardEmailDraft() {
+  if (!isEmailSchemeDirty()) {
+    return true;
+  }
+  return window.confirm("Discard unsaved email scheme changes?");
+}
+
+function switchEmailSchemeSelection(nextSchemeId) {
+  if (!confirmDiscardEmailDraft()) {
+    renderEmailSchemeSelect();
+    return;
+  }
+  state.emailSettings.selectedSchemeId = normalizeSchemeId(nextSchemeId);
+  loadEmailSchemeDraft(
+    state.emailSettings.selectedSchemeId ? schemeToDraft(currentSelectedEmailScheme()) : blankEmailSchemeDraft()
+  );
+}
+
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
+}
+
+function addEmailRecipientToDraft() {
+  const pending = ui.settingsEmailRecipientInput.value.trim().toLowerCase();
+  if (!pending) {
+    return;
+  }
+  if (!isValidEmail(pending)) {
+    showToast("Recipient email is invalid.");
+    return;
+  }
+  if (state.emailSettings.draftRecipients.includes(pending)) {
+    showToast("Recipient already added.");
+    return;
+  }
+  state.emailSettings.draftRecipients = [...state.emailSettings.draftRecipients, pending];
+  ui.settingsEmailRecipientInput.value = "";
+  renderEmailRecipientDraft();
+}
+
+function buildEmailSchemePayload() {
+  if (ui.settingsEmailRecipientInput.value.trim()) {
+    throw new Error("Add or clear the pending recipient email before saving");
+  }
+  return {
+    name: ui.settingsEmailSchemeNameInput.value.trim(),
+    enabled: ui.settingsEmailEnabledInput.checked,
+    username: ui.settingsEmailUsernameInput.value.trim(),
+    password: ui.settingsEmailPasswordInput.value,
+    from_address: ui.settingsEmailFromAddressInput.value.trim(),
+    recipients: [...state.emailSettings.draftRecipients],
+  };
 }
 
 function captureProfileSettingsDraft() {
@@ -494,6 +764,129 @@ ui.settingsNotificationsSaveButton.addEventListener("click", () => {
   showToast("Notification settings saved locally.");
 });
 
+ui.settingsEmailSchemeSelect.addEventListener("change", () => {
+  switchEmailSchemeSelection(ui.settingsEmailSchemeSelect.value);
+});
+
+ui.settingsEmailNewSchemeButton.addEventListener("click", () => {
+  switchEmailSchemeSelection(null);
+});
+
+ui.settingsEmailPasswordVisibilityButton.addEventListener("click", () => {
+  const nextVisible = ui.settingsEmailPasswordInput.type === "password";
+  ui.settingsEmailPasswordInput.type = nextVisible ? "text" : "password";
+  ui.settingsEmailPasswordVisibilityButton.setAttribute("aria-pressed", String(nextVisible));
+  ui.settingsEmailPasswordVisibilityButton.setAttribute(
+    "aria-label",
+    nextVisible ? "Hide password" : "Show password"
+  );
+});
+
+ui.settingsEmailRecipientAddButton.addEventListener("click", () => {
+  addEmailRecipientToDraft();
+});
+
+ui.settingsEmailRecipientInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") {
+    return;
+  }
+  event.preventDefault();
+  addEmailRecipientToDraft();
+});
+
+ui.settingsEmailRecipientList.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const pill = target ? target.closest("[data-email-recipient-index]") : null;
+  if (!pill) {
+    return;
+  }
+  const index = Number(pill.dataset.emailRecipientIndex);
+  if (!Number.isInteger(index) || index < 0) {
+    return;
+  }
+  state.emailSettings.draftRecipients = state.emailSettings.draftRecipients.filter((_, current) => current !== index);
+  renderEmailRecipientDraft();
+});
+
+ui.settingsEmailSaveButton.addEventListener("click", async () => {
+  const schemeId = state.emailSettings.selectedSchemeId;
+  if (!schemeId) {
+    showToast("No saved scheme selected. Use Save As New for a new email scheme.");
+    return;
+  }
+  try {
+    const emailSettings = await updateEmailScheme(schemeId, buildEmailSchemePayload());
+    applyEmailSettings(emailSettings, { selectedSchemeId: schemeId });
+    showToast("Email scheme updated.");
+  } catch (error) {
+    showToast(`Email scheme update failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
+ui.settingsEmailSaveAsNewButton.addEventListener("click", async () => {
+  try {
+    const payload = buildEmailSchemePayload();
+    const emailSettings = await createEmailScheme(payload);
+    const createdScheme = emailSettings.schemes?.find(
+      (scheme) => String(scheme.name || "").trim().toLowerCase() === payload.name.trim().toLowerCase()
+    );
+    applyEmailSettings(emailSettings, { selectedSchemeId: createdScheme?.id || null });
+    showToast("New email scheme saved.");
+  } catch (error) {
+    showToast(`Email scheme save failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
+ui.settingsEmailDeleteButton.addEventListener("click", async () => {
+  const schemeId = state.emailSettings.selectedSchemeId;
+  if (!schemeId) {
+    showToast("No saved scheme selected.");
+    return;
+  }
+  if (!window.confirm("Delete this email scheme?")) {
+    return;
+  }
+  try {
+    const emailSettings = await deleteEmailScheme(schemeId);
+    applyEmailSettings(emailSettings, { selectedSchemeId: null });
+    showToast("Email scheme deleted.");
+  } catch (error) {
+    showToast(`Email scheme delete failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
+ui.settingsEmailTestButton.addEventListener("click", async () => {
+  const schemeId = state.emailSettings.selectedSchemeId;
+  if (!schemeId) {
+    showToast("Save a scheme before sending a test email.");
+    return;
+  }
+  if (isEmailSchemeDirty()) {
+    showToast("Save the current email scheme before sending a test email.");
+    return;
+  }
+  try {
+    const result = await sendEmailTest(schemeId);
+    if (result.status === "sent") {
+      showToast(`Test email sent via ${result.scheme_name}.`);
+    } else if (result.status === "error") {
+      showToast(`Test email failed: ${result.error || "unknown error"}`);
+    } else {
+      showToast(`Test email status: ${result.reason || result.status}`);
+    }
+  } catch (error) {
+    showToast(`Test email failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+});
+
+ui.debugTableLimitSelect.addEventListener("change", () => {
+  const nextLimit = Number(ui.debugTableLimitSelect.value);
+  state.debugTableRowLimit = Number.isFinite(nextLimit) && nextLimit >= 0 ? nextLimit : 25;
+  if (state.latestDatabasePayload) {
+    renderDatabaseTables(state.latestDatabasePayload);
+  }
+});
+
 ui.openDoorButton.addEventListener("click", () => {
   runLockerAction("/api/locker/open", "Open door").catch(() => {});
 });
@@ -550,6 +943,9 @@ async function bootstrap() {
   applyProfile(state.profile);
   applyTheme(getStoredTheme(), false);
   applyNotificationPreferences(getStoredNotificationPreferences(), false);
+  ui.debugTableLimitSelect.value = String(state.debugTableRowLimit);
+  renderEmailConfigSummary();
+  loadEmailSchemeDraft(blankEmailSchemeDraft());
   activateSettingsSection("profile");
   renderNotificationCenter();
 
@@ -558,8 +954,9 @@ async function bootstrap() {
   connectVisionSocket();
 
   try {
-    const profile = await fetchProfileSettings();
+    const [profile, emailSettings] = await Promise.all([fetchProfileSettings(), fetchEmailSettings()]);
     applyProfile(profileFromServer(profile));
+    applyEmailSettings(emailSettings);
     await refreshDashboardData();
   } catch (error) {
     ui.dbBadge.textContent = "Sync Error";

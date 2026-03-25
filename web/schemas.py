@@ -37,3 +37,16 @@ class ProfileSettingsPayload(BaseModel):
 
 class ProfileAvatarUploadPayload(BaseModel):
     data_url: str
+
+
+class EmailSchemePayload(BaseModel):
+    name: str = ""
+    enabled: bool = False
+    username: str = ""
+    password: str = ""
+    from_address: str = ""
+    recipients: list[str] = Field(default_factory=list)
+
+
+class EmailTestPayload(BaseModel):
+    scheme_id: int | None = None

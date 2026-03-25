@@ -2,6 +2,7 @@ export const state = {
   latestPayload: null,
   latestLockerStatus: null,
   latestSystemStatus: null,
+  latestDatabasePayload: null,
   latestEvents: [],
   theme: "light",
   profile: {
@@ -15,6 +16,21 @@ export const state = {
     accessDenied: true,
     faceNearby: true,
   },
+  emailSettings: {
+    enabled: true,
+    smtpHost: "",
+    smtpPort: 0,
+    useTls: true,
+    timeoutSeconds: 0,
+    frontendUrl: "",
+    requestSubject: "",
+    requestMessage: "",
+    duplicateRequestCooldownSeconds: 0,
+    schemes: [],
+    activeSchemeId: null,
+    selectedSchemeId: null,
+    draftRecipients: [],
+  },
   activePopover: null,
   latestNotificationKey: null,
   seenNotificationKey: null,
@@ -24,6 +40,7 @@ export const state = {
   dashboardPollTimer: null,
   buttonToastTimer: null,
   lastHandledButtonEventId: 0,
+  debugTableRowLimit: 25,
 };
 
 export const CARD_ENROLL_TIMEOUT_SECONDS = 10;

@@ -427,8 +427,11 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
   - a profile trigger that opens local settings
 - Store current frontend-only preferences in browser `localStorage`:
   - theme choice
-  - profile display name / subtitle
   - which high-value in-page alerts appear in the bell
+- Store device-level settings in the backend instead of browser storage:
+  - profile display name / subtitle
+  - uploaded avatar
+  - email delivery schemes and recipients
 - Do not introduce real login / logout or account persistence until there is an actual account
   model and permission boundary in the backend
 
@@ -470,6 +473,10 @@ The frontend is no longer maintained as one large `index.html` file. Current str
 - `/api/stream/meta` returns stream, detection, locker, camera-mount, and button status
 - `/api/system/status` returns Raspberry Pi runtime metrics such as hostname, CPU temperature,
   CPU / memory usage, load average, platform, and app uptime
+- `/api/settings/profile` and `/api/settings/profile/avatar` now persist device profile text and
+  avatar files on the backend
+- `/api/settings/email` and related scheme routes now persist email delivery schemes, including
+  sender credentials, multiple recipients, active-scheme selection, and test-email sending
 - Current runtime defaults: `720p`, `30 fps` active stream, `10 fps` standby stream,
   `15 fps` active face-detection loop, `3 fps` standby detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
@@ -490,7 +497,9 @@ The frontend is no longer maintained as one large `index.html` file. Current str
   - local `dark mode`
   - a high-value alert bell for button presses, denied RFID attempts, and close-range face
     snapshot events
-  - a profile popover that opens a local browser-backed settings view
+  - a profile popover that opens a device-backed settings view
+- The local `Settings` view now separates browser-only bell filters from backend-persisted
+  email delivery schemes
 - After the mount finishes a face-lost recovery cycle and still sees no face for long
   enough, vision enters a low-FPS standby mode and exits immediately when a face returns
 - Large enough faces can now trigger one automatic snapshot until the face disappears

@@ -183,6 +183,51 @@ class EventStoreTests(unittest.TestCase):
         self.assertEqual(snapshot["door_session"][0]["access_attempt_id"], attempt["id"])
         self.assertTrue(snapshot["button_request"][0]["email_duplicated"])
         self.assertEqual(snapshot["snapshot"][0]["trigger"], "manual")
+        self.assertEqual(snapshot["email_subscription_scheme"], [])
+        self.assertEqual(snapshot["email_subscription_recipient"], [])
+
+    def test_email_subscription_scheme_persists_recipients_and_single_enabled_state(self) -> None:
+        store = self.build_store()
+
+        first = store.create_email_subscription_scheme(
+            name="Primary",
+            enabled=True,
+            username="primary@example.com",
+            password="secret-1",
+            from_address="parcelbox@example.com",
+            recipients=["frontdesk@example.com"],
+        )
+        second = store.create_email_subscription_scheme(
+            name="Backup",
+            enabled=False,
+            username="backup@example.com",
+            password="secret-2",
+            from_address="backup@example.com",
+            recipients=["ops@example.com", "admin@example.com"],
+        )
+
+        self.assertEqual(store.get_active_email_subscription_scheme()["id"], first["id"])
+        self.assertEqual(len(store.list_email_subscription_schemes()), 2)
+
+        updated = store.update_email_subscription_scheme(
+            second["id"],
+            enabled=True,
+            recipients=["frontdesk@example.com", "support@example.com"],
+        )
+
+        self.assertTrue(updated["enabled"])
+        self.assertEqual(store.get_active_email_subscription_scheme()["id"], second["id"])
+        self.assertEqual(
+            [entry["email"] for entry in store.get_email_subscription_scheme(second["id"])["recipients"]],
+            ["frontdesk@example.com", "support@example.com"],
+        )
+        self.assertFalse(store.get_email_subscription_scheme(first["id"])["enabled"])
+        snapshot = store.get_table_snapshot()
+        self.assertEqual(snapshot["email_subscription_scheme"][0]["name"], "Backup")
+        self.assertEqual(
+            {entry["email"] for entry in snapshot["email_subscription_recipient"]},
+            {"frontdesk@example.com", "support@example.com"},
+        )
 
 
 if __name__ == "__main__":

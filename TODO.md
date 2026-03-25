@@ -18,7 +18,7 @@
   - [x] 当前不做注册 / 登录，先把单设备调试操作台打磨到足够顺手。
   - [x] 已补本地 `Profile Settings`：头像上传 / 重置、`Display Name -> initials avatar` 默认逻辑、头像本地存储。
   - [x] 已把头像切到后端持久化：前端上传，后端存文件并通过接口回传。
-  - [ ] 再把 `Notification Settings` 拆成“前端本地铃铛偏好”和“设备级邮件投递设置”两层，不再把所有邮件配置硬写在 `config.py`。
+  - [x] 已把 `Notification Settings` 拆成“前端本地铃铛偏好”和“设备级邮件投递设置”两层。
   - [ ] 然后补 `Events & Snapshots` 的图片查看能力，至少支持点击元数据后弹出大图和关联信息。
   - [x] 不做多用户账号，不做登录 / 注册 / 注销；右上角的 `Log Out` 占位已移除。
 
@@ -627,58 +627,48 @@ iot_locker/
   - [x] `initials` fallback 逻辑继续保留在前端；只有后端无头像文件时才显示。
   - [x] profile trigger、settings 页会复用同一套后端 profile 状态。
 
-- [ ] Stage 2: 设备级通知配置重构
-  - [ ] 明确区分两类设置：
-    - [ ] 前端本地提醒偏好：只影响右上角铃铛显示，继续存在浏览器本地。
-    - [ ] 设备级邮件投递设置：影响后端按钮邮件 / 后续告警邮件，应该落到后端持久化。
-  - [ ] `config.py` 继续保留 SMTP 主机级默认值：
-    - [ ] `smtp_host`
-    - [ ] `smtp_port`
-    - [ ] `use_tls`
-    - [ ] `timeout_seconds`
-    - [ ] `frontend_url`
-    - [ ] `request_subject`
-    - [ ] `request_message`
-    - [ ] `duplicate_request_cooldown_seconds`
-  - [ ] 前端和数据库只承接“邮箱方案”层：
-    - [ ] `username`
-    - [ ] `password`
-    - [ ] `from_address`
-    - [ ] 多个 `to_addresses`
-  - [ ] 后端补显式配置表；单设备场景优先考虑：
-    - [ ] `device_profile`：单行，保存显示名、副标题、头像路径。
-    - [ ] `email_subscription_scheme`：多行，保存不同邮箱方案的名称、`username`、`password`、`from_address`、是否当前启用。
-    - [ ] `email_subscription_recipient`：多行，按方案保存多个订阅邮箱。
-  - [ ] 邮件服务改成“`config.py` 默认 SMTP 参数 + SQLite 当前启用邮箱方案”合并读取。
-  - [ ] 前端通知设置页拆成两个区块：
-    - [ ] `In-App Alerts`
-    - [ ] `Email Subscription Scheme`
-  - [ ] `Email Subscription Scheme` 首版字段：
-    - [ ] `scheme_name`
-    - [ ] `enabled`
-    - [ ] `username`
-    - [ ] `password`
-    - [ ] `from_address`
-  - [ ] 邮箱方案前端交互：
-    - [ ] 顶部提供方案选择器，从数据库里已有方案自动填充。
-    - [ ] 可以删除已有方案。
-    - [ ] 可以修改当前方案后直接覆盖保存。
-    - [ ] 也可以“另存为新方案”。
-    - [ ] 也可以直接清空表单重填一个新方案。
-  - [ ] `to_addresses` 前端交互：
-    - [ ] 一个输入框，一次添加一个邮箱。
-    - [ ] 下方列表展示当前方案的所有订阅邮箱。
-    - [ ] 支持单个删除。
-  - [ ] 建议接口：
-    - [ ] `GET /api/settings/email`
-    - [ ] `PUT /api/settings/email`
-    - [ ] `POST /api/settings/email/schemes`
-    - [ ] `PUT /api/settings/email/schemes/{id}`
-    - [ ] `DELETE /api/settings/email/schemes/{id}`
-    - [ ] `POST /api/settings/email/schemes/{id}/recipients`
-    - [ ] `DELETE /api/settings/email/recipients/{id}`
-    - [ ] `POST /api/settings/email/test`
-  - [ ] 补一个“发送测试邮件”动作，便于验证 SMTP 与收件配置。
+- [x] Stage 2: 设备级通知配置重构
+  - [x] 已明确区分两类设置：
+    - [x] 前端本地提醒偏好：只影响右上角铃铛显示，继续存在浏览器本地。
+    - [x] 设备级邮件投递设置：影响后端按钮邮件，已落到后端持久化。
+  - [x] `config.py` 当前继续保留 SMTP 主机级默认值：
+    - [x] `smtp_host`
+    - [x] `smtp_port`
+    - [x] `use_tls`
+    - [x] `timeout_seconds`
+    - [x] `frontend_url`
+    - [x] `request_subject`
+    - [x] `request_message`
+    - [x] `duplicate_request_cooldown_seconds`
+  - [x] 前端和数据库当前承接“邮箱方案”层：
+    - [x] `username`
+    - [x] `password`
+    - [x] `from_address`
+    - [x] 多个 `to_addresses`
+  - [x] 后端已补显式配置表：
+    - [x] `email_subscription_scheme`：保存邮箱方案名称、启用状态、用户名、密码、发件地址、是否当前 active。
+    - [x] `email_subscription_recipient`：按方案保存多个订阅邮箱。
+  - [x] 邮件服务已改成“`config.py` SMTP 参数 + SQLite 当前 active 邮箱方案”合并读取。
+  - [x] 前端通知设置页已拆成两个区块：
+    - [x] `In-App Alerts`
+    - [x] `Email Subscription Schemes`
+  - [x] 邮箱方案前端交互已落地：
+    - [x] 顶部方案选择器自动回填已有方案。
+    - [x] 可以修改当前方案后直接覆盖保存。
+    - [x] 可以“另存为新方案”。
+    - [x] 可以删除已有方案。
+    - [x] 可以切回空白草稿重填一个新方案。
+  - [x] `to_addresses` 前端交互已落地：
+    - [x] 一个输入框，一次添加一个邮箱。
+    - [x] 下方列表展示当前方案的所有订阅邮箱。
+    - [x] 点击单个邮箱 pill 可移除。
+  - [x] 当前接口：
+    - [x] `GET /api/settings/email`
+    - [x] `POST /api/settings/email/schemes`
+    - [x] `PUT /api/settings/email/schemes/{id}`
+    - [x] `DELETE /api/settings/email/schemes/{id}`
+    - [x] `POST /api/settings/email/test`
+  - [x] 已补“发送测试邮件”动作，用于验证当前选中方案。
 
 - [ ] Stage 3: 图片查看能力
   - [ ] 后端补按 `snapshot id` 取图的只读接口，不要让前端直接拼本地路径。
