@@ -1,5 +1,14 @@
 # TODO
 
+## 当前推荐下一步
+
+- [ ] 先做树莓派端的常驻运行与稳定性收尾：
+  - [ ] 为 `main.py` 补一份 `systemd` service，和 `pigpiod` 一起做开机自启。
+  - [ ] 做一次至少 `1~2` 小时的实机 soak test，同时跑视频流、人脸检测、后台 RFID 轮询、按钮和门锁舵机。
+  - [ ] 记录并收敛“哪些硬件异常自动恢复，哪些异常直接暴露并停下”。
+- [ ] 做超声波空 / 满阈值实机标定，把 `config.py` 里的基线值调成柜体实测值。
+- [ ] 如果 I2C 版 PN532 在长时间运行里还有偶发异常，再评估切到 `PN532 + SPI`。
+
 ## 已确认信息
 
 ### 项目级共识
@@ -41,7 +50,10 @@
 ### 引脚基线
 
 - [x] 当前 GPIO 分配以 `config.py` 为准，并与 `wire.pdf` / `wire_schem.pdf` / `wire.fzz` 保持一致。
-- [x] `RC522 RST`：`GPIO22`
+- [x] `PN532` 当前主线走 `I2C`
+- [x] `PN532 SDA`：`GPIO2`
+- [x] `PN532 SCL`：`GPIO3`
+- [x] `PN532 reset / req` 当前为可选引脚，默认未接入 `config.py`
 - [x] `Door servo`：`GPIO18`
 - [x] `Camera pan servo`：`GPIO13`
 - [x] `Camera tilt servo`：`GPIO12`
@@ -81,8 +93,8 @@
 - [x] 当前 dashboard 已支持：
   - [x] 开门 / 关门
   - [x] 手动抓拍
-  - [x] RFID 读卡轮询
-  - [x] RFID 写卡并直接授权
+  - [x] RFID 自动后台轮询认证
+  - [x] 新卡录入（扫描 UID 后保存 name / label，不写卡）
   - [x] 最近事件 / 状态 / 卡数据查看
 - [x] 已确认前端控制能力包括：
   - [x] 卡权限管理
@@ -99,15 +111,18 @@
 
 ### 硬件模块
 
-#### RC522 RFID 模块
+#### PN532 RFID 模块
 
-- [x] 提供 RFID 卡读写能力。
+- [x] 当前主线读卡器已切到 `PN532`。
+- [x] 当前先走 `I2C` 通讯，已验证可稳定读 UID。
 - [x] 主要用于开门认证。
-- [x] 参与存件流程，并会与用户绑定。
+- [x] 参与存件流程，并会与本地卡记录（UID + name）关联。
 - [x] 已确定用于取件认证。
 - [x] 需要支持新卡录入，并在录入时填写名称。
+- [x] 当前业务只需要读取 UID，不再向卡内写业务数据。
 - [x] 需要支持 ID 卡权限管理场景，包括临时授予 / 取消某张卡的开门权限。
 - [x] 需要支持按时间段管理哪些卡可以开门。
+- [x] 轮询时遇到不兼容或异常卡型，不应让主循环崩掉。
 
 #### 舵机
 
@@ -197,9 +212,8 @@
 ### 数据与存储建议
 
 - [ ] 初版建议至少保存这些数据：
-  - [ ] 用户
   - [ ] RFID 卡
-  - [ ] 卡与用户绑定关系
+  - [ ] 卡名称 / label
   - [ ] 卡权限与时间段规则
   - [ ] 新卡录入记录
   - [ ] 开门 / 关门事件日志
@@ -223,12 +237,13 @@
 - [ ] 快递柜业务流程细节：
   - [ ] 开门后、关门后分别要记录哪些状态变化和日志。
 - [ ] 图像能力边界：
-  - [ ] 人体检测和人脸检测的具体切换条件是什么。
-  - [ ] 清晰帧评分阈值和候选窗口长度需要实测调参。
   - [ ] 是否需要把 `hflip` / `vflip` 也开放到前端设置。
 - [ ] 前端与权限：
   - [ ] 是否需要账号权限与访问控制。
   - [ ] 是否还需要补一个对比度参数。
+- [ ] RFID 能力边界：
+  - [ ] 是否需要把“卡类型”也记录到数据库里，而不只保存 UID。
+  - [ ] 是否需要给录卡页补更明确的读卡失败 / 卡型不兼容提示。
 - [ ] 公网访问策略：
   - [ ] 是否真的开放公网。
   - [ ] 若使用 Cloudflare Tunnel，哪些页面/接口允许暴露，哪些仅限局域网。
@@ -240,19 +255,24 @@
   - [ ] 当前基线是本地 SQLite，后续是否需要升级数据库再看复杂度和并发情况。
   - [ ] 具体表结构大概率会边做边加。
 
-## 近期拆分程序前可直接继续整理的方向
+## 近期推荐推进项
 
-- [ ] 明确“设备侧控制”“视频流 / 视觉识别”“Web dashboard”“数据存储/日志”“远程访问”这几部分的边界。
-- [ ] 为每个硬件模块补一份引脚表和控制目标。
+- [ ] 补一份实际部署说明：
+  - [ ] `pigpiod` 自启
+  - [ ] `main.py` 的 `systemd` service
+  - [ ] 开机后如何验证摄像头、RFID、舵机、按钮都在线
+- [ ] 做一轮真机异常表：
+  - [ ] 摄像头断开 / 重启
+  - [ ] PN532 暂时失联
+  - [ ] 舵机抖动或供电不稳
+  - [ ] 数据库文件损坏或写入失败
 - [ ] 把快递柜主流程画成状态机：
   - [ ] 待机
-  - [ ] 视觉检测到人 / 人脸
-  - [ ] 认证
+  - [ ] 刷卡认证
   - [ ] 开柜
-  - [ ] 柜内占用检测
   - [ ] 关柜
+  - [ ] 柜内占用检测
   - [ ] 记录日志 / 抓拍
-- [ ] 明确哪些能力必须本地运行，哪些能力可以延后或放到服务端/网页端。
 
 ## 项目结构建议
 
@@ -265,8 +285,12 @@ iot_locker/
 ├─ requirements.txt
 ├─ main.py
 ├─ config.py
+├─ data/
+│  ├─ event_store.py
+│  └─ schema.sql
 ├─ drivers/
-│  ├─ rc522.py
+│  ├─ pn532.py
+│  ├─ adafruit_pn532/
 │  ├─ servo.py
 │  ├─ button.py
 │  ├─ ultrasonic_sensor.py
@@ -275,32 +299,25 @@ iot_locker/
 │  └─ camera.py
 ├─ services/
 │  ├─ access_service.py
+│  ├─ button_service.py
+│  ├─ buzzer_service.py
 │  ├─ locker_service.py
 │  ├─ camera_service.py
 │  ├─ vision_service.py
+│  ├─ vision_backends.py
 │  ├─ camera_mount_service.py
+│  ├─ email_service.py
+│  ├─ led_service.py
 │  ├─ occupancy_service.py
-│  └─ alert_service.py
+│  └─ ...
 ├─ web/
 │  ├─ routes_control.py
 │  ├─ routes_stream.py
 │  ├─ routes_cards.py
 │  ├─ routes_logs.py
-│  ├─ routes_settings.py
 │  └─ schemas.py
-├─ storage/
-│  ├─ db.py
-│  ├─ models.py
-│  └─ repositories.py
 ├─ frontend/
-│  ├─ package.json
-│  └─ src/
-│     ├─ pages/
-│     ├─ components/
-│     ├─ api/
-│     ├─ hooks/
-│     ├─ store/
-│     └─ types/
+│  └─ index.html
 └─ scripts/
    └─ hardware_smoke_test.py
 ```
@@ -315,9 +332,9 @@ iot_locker/
 
 ### drivers
 
-- `drivers/rc522.py`
-  - `RC522Reader` 类。
-  - 提供读卡、取 UID、写卡等最直接能力。
+- `drivers/pn532.py`
+  - `PN532Reader` 类。
+  - 提供 UID 读取、轮询过滤和基础设备信息能力。
 - `drivers/servo.py`
   - `Servo` 类。
   - 提供通用舵机控制，可复用于门锁舵机和摄像头支架舵机。
@@ -348,13 +365,13 @@ iot_locker/
 - `services/camera_service.py`
   - 视频流、摄像头参数、抓拍的业务编排。
 - `services/vision_service.py`
-  - 人体 / 人脸检测、识别框结果、清晰帧筛选。
+  - 人脸检测、识别框结果、自动抓拍。
 - `services/camera_mount_service.py`
   - 摄像头上下 / 左右两个舵机的待机、追踪、归位和扫描逻辑。
 - `services/occupancy_service.py`
   - 基于超声波测距做柜内空 / 满判定。
-- `services/alert_service.py`
-  - 按钮、蜂鸣器、RGB LED 的联动逻辑。
+- `services/email_service.py`
+  - 按钮触发邮件通知与重复发送过滤。
 
 ### web
 
@@ -363,22 +380,18 @@ iot_locker/
 - `web/routes_stream.py`
   - 对前端暴露视频流和视觉框数据接口。
 - `web/routes_cards.py`
-  - 对前端暴露卡录入、卡绑定、权限管理接口。
+  - 对前端暴露卡录入、卡权限管理接口。
 - `web/routes_logs.py`
   - 对前端暴露日志和抓拍记录查询接口。
-- `web/routes_settings.py`
-  - 对前端暴露视频参数、待机角度、超声波阈值等配置接口。
 - `web/schemas.py`
   - Web API 的请求 / 响应数据结构，包括视频参数和视觉框数据。
 
-### storage
+### data
 
-- `storage/db.py`
-  - 数据库连接、初始化、会话管理。
-- `storage/models.py`
-  - 卡权限、用户绑定、事件日志、抓拍记录、视频参数、设备状态等数据模型。
-- `storage/repositories.py`
-  - 常用数据访问封装，避免 service 直接散落数据库细节。
+- `data/event_store.py`
+  - SQLite 初始化、业务表写入、查询聚合。
+- `data/schema.sql`
+  - 当前数据库表结构定义。
 
 ### scripts
 
@@ -387,10 +400,9 @@ iot_locker/
 
 ### 当前推荐开发顺序
 
-- [ ] 先完成 `drivers/`，每个硬件先提供最直接、最少包装的类接口。
-- [ ] 已补 `scripts/hardware_smoke_test.py`，接下来逐个验证硬件是否工作。
-- [ ] 再写 `services/`，把驱动拼成业务流程。
-- [ ] 最后接 `web/` 和 `storage/`。
+- [ ] 先补部署与运维文档，保证树莓派重启后可以自恢复启动。
+- [ ] 再做整机稳定性验证，优先看 `PN532 + camera + pigpio` 同时运行时的表现。
+- [ ] 然后补剩余实机调参项，重点是超声波阈值和 LED / 蜂鸣器体验。
 
 ### 驱动层约束
 
@@ -497,26 +509,26 @@ iot_locker/
 
 ### Phase 3: RFID, Door, And Occupancy Core Flow
 
-- [x] 实现新卡录入、命名、用户绑定。
+- [x] 实现新卡录入、命名和本地授权卡记录。
 - [x] 实现卡权限管理和按时段开门规则。
 - [x] 实现刷卡开门、前端开门、关门流程。
 - [x] 打通门锁舵机和柜门状态流转。
 - [x] 接入超声波检测，做柜内空 / 满的首版判定。
 - [x] 按钮按下后触发抓拍和请求开门邮件通知。
-- [ ] 把抓拍与开门事件建立稳定关联并落库。
+- [x] 把抓拍与开门事件建立稳定关联并落库。
 
 检查点
-- [ ] 至少完成一次完整链路：
+- [x] 至少完成一次完整链路：
   - [x] 录卡
   - [x] 配权限
   - [x] 刷卡开门
   - [x] 关门
   - [x] 柜内占用判定
   - [x] 日志 / 抓拍记录落库
-- [ ] 未授权卡、过期卡、无权限时间段都能被正确拒绝。
+- [x] 未授权卡、过期卡、无权限时间段都能被正确拒绝。
 - [ ] 柜门打开时超声波逻辑不会误判。
-- [ ] 开门事件与照片关联关系能查到。
-- [ ] 检查“计划加入的能力”里有没有已经具备条件、可以提前转入当前 phase 的项。
+- [x] 开门事件与照片关联关系能查到。
+- [x] 检查“计划加入的能力”里有没有已经具备条件、可以提前转入当前 phase 的项。
 
 ### Phase 4: Dashboard MVP
 

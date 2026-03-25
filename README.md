@@ -6,7 +6,7 @@ Raspberry Pi based smart locker prototype for a parcel locker scenario.
 
 The project simulates a parcel locker workflow with:
 
-- RFID-based door access and card permission management
+- UID-based RFID door access and card permission management
 - A servo-driven locker door
 - A CSI camera with a continuous video stream
 - Vision-based face detection
@@ -17,7 +17,7 @@ The project simulates a parcel locker workflow with:
 
 ## Hardware Summary
 
-- `RC522`: read / write RFID cards, card enrollment, permission-based door access
+- `PN532`: UID-only RFID / NFC scanning, card enrollment, permission-based door access
 - `Servo x3`: 1 for door open / close, 2 for camera pan / tilt
 - `CSI camera`: OV5647, 5MP, max `2592x1944`, wide-angle lens
 - `Ultrasonic sensor`: only used to detect whether the locker contains something
@@ -43,7 +43,7 @@ These, together with [config.py](/Users/sunzhuofan/IOT-project/config.py), are t
 - Camera stack: CSI camera with `Picamera2`
 - Servo PWM stack: `pigpio` daemon + `python3-pigpio` client, with `RPi.GPIO` fallback
 - Other GPIO library usage: `RPi.GPIO`
-- RFID stack: `pi-rc522` + `spidev`
+- RFID stack: `PN532` over `I2C` with `adafruit-blinka` + vendored `adafruit_pn532`
 
 ## Dependency Strategy
 
@@ -80,7 +80,7 @@ pip install -r requirements.txt
 
 The `--system-site-packages` flag is important so the virtual environment can see `python3-picamera2` installed by `apt`.
 
-The current Phase 2 websocket vision channel also depends on the `websockets` package
+The current websocket vision channel also depends on the `websockets` package
 from `requirements.txt`. If the virtual environment was created earlier, rerun:
 
 ```bash
@@ -91,15 +91,24 @@ pip install -r requirements.txt
 The current repository uses an OpenCV-based vision baseline because it works on the
 Raspberry Pi environment without adding another heavy Python wheel.
 
+## PN532 Setup
+
+The current mainline RFID path uses `PN532` in `I2C` mode.
+
+- Minimum wiring: `3.3V`, `GND`, `GPIO2/SDA1`, `GPIO3/SCL1`
+- Verify the board is visible on the Pi with `i2cdetect -y 1`
+- A healthy baseline usually shows device address `24`
+- The project-level reader wrapper is [drivers/pn532.py](/Users/sunzhuofan/IOT-project/drivers/pn532.py)
+
 ## Servo PWM Setup
 
 The project now prefers `pigpio` for servo output because it uses hardware-timed
 pulses and is much more stable than `RPi.GPIO.PWM` under camera + vision CPU load.
 
-Start the daemon before running servo tests or the main app:
+Enable the daemon once so it also starts automatically after reboot:
 
 ```bash
-sudo pigpiod
+sudo systemctl enable --now pigpiod
 ```
 
 Quick verification:
@@ -135,7 +144,7 @@ The active servo backend is also exposed at runtime:
 /home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python scripts/hardware_smoke_test.py camera
 ```
 
-- Example Phase 2 demo command on the Pi:
+- Example app start command on the Pi:
 
 ```bash
 /home/sunzhuofan/Desktop/ParcelBox/.venv/bin/python main.py
@@ -169,8 +178,8 @@ Current storage baseline:
 
 Current notification baseline:
 
-- Button-triggered email request notifications are configured via environment-backed
-  settings in [config.py](/Users/sunzhuofan/IOT-project/config.py)
+- Button-triggered email request notifications are configured in
+  [config.py](/Users/sunzhuofan/IOT-project/config.py)
 - The email body includes a request-open message and the configured frontend URL
 - Duplicate button-triggered email requests are filtered by a cooldown window
 
@@ -382,7 +391,7 @@ These still need direct hardware confirmation or measurement:
 
 Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 
-- `RC522 RST`: `GPIO22`
+- `PN532`: `I2C` on `/dev/i2c-1`, optional `pn532_reset_pin` / `pn532_req_pin`
 - `Door servo`: `GPIO18`
 - `Camera pan servo`: `GPIO13`
 - `Camera tilt servo`: `GPIO12`
@@ -399,7 +408,8 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 - Show a continuous live video stream at `1280x720`
 - Draw detection boxes, frame-center / target-center markers, and tracking hints
 - Provide manual door open / close and manual snapshot capture
-- Provide RFID read polling and write-card actions from the page
+- Run RFID polling automatically in the backend from app startup
+- Provide card enrollment from the page by scanning one UID and assigning a name
 - Show locker status, recent events, card-store snapshot, and latest backend payloads
 - Show hardware button-triggered request notifications in-page when the backend reports them
 - Show standby-aware stream / detection status from backend metadata
@@ -412,7 +422,7 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 - `/ws/vision` now pushes vision results over WebSocket
 - `/api/vision/boxes` remains as a latest-payload debug snapshot endpoint
 - `/api/stream/meta` returns stream, detection, locker, camera-mount, and button status
-- Current demo defaults: `720p`, `30 fps` active stream, `10 fps` standby stream,
+- Current runtime defaults: `720p`, `30 fps` active stream, `10 fps` standby stream,
   `15 fps` active face-detection loop, `3 fps` standby detection loop, JPEG quality `70`
 - The MJPEG stream now uses one shared cached JPEG frame for all clients instead of
   re-capturing and re-encoding per viewer
@@ -433,14 +443,15 @@ Current GPIO baseline from [config.py](/Users/sunzhuofan/IOT-project/config.py):
 - Large enough faces can now trigger one automatic snapshot until the face disappears
 - Camera orientation can now be set in [config.py](/Users/sunzhuofan/IOT-project/config.py)
   with `config.camera.hflip` and `config.camera.vflip`
-- `LockerService` now supports RFID read / write / authorize, door open / close,
-  auto-close, occupancy checks after close, and snapshot attachment on RFID scans
+- `LockerService` now runs a background RFID worker, processes UID-only card scans,
+  opens the door on authorized cards, records denied scans, auto-closes after a delay,
+  and attaches snapshots to accepted RFID card-present events
 - `ButtonService` now watches the request button, saves a local snapshot, and triggers an
   email open-request notification with duplicate filtering
 
 ## Vision Baseline
 
-- Current demo uses a `1280x720` stream for frontend display
+- Current runtime uses a `1280x720` stream for frontend display
 - Use a separate `640x360` inference resolution for vision tasks
 - Current detection backend is `OpenCV`
 - Current recommended face detector is `YuNet`
@@ -509,7 +520,7 @@ Direct hardware access only.
 
 Examples:
 
-- `RC522Reader.read_uid_hex()`
+- `PN532Reader.read_uid_hex()`
 - `Servo.set_angle()`
 - `CsiCamera.capture_frame()`
 - `UltrasonicSensor.measure_distance_cm()`
@@ -520,7 +531,6 @@ RFID and permission logic only.
 
 - card enrollment
 - card naming
-- user binding
 - access permission rules
 - time-based access checks
 
@@ -649,16 +659,15 @@ Recommended split:
 - `routes_stream.py`
 - `routes_cards.py`
 - `routes_logs.py`
-- `routes_settings.py`
 - `schemas.py`
 
-### `storage/`
+### `data/`
 
 Persistence layer only.
 
-- database connection
-- models
-- repositories
+- SQLite schema bootstrap
+- event persistence
+- card / snapshot / attempt queries
 
 Suggested initial entities:
 
@@ -684,8 +693,12 @@ iot_locker/
 ├─ requirements.txt
 ├─ main.py
 ├─ config.py
+├─ data/
+│  ├─ event_store.py
+│  └─ schema.sql
 ├─ drivers/
-│  ├─ rc522.py
+│  ├─ pn532.py
+│  ├─ adafruit_pn532/
 │  ├─ servo.py
 │  ├─ button.py
 │  ├─ ultrasonic_sensor.py
@@ -695,47 +708,64 @@ iot_locker/
 ├─ services/
 │  ├─ access_service.py
 │  ├─ button_service.py
-│  ├─ locker_service.py
+│  ├─ buzzer_service.py
 │  ├─ camera_service.py
-│  ├─ vision_service.py
 │  ├─ camera_mount_service.py
 │  ├─ email_service.py
+│  ├─ led_service.py
+│  ├─ locker_service.py
 │  ├─ occupancy_service.py
-│  └─ alert_service.py
+│  ├─ vision_backends.py
+│  └─ vision_service.py
 ├─ web/
-│  ├─ routes_control.py
-│  ├─ routes_stream.py
 │  ├─ routes_cards.py
+│  ├─ routes_control.py
 │  ├─ routes_logs.py
-│  ├─ routes_settings.py
+│  ├─ routes_stream.py
 │  └─ schemas.py
-├─ storage/
-│  ├─ db.py
-│  ├─ models.py
-│  └─ repositories.py
 ├─ frontend/
-│  ├─ package.json
-│  └─ src/
-│     ├─ pages/
-│     ├─ components/
-│     ├─ api/
-│     ├─ hooks/
-│     ├─ store/
-│     └─ types/
-└─ scripts/
-   └─ hardware_smoke_test.py
+│  └─ index.html
+├─ scripts/
+│  └─ hardware_smoke_test.py
+└─ tests/
+   └─ test_*.py
 ```
 
 ## Core Runtime Flows
 
 ### Access Flow
 
-`RC522 -> access_service -> locker_service -> servo -> storage`
+`PN532 -> access_service -> locker_service -> servo -> storage`
 
 Current implementation note:
 
 - The current mainline stores RFID cards, event logs, and snapshots in SQLite.
 - `cards.json` is kept only as a fallback path and is not the primary store in the app path.
+
+## Verification
+
+The current repository has unit-level coverage for the mainline hardware orchestration
+and storage flows.
+
+Useful local checks:
+
+```bash
+./.venv/bin/python tests/test_phase3_services.py
+./.venv/bin/python tests/test_pn532_driver.py
+./.venv/bin/python tests/test_event_store.py
+./.venv/bin/python tests/test_button_service.py
+./.venv/bin/python tests/test_camera_mount_service.py
+./.venv/bin/python tests/test_vision_service_face_only.py
+./.venv/bin/python tests/test_vision_service_snapshot.py
+```
+
+Useful Raspberry Pi smoke tests:
+
+```bash
+./.venv/bin/python scripts/hardware_smoke_test.py camera
+./.venv/bin/python scripts/hardware_smoke_test.py pn532
+./.venv/bin/python main.py
+```
 
 ### Vision Flow
 
@@ -764,7 +794,7 @@ Current implementation note:
 
 - CSI camera support is based on `Picamera2`
 - Prefer installing `python3-picamera2` with `apt` on Raspberry Pi
-- RC522 depends on SPI and the `pi-rc522` stack
+- The current RFID mainline uses `PN532` over `I2C`; `SPI` remains a future fallback option
 - If the ultrasonic sensor uses a `5V` echo pin, add voltage division before connecting to Raspberry Pi GPIO
 - `config.py` is the current baseline config entry for Phase 0
 - `scripts/hardware_smoke_test.py` is the shared entry point for Phase 1 device checks
