@@ -3,17 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>IOT Locker Stream Demo</title>
+  <title>ParcelBox Test Console</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f2f4ef;
-      --panel: rgba(255, 252, 244, 0.9);
-      --border: rgba(33, 44, 39, 0.15);
-      --text: #1f2c27;
-      --muted: #61716b;
-      --accent: #0c7c59;
-      --box: #ff5a36;
+      --bg: #edf2f7;
+      --bg-accent: #dbe7f5;
+      --sidebar: #132238;
+      --sidebar-border: rgba(255, 255, 255, 0.08);
+      --panel: rgba(255, 255, 255, 0.94);
+      --panel-strong: #ffffff;
+      --border: rgba(18, 38, 63, 0.12);
+      --text: #12263f;
+      --muted: #60738a;
+      --accent: #1a73e8;
+      --accent-soft: rgba(26, 115, 232, 0.12);
+      --success: #15803d;
+      --success-soft: rgba(21, 128, 61, 0.12);
+      --warning: #b45309;
+      --warning-soft: rgba(180, 83, 9, 0.14);
+      --danger: #be123c;
+      --danger-soft: rgba(190, 18, 60, 0.12);
+      --shadow: 0 20px 48px rgba(18, 38, 63, 0.08);
+      --stream-bg: #09131f;
+      --box: #ff6a3d;
       --frame-center: #1f7ae0;
       --target-center: #ffd166;
       --target-line: rgba(255, 209, 102, 0.88);
@@ -23,95 +36,330 @@
       box-sizing: border-box;
     }
 
+    html {
+      min-height: 100%;
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: Georgia, "Times New Roman", serif;
+      font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(12, 124, 89, 0.14), transparent 32%),
-        linear-gradient(135deg, #f6f2e7 0%, #edf4ef 55%, #d9ebe4 100%);
+        radial-gradient(circle at top left, rgba(26, 115, 232, 0.14), transparent 24%),
+        radial-gradient(circle at bottom right, rgba(21, 128, 61, 0.08), transparent 28%),
+        linear-gradient(145deg, var(--bg) 0%, var(--bg-accent) 100%);
     }
 
-    .page {
-      width: min(1180px, calc(100vw - 32px));
-      margin: 24px auto;
+    button,
+    input {
+      font: inherit;
+    }
+
+    .app-shell {
+      min-height: 100vh;
       display: grid;
-      gap: 18px;
+      grid-template-columns: 280px minmax(0, 1fr);
     }
 
-    .hero {
-      padding: 20px 22px;
-      border: 1px solid var(--border);
+    .sidebar {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 28px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+      background:
+        radial-gradient(circle at top, rgba(83, 165, 255, 0.16), transparent 34%),
+        linear-gradient(180deg, rgba(12, 26, 46, 0.96) 0%, rgba(19, 34, 56, 0.98) 100%);
+      color: #f5f8ff;
+      border-right: 1px solid var(--sidebar-border);
+    }
+
+    .brand-block {
+      padding: 18px 18px 20px;
+      border: 1px solid var(--sidebar-border);
       border-radius: 22px;
-      background: var(--panel);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 18px 50px rgba(30, 47, 40, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(10px);
     }
 
-    .hero h1 {
-      margin: 0 0 6px;
-      font-size: clamp(28px, 4vw, 42px);
+    .brand-kicker {
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: rgba(232, 240, 255, 0.72);
+    }
+
+    .brand-title {
+      margin-top: 10px;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.05;
+    }
+
+    .brand-copy {
+      margin: 12px 0 0;
+      color: rgba(234, 242, 255, 0.72);
+      line-height: 1.55;
+      font-size: 14px;
+    }
+
+    .sidebar-nav {
+      display: grid;
+      gap: 10px;
+    }
+
+    .nav-link {
+      border: 1px solid transparent;
+      border-radius: 16px;
+      padding: 14px 15px;
+      text-align: left;
+      color: rgba(243, 247, 255, 0.78);
+      background: transparent;
+      cursor: pointer;
+      transition:
+        background 140ms ease,
+        border-color 140ms ease,
+        transform 140ms ease,
+        color 140ms ease;
+    }
+
+    .nav-link:hover {
+      transform: translateX(2px);
+      border-color: rgba(255, 255, 255, 0.12);
+      background: rgba(255, 255, 255, 0.05);
+      color: #ffffff;
+    }
+
+    .nav-link-active {
+      color: #ffffff;
+      border-color: rgba(83, 165, 255, 0.44);
+      background: linear-gradient(135deg, rgba(42, 125, 255, 0.3), rgba(72, 175, 123, 0.14));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .nav-title {
+      display: block;
+      font-size: 15px;
       font-weight: 600;
     }
 
-    .hero p {
-      margin: 0;
-      color: var(--muted);
-      font-size: 16px;
-      line-height: 1.5;
+    .nav-copy {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      color: rgba(233, 241, 255, 0.65);
     }
 
-    .content {
+    .sidebar-footer {
+      margin-top: auto;
+      padding: 18px;
+      border: 1px solid var(--sidebar-border);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    .sidebar-caption {
+      margin-bottom: 12px;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: rgba(233, 241, 255, 0.65);
+    }
+
+    .sidebar-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .workspace {
+      padding: 28px;
       display: grid;
-      grid-template-columns: minmax(0, 1fr);
+      gap: 22px;
+    }
+
+    .workspace-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }
+
+    .workspace-header h1 {
+      margin: 6px 0 10px;
+      font-size: clamp(30px, 4vw, 44px);
+      line-height: 1.02;
+    }
+
+    .workspace-header p {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 15px;
+    }
+
+    .eyebrow {
+      font-size: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    .ghost-button {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px 14px;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.72);
+      cursor: pointer;
+      transition:
+        transform 120ms ease,
+        background 120ms ease,
+        border-color 120ms ease;
+    }
+
+    .ghost-button:hover {
+      transform: translateY(-1px);
+      background: #ffffff;
+      border-color: rgba(18, 38, 63, 0.2);
+    }
+
+    .view-panel {
+      display: none;
+      opacity: 0;
+      transform: translateY(10px);
+    }
+
+    .view-panel-active {
+      display: block;
+      opacity: 1;
+      transform: translateY(0);
+      animation: panel-enter 180ms ease;
+    }
+
+    @keyframes panel-enter {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .overview-grid,
+    .two-column-grid {
+      display: grid;
       gap: 18px;
     }
 
-    .stream-card {
+    .overview-grid {
+      grid-template-columns: minmax(0, 1.7fr) minmax(320px, 1fr);
+      align-items: start;
+    }
+
+    .two-column-grid {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+
+    .panel {
       border: 1px solid var(--border);
-      border-radius: 22px;
+      border-radius: 24px;
       background: var(--panel);
-      backdrop-filter: blur(12px);
-      box-shadow: 0 18px 50px rgba(30, 47, 40, 0.08);
+      box-shadow: var(--shadow);
       overflow: hidden;
     }
 
-    .card-header {
+    .panel-header {
       display: flex;
       justify-content: space-between;
-      align-items: center;
+      align-items: flex-start;
       gap: 12px;
-      padding: 16px 18px;
+      padding: 18px 20px 16px;
       border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.55);
     }
 
-    .card-title {
+    .panel-title {
       margin: 0;
       font-size: 18px;
+      line-height: 1.2;
     }
 
-    .badge {
-      padding: 6px 10px;
+    .panel-copy {
+      margin: 6px 0 0;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 14px;
+    }
+
+    .panel-body {
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel-hero {
+      grid-column: 1;
+    }
+
+    .panel-side-stack {
+      display: grid;
+      gap: 18px;
+    }
+
+    .live-status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
       border-radius: 999px;
-      background: rgba(12, 124, 89, 0.12);
+      background: var(--accent-soft);
       color: var(--accent);
       font-size: 12px;
-      letter-spacing: 0.06em;
+      font-weight: 700;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
+    }
+
+    .status-pill-muted {
+      background: rgba(96, 115, 138, 0.12);
+      color: var(--muted);
+    }
+
+    .status-pill-success {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .status-pill-warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .status-pill-danger {
+      background: var(--danger-soft);
+      color: var(--danger);
     }
 
     .stream-wrap {
       position: relative;
-      background: #0e1715;
+      background:
+        radial-gradient(circle at top, rgba(39, 105, 214, 0.22), transparent 30%),
+        linear-gradient(180deg, rgba(5, 17, 31, 0.98) 0%, rgba(9, 19, 31, 1) 100%);
       aspect-ratio: 16 / 9;
-    }
-
-    .stream-controls {
-      padding: 16px 18px 20px;
-      display: grid;
-      gap: 14px;
-      border-top: 1px solid var(--border);
     }
 
     #stream {
@@ -119,7 +367,7 @@
       height: 100%;
       object-fit: contain;
       display: block;
-      background: #0e1715;
+      background: transparent;
     }
 
     #overlay {
@@ -130,505 +378,888 @@
       pointer-events: none;
     }
 
-    .database-section {
-      padding: 16px 18px 20px;
-      display: grid;
-      gap: 14px;
-      border-top: 1px solid var(--border);
-    }
-
-    .info-row {
-      display: grid;
-      gap: 4px;
-    }
-
-    .label {
+    .section-kicker {
       font-size: 12px;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--muted);
+      font-weight: 700;
     }
 
-    .button-grid {
+    .action-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 10px;
     }
 
-    .single-action {
-      width: 100%;
-    }
-
-    button {
-      border: 1px solid rgba(12, 124, 89, 0.18);
-      border-radius: 12px;
-      padding: 10px 12px;
-      font: inherit;
-      font-size: 14px;
-      color: #f6f8f4;
-      background: linear-gradient(135deg, #0c7c59 0%, #17694f 100%);
+    .primary-button,
+    .secondary-button {
+      border: 0;
+      border-radius: 14px;
+      padding: 12px 14px;
       cursor: pointer;
-      transition: transform 120ms ease, opacity 120ms ease;
+      transition:
+        transform 120ms ease,
+        opacity 120ms ease,
+        filter 120ms ease;
     }
 
-    button:hover {
+    .primary-button {
+      color: #f8fbff;
+      background: linear-gradient(135deg, #1a73e8 0%, #2d8af4 100%);
+    }
+
+    .secondary-button {
+      color: var(--text);
+      background: rgba(18, 38, 63, 0.08);
+    }
+
+    .primary-button:hover,
+    .secondary-button:hover {
       transform: translateY(-1px);
+      filter: brightness(1.02);
     }
 
-    button:disabled {
+    .primary-button:disabled,
+    .secondary-button:disabled,
+    .ghost-button:disabled {
       opacity: 0.55;
       cursor: not-allowed;
       transform: none;
-    }
-
-    .toggle-button {
-      color: var(--text);
-      background: rgba(12, 124, 89, 0.08);
-    }
-
-    .toggle-button.button-active {
-      color: #f6f8f4;
-      background: linear-gradient(135deg, #0c7c59 0%, #17694f 100%);
+      filter: none;
     }
 
     .field-stack {
       display: grid;
-      gap: 8px;
+      gap: 10px;
     }
 
     .helper-text {
       color: var(--muted);
-      font-size: 12px;
-      line-height: 1.45;
+      line-height: 1.55;
+      font-size: 13px;
     }
 
-    input,
-    textarea {
+    input {
       width: 100%;
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 12px 14px;
-      font: inherit;
-      font-size: 14px;
+      background: #ffffff;
       color: var(--text);
-      background: rgba(255, 255, 255, 0.7);
     }
 
-    textarea {
-      min-height: 86px;
-      resize: vertical;
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric-tile {
+      padding: 14px 15px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(248, 251, 255, 0.9);
+    }
+
+    .metric-label {
+      font-size: 12px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .metric-value {
+      margin-top: 10px;
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.05;
+      word-break: break-word;
+    }
+
+    .metric-note {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .kv-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .kv-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: baseline;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed rgba(18, 38, 63, 0.12);
+    }
+
+    .kv-row:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .kv-label {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .kv-value {
+      text-align: right;
+      font-weight: 600;
+    }
+
+    .collection-list {
+      display: grid;
+      gap: 12px;
+    }
+
+    .collection-item {
+      padding: 14px 15px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.78);
+    }
+
+    .collection-topline {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: baseline;
+    }
+
+    .collection-title {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .collection-meta {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .collection-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .tag {
+      padding: 5px 9px;
+      border-radius: 999px;
+      background: rgba(18, 38, 63, 0.08);
+      color: var(--text);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .tag-success {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .tag-warning {
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .tag-danger {
+      background: var(--danger-soft);
+      color: var(--danger);
+    }
+
+    .placeholder-block {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px dashed rgba(18, 38, 63, 0.16);
+      background: rgba(255, 255, 255, 0.6);
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .table-stack {
+      display: grid;
+      gap: 16px;
     }
 
     .table-card {
-      display: grid;
-      gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.82);
+      overflow: hidden;
+    }
+
+    .table-title {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 14px;
+      font-weight: 700;
     }
 
     .table-wrap {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      background: rgba(26, 38, 34, 0.04);
       overflow: auto;
+      max-width: 100%;
     }
 
     table {
       width: 100%;
+      min-width: 720px;
       border-collapse: collapse;
-      min-width: 760px;
       font-size: 13px;
-      line-height: 1.45;
     }
 
     th,
     td {
-      padding: 10px 12px;
+      padding: 11px 12px;
       text-align: left;
+      border-bottom: 1px solid rgba(18, 38, 63, 0.08);
       vertical-align: top;
-      border-bottom: 1px solid rgba(33, 44, 39, 0.08);
     }
 
     th {
       position: sticky;
       top: 0;
-      background: rgba(237, 244, 239, 0.96);
-      color: var(--text);
-      font-size: 12px;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
       z-index: 1;
+      background: rgba(243, 247, 252, 0.98);
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
-    td {
-      color: var(--text);
-      white-space: nowrap;
+    tr:last-child td {
+      border-bottom: 0;
     }
 
-    td.cell-wrap {
-      white-space: normal;
-      min-width: 220px;
-    }
-
-    td.cell-empty {
+    .cell-empty {
       color: var(--muted);
       font-style: italic;
     }
 
-    .toast {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      max-width: min(360px, calc(100vw - 36px));
-      padding: 12px 14px;
-      border: 1px solid rgba(12, 124, 89, 0.16);
-      border-radius: 14px;
-      background: rgba(255, 252, 244, 0.96);
-      color: var(--text);
-      box-shadow: 0 16px 40px rgba(30, 47, 40, 0.16);
-      opacity: 0;
-      transform: translateY(8px);
-      pointer-events: none;
-      transition: opacity 160ms ease, transform 160ms ease;
+    .cell-wrap {
+      white-space: normal;
+      word-break: break-word;
+      min-width: 240px;
     }
 
-    .toast.toast-visible {
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .debug-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .code-card {
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      background: #0d1827;
+      color: #d8e4f5;
+      overflow: hidden;
+    }
+
+    .code-card .table-title {
+      background: rgba(255, 255, 255, 0.04);
+      color: rgba(234, 242, 255, 0.84);
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+
+    .code-card pre {
+      padding: 14px 16px 16px;
+      max-height: 320px;
+      overflow: auto;
+    }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      min-width: 260px;
+      max-width: min(460px, calc(100vw - 32px));
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(12, 26, 46, 0.94);
+      color: #eef5ff;
+      box-shadow: 0 16px 38px rgba(4, 14, 29, 0.3);
+      opacity: 0;
+      transform: translateY(12px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+      line-height: 1.45;
+    }
+
+    .toast-visible {
       opacity: 1;
       transform: translateY(0);
     }
 
-    @media (max-width: 920px) {
-      table {
-        min-width: 640px;
+    @media (max-width: 1180px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        height: auto;
+      }
+
+      .overview-grid,
+      .two-column-grid,
+      .debug-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .workspace {
+        padding: 18px;
+      }
+
+      .sidebar {
+        padding: 18px;
+      }
+
+      .workspace-header {
+        flex-direction: column;
+      }
+
+      .action-grid,
+      .metric-grid {
+        grid-template-columns: 1fr;
       }
     }
   </style>
 </head>
 <body>
-  <div class="page">
-    <section class="hero">
-      <h1>ParcelBox Phase 3 Demo</h1>
-      <p>
-        This page now includes the Phase 3 locker loop: RFID card APIs, door open / close control,
-        occupancy feedback, and the existing live camera stream with backend vision overlays.
-      </p>
-    </section>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-block">
+        <div class="brand-kicker">ParcelBox</div>
+        <div class="brand-title">Operations Console</div>
+        <p class="brand-copy">
+          Overview-first dashboard for local hardware and backend testing. Detailed raw data stays
+          available, but the homepage now surfaces the important runtime state first.
+        </p>
+      </div>
 
-    <section class="content">
-      <div class="stream-card">
-        <div class="card-header">
-          <h2 class="card-title">Live Stream</h2>
-          <span class="badge" id="stream-badge">Connecting</span>
-        </div>
-        <div class="stream-wrap">
-          <img id="stream" src="/api/stream.mjpg" alt="Live stream" />
-          <canvas id="overlay"></canvas>
-        </div>
-        <div class="stream-controls">
-          <div class="info-row">
-            <div class="label">Locker Controls</div>
-            <div class="button-grid">
-              <button id="open-door-btn" type="button">Open Door</button>
-              <button id="close-door-btn" type="button">Close Door</button>
-              <button id="capture-snapshot-btn" type="button">Capture Photo</button>
-            </div>
-          </div>
-          <div class="info-row">
-            <div class="label">Card Enrollment</div>
-            <div class="helper-text" id="card-io-helper">
-              RFID scanning starts automatically with the app. To save a new authorized card, enter a name below and present the card when prompted.
-            </div>
-            <div class="field-stack">
-              <input id="card-enroll-name-input" type="text" placeholder="Card name / label" />
-              <button id="card-enroll-btn" class="single-action" type="button">Scan And Save Card</button>
-            </div>
-          </div>
-        </div>
-        <div class="database-section">
-          <div class="card-header">
-          <h2 class="card-title">Database Tables</h2>
-          <span class="badge" id="db-badge">Syncing</span>
-          </div>
-          <div class="table-card">
-            <div class="label">RFID Card</div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>uid</th>
-                    <th>name</th>
-                    <th>enabled</th>
-                    <th>access_window</th>
-                    <th>created_at</th>
-                    <th>updated_at</th>
-                  </tr>
-                </thead>
-                <tbody id="table-rfid-card-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="table-card">
-            <div class="label">Access Attempt</div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>id</th>
-                    <th>card_uid</th>
-                    <th>source</th>
-                    <th>allowed</th>
-                    <th>reason</th>
-                    <th>checked_at</th>
-                  </tr>
-                </thead>
-                <tbody id="table-access-attempt-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="table-card">
-            <div class="label">Door Session</div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>id</th>
-                    <th>access_attempt_id</th>
-                    <th>open_source</th>
-                    <th>opened_at</th>
-                    <th>close_source</th>
-                    <th>closed_at</th>
-                    <th>auto_closed</th>
-                    <th>occupancy_state</th>
-                    <th>occupancy_distance_cm</th>
-                    <th>occupancy_measured_at</th>
-                  </tr>
-                </thead>
-                <tbody id="table-door-session-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="table-card">
-            <div class="label">Button Request</div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>id</th>
-                    <th>pressed_at</th>
-                    <th>email_sent</th>
-                    <th>email_duplicated</th>
-                    <th>email_sent_at</th>
-                    <th>email_error</th>
-                  </tr>
-                </thead>
-                <tbody id="table-button-request-body"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="table-card">
-            <div class="label">Snapshot</div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>id</th>
-                    <th>path</th>
-                    <th>filename</th>
-                    <th>trigger</th>
-                    <th>captured_at</th>
-                    <th>access_attempt_id</th>
-                    <th>button_request_id</th>
-                  </tr>
-                </thead>
-                <tbody id="table-snapshot-body"></tbody>
-              </table>
-            </div>
-          </div>
+      <nav class="sidebar-nav">
+        <button class="nav-link nav-link-active" data-view-target="overview" type="button">
+          <span class="nav-title">Overview</span>
+          <span class="nav-copy">Live stream, quick actions, system state</span>
+        </button>
+        <button class="nav-link" data-view-target="cards" type="button">
+          <span class="nav-title">Cards &amp; Access</span>
+          <span class="nav-copy">Current card records and recent authorization results</span>
+        </button>
+        <button class="nav-link" data-view-target="events" type="button">
+          <span class="nav-title">Events &amp; Snapshots</span>
+          <span class="nav-copy">Recent activity feed and saved captures</span>
+        </button>
+        <button class="nav-link" data-view-target="debug" type="button">
+          <span class="nav-title">Debug / Data</span>
+          <span class="nav-copy">Raw tables and runtime payloads</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="sidebar-caption">Live Status</div>
+        <div class="sidebar-badges">
+          <span class="status-pill" id="stream-badge">Connecting</span>
+          <span class="status-pill status-pill-muted" id="db-badge">Syncing</span>
         </div>
       </div>
-    </section>
+    </aside>
+
+    <main class="workspace">
+      <header class="workspace-header">
+        <div>
+          <div class="eyebrow">Local Device Dashboard</div>
+          <h1>ParcelBox Test Console</h1>
+          <p>
+            This page keeps the live stream, door actions, RFID enrollment, Raspberry Pi runtime,
+            and recent business events in one place. Cards, events, and raw database views are still
+            available through the side navigation.
+          </p>
+        </div>
+        <div>
+          <button class="ghost-button" id="header-open-debug-btn" type="button">Open Debug Data</button>
+        </div>
+      </header>
+
+      <section class="view-panel view-panel-active" data-view-panel="overview">
+        <div class="overview-grid">
+          <article class="panel panel-hero">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Live Overview</h2>
+                <p class="panel-copy">
+                  Shared MJPEG stream with vision overlay and mount advice. This remains the main
+                  monitoring surface during hardware testing.
+                </p>
+              </div>
+              <div class="live-status-row">
+                <span class="status-pill status-pill-muted" id="overview-mode-badge">Waiting</span>
+                <span class="status-pill status-pill-muted" id="overview-mount-badge">Mount Idle</span>
+              </div>
+            </div>
+            <div class="stream-wrap">
+              <img id="stream" src="/api/stream.mjpg" alt="Live stream" />
+              <canvas id="overlay"></canvas>
+            </div>
+          </article>
+
+          <div class="panel-side-stack">
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2 class="panel-title">Quick Actions</h2>
+                  <p class="panel-copy">Keep the high-frequency controls on the homepage.</p>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div>
+                  <div class="section-kicker">Locker Controls</div>
+                  <div class="action-grid" style="margin-top: 10px;">
+                    <button class="primary-button" id="open-door-btn" type="button">Open Door</button>
+                    <button class="secondary-button" id="close-door-btn" type="button">Close Door</button>
+                    <button class="primary-button" id="capture-snapshot-btn" type="button" style="grid-column: 1 / -1;">Capture Photo</button>
+                  </div>
+                </div>
+
+                <div>
+                  <div class="section-kicker">RFID Enrollment</div>
+                  <div class="helper-text" id="card-io-helper" style="margin-top: 10px;">
+                    RFID scanning starts automatically with the app. To save a new authorized card,
+                    enter a name below and present the card when prompted.
+                  </div>
+                  <div class="field-stack" style="margin-top: 12px;">
+                    <input id="card-enroll-name-input" type="text" placeholder="Card name / label" />
+                    <button class="secondary-button" id="card-enroll-btn" type="button">Scan And Save Card</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2 class="panel-title">Runtime Summary</h2>
+                  <p class="panel-copy">Quick health readout without opening the debug view.</p>
+                </div>
+              </div>
+              <div class="panel-body">
+                <div class="metric-grid">
+                  <div class="metric-tile">
+                    <div class="metric-label">Door</div>
+                    <div class="metric-value" id="door-state-value">—</div>
+                    <div class="metric-note" id="last-access-value">No access result yet</div>
+                  </div>
+                  <div class="metric-tile">
+                    <div class="metric-label">Occupancy</div>
+                    <div class="metric-value" id="occupancy-state-value">—</div>
+                    <div class="metric-note" id="occupancy-distance-value">Distance unavailable</div>
+                  </div>
+                  <div class="metric-tile">
+                    <div class="metric-label">RFID Reader</div>
+                    <div class="metric-value" id="rfid-reader-value">—</div>
+                    <div class="metric-note"><span id="rfid-card-count-value">—</span> known cards</div>
+                  </div>
+                  <div class="metric-tile">
+                    <div class="metric-label">Vision Mode</div>
+                    <div class="metric-value" id="vision-mode-value">—</div>
+                    <div class="metric-note" id="mount-status-value">Mount advice unavailable</div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="two-column-grid" style="margin-top: 18px;">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Raspberry Pi</h2>
+                <p class="panel-copy">Local host metrics for quick thermal and runtime checks.</p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="kv-grid">
+                <div class="kv-row">
+                  <div class="kv-label">Hostname</div>
+                  <div class="kv-value" id="system-hostname-value">—</div>
+                </div>
+                <div class="kv-row">
+                  <div class="kv-label">CPU Temperature</div>
+                  <div class="kv-value" id="system-cpu-temp-value">—</div>
+                </div>
+                <div class="kv-row">
+                  <div class="kv-label">CPU Usage</div>
+                  <div class="kv-value" id="system-cpu-usage-value">—</div>
+                </div>
+                <div class="kv-row">
+                  <div class="kv-label">Memory</div>
+                  <div class="kv-value" id="system-memory-value">—</div>
+                </div>
+                <div class="kv-row">
+                  <div class="kv-label">App Uptime</div>
+                  <div class="kv-value" id="system-app-uptime-value">—</div>
+                </div>
+                <div class="kv-row">
+                  <div class="kv-label">Load Average</div>
+                  <div class="kv-value" id="system-load-value">—</div>
+                </div>
+                <div class="kv-row">
+                  <div class="kv-label">Platform</div>
+                  <div class="kv-value" id="system-platform-value">—</div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Data Summary</h2>
+                <p class="panel-copy">Main business counts from the SQLite event store.</p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="metric-grid">
+                <div class="metric-tile">
+                  <div class="metric-label">Cards</div>
+                  <div class="metric-value" id="summary-cards-count">0</div>
+                  <div class="metric-note">Known RFID cards</div>
+                </div>
+                <div class="metric-tile">
+                  <div class="metric-label">Events</div>
+                  <div class="metric-value" id="summary-events-count">0</div>
+                  <div class="metric-note">Synthesized business events</div>
+                </div>
+                <div class="metric-tile">
+                  <div class="metric-label">Snapshots</div>
+                  <div class="metric-value" id="summary-snapshots-count">0</div>
+                  <div class="metric-note">Persisted image captures</div>
+                </div>
+                <div class="metric-tile">
+                  <div class="metric-label">Door Sessions</div>
+                  <div class="metric-value" id="summary-door-sessions-count">0</div>
+                  <div class="metric-note">Open/close cycles recorded</div>
+                </div>
+              </div>
+              <div class="helper-text" id="last-error-value">No runtime errors reported.</div>
+            </div>
+          </article>
+        </div>
+
+        <article class="panel" style="margin-top: 18px;">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Recent Activity</h2>
+              <p class="panel-copy">
+                Latest business events from the event store. The dedicated events page keeps the
+                longer feed and snapshot list.
+              </p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="collection-list" id="overview-events-list"></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="view-panel" data-view-panel="cards">
+        <div class="two-column-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Known Cards</h2>
+                <p class="panel-copy">
+                  Current RFID card records with enabled state and access-window summary.
+                </p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="helper-text">
+                Enrollment stays on the Overview page for now so the common hardware workflow remains
+                one click away.
+              </div>
+              <div class="collection-list" id="cards-page-list"></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Recent Access Results</h2>
+                <p class="panel-copy">Latest authorization decisions for quick rule validation.</p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="collection-list" id="access-page-list"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view-panel" data-view-panel="events">
+        <div class="two-column-grid">
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Event Feed</h2>
+                <p class="panel-copy">
+                  Cross-category activity feed for door actions, RFID checks, button requests, and
+                  snapshots.
+                </p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="collection-list" id="events-feed-list"></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="panel-title">Recent Snapshots</h2>
+                <p class="panel-copy">
+                  Stored snapshot metadata. Image preview can be added later once a snapshot-serving
+                  route is exposed.
+                </p>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="collection-list" id="snapshot-list"></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="view-panel" data-view-panel="debug">
+        <div class="debug-grid">
+          <article class="code-card">
+            <div class="table-title">Locker Status</div>
+            <pre id="debug-locker-json">{}</pre>
+          </article>
+          <article class="code-card">
+            <div class="table-title">System Status</div>
+            <pre id="debug-system-json">{}</pre>
+          </article>
+          <article class="code-card">
+            <div class="table-title">Latest Vision Payload</div>
+            <pre id="debug-vision-json">{}</pre>
+          </article>
+        </div>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Raw Database Tables</h2>
+              <p class="panel-copy">
+                Original table view kept intact for low-level inspection and backend verification.
+              </p>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="table-stack">
+              <div class="table-card">
+                <div class="table-title">RFID Card</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>uid</th>
+                        <th>name</th>
+                        <th>enabled</th>
+                        <th>access_window</th>
+                        <th>created_at</th>
+                        <th>updated_at</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-rfid-card-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="table-card">
+                <div class="table-title">Access Attempt</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>id</th>
+                        <th>card_uid</th>
+                        <th>source</th>
+                        <th>allowed</th>
+                        <th>reason</th>
+                        <th>checked_at</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-access-attempt-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="table-card">
+                <div class="table-title">Door Session</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>id</th>
+                        <th>access_attempt_id</th>
+                        <th>open_source</th>
+                        <th>opened_at</th>
+                        <th>close_source</th>
+                        <th>closed_at</th>
+                        <th>auto_closed</th>
+                        <th>occupancy_state</th>
+                        <th>occupancy_distance_cm</th>
+                        <th>occupancy_measured_at</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-door-session-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="table-card">
+                <div class="table-title">Button Request</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>id</th>
+                        <th>pressed_at</th>
+                        <th>email_sent</th>
+                        <th>email_duplicated</th>
+                        <th>email_sent_at</th>
+                        <th>email_error</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-button-request-body"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="table-card">
+                <div class="table-title">Snapshot</div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>id</th>
+                        <th>path</th>
+                        <th>filename</th>
+                        <th>trigger</th>
+                        <th>captured_at</th>
+                        <th>access_attempt_id</th>
+                        <th>button_request_id</th>
+                      </tr>
+                    </thead>
+                    <tbody id="table-snapshot-body"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
   </div>
+
   <div class="toast" id="button-toast" aria-live="polite"></div>
 
   <script>
-    const streamImage = document.getElementById("stream");
-    const overlay = document.getElementById("overlay");
-    const streamBadge = document.getElementById("stream-badge");
-    const dbBadge = document.getElementById("db-badge");
-    const rfidCardBody = document.getElementById("table-rfid-card-body");
-    const accessAttemptBody = document.getElementById("table-access-attempt-body");
-    const doorSessionBody = document.getElementById("table-door-session-body");
-    const buttonRequestBody = document.getElementById("table-button-request-body");
-    const snapshotBody = document.getElementById("table-snapshot-body");
-    const openDoorButton = document.getElementById("open-door-btn");
-    const closeDoorButton = document.getElementById("close-door-btn");
-    const captureSnapshotButton = document.getElementById("capture-snapshot-btn");
-    const cardEnrollNameInput = document.getElementById("card-enroll-name-input");
-    const cardEnrollButton = document.getElementById("card-enroll-btn");
-    const buttonToast = document.getElementById("button-toast");
-    const ctx = overlay.getContext("2d");
+    const ui = {
+      streamImage: document.getElementById("stream"),
+      overlay: document.getElementById("overlay"),
+      streamBadge: document.getElementById("stream-badge"),
+      dbBadge: document.getElementById("db-badge"),
+      openDoorButton: document.getElementById("open-door-btn"),
+      closeDoorButton: document.getElementById("close-door-btn"),
+      captureSnapshotButton: document.getElementById("capture-snapshot-btn"),
+      cardEnrollNameInput: document.getElementById("card-enroll-name-input"),
+      cardEnrollButton: document.getElementById("card-enroll-btn"),
+      cardIoHelper: document.getElementById("card-io-helper"),
+      buttonToast: document.getElementById("button-toast"),
+      headerOpenDebugButton: document.getElementById("header-open-debug-btn"),
+      overviewModeBadge: document.getElementById("overview-mode-badge"),
+      overviewMountBadge: document.getElementById("overview-mount-badge"),
+      doorStateValue: document.getElementById("door-state-value"),
+      occupancyStateValue: document.getElementById("occupancy-state-value"),
+      occupancyDistanceValue: document.getElementById("occupancy-distance-value"),
+      rfidReaderValue: document.getElementById("rfid-reader-value"),
+      rfidCardCountValue: document.getElementById("rfid-card-count-value"),
+      visionModeValue: document.getElementById("vision-mode-value"),
+      mountStatusValue: document.getElementById("mount-status-value"),
+      lastAccessValue: document.getElementById("last-access-value"),
+      lastErrorValue: document.getElementById("last-error-value"),
+      summaryCardsCount: document.getElementById("summary-cards-count"),
+      summaryEventsCount: document.getElementById("summary-events-count"),
+      summarySnapshotsCount: document.getElementById("summary-snapshots-count"),
+      summaryDoorSessionsCount: document.getElementById("summary-door-sessions-count"),
+      systemHostnameValue: document.getElementById("system-hostname-value"),
+      systemCpuTempValue: document.getElementById("system-cpu-temp-value"),
+      systemCpuUsageValue: document.getElementById("system-cpu-usage-value"),
+      systemMemoryValue: document.getElementById("system-memory-value"),
+      systemAppUptimeValue: document.getElementById("system-app-uptime-value"),
+      systemLoadValue: document.getElementById("system-load-value"),
+      systemPlatformValue: document.getElementById("system-platform-value"),
+      overviewEventsList: document.getElementById("overview-events-list"),
+      cardsPageList: document.getElementById("cards-page-list"),
+      accessPageList: document.getElementById("access-page-list"),
+      eventsFeedList: document.getElementById("events-feed-list"),
+      snapshotList: document.getElementById("snapshot-list"),
+      debugLockerJson: document.getElementById("debug-locker-json"),
+      debugSystemJson: document.getElementById("debug-system-json"),
+      debugVisionJson: document.getElementById("debug-vision-json"),
+      rfidCardBody: document.getElementById("table-rfid-card-body"),
+      accessAttemptBody: document.getElementById("table-access-attempt-body"),
+      doorSessionBody: document.getElementById("table-door-session-body"),
+      buttonRequestBody: document.getElementById("table-button-request-body"),
+      snapshotBody: document.getElementById("table-snapshot-body"),
+      viewButtons: Array.from(document.querySelectorAll("[data-view-target]")),
+      viewPanels: Array.from(document.querySelectorAll("[data-view-panel]")),
+    };
+
+    const ctx = ui.overlay.getContext("2d");
 
     let latestPayload = null;
+    let latestLockerStatus = null;
+    let latestSystemStatus = null;
+    let latestEvents = [];
     let visionSocket = null;
     let reconnectTimer = null;
-    let databasePollTimer = null;
+    let dashboardPollTimer = null;
     let buttonToastTimer = null;
     let lastHandledButtonEventId = 0;
 
     const CARD_ENROLL_TIMEOUT_SECONDS = 10;
-    const DATABASE_POLL_INTERVAL_MS = 2000;
+    const DASHBOARD_POLL_INTERVAL_MS = 2000;
 
-    function resizeOverlay() {
-      const rect = streamImage.getBoundingClientRect();
-      overlay.width = rect.width;
-      overlay.height = rect.height;
-      drawOverlay();
-    }
-
-    function toOverlayPoint(x, y, frameWidth, frameHeight) {
-      return {
-        x: x * (overlay.width / frameWidth),
-        y: y * (overlay.height / frameHeight),
-      };
-    }
-
-    function drawMarker(x, y, radius, fillStyle, strokeStyle) {
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fillStyle = fillStyle;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = strokeStyle;
-      ctx.stroke();
-    }
-
-    function drawBox(box, frameWidth, frameHeight) {
-      const topLeft = toOverlayPoint(box.x1, box.y1, frameWidth, frameHeight);
-      const bottomRight = toOverlayPoint(box.x2, box.y2, frameWidth, frameHeight);
-      const x = topLeft.x;
-      const y = topLeft.y;
-      const width = bottomRight.x - topLeft.x;
-      const height = bottomRight.y - topLeft.y;
-
-      ctx.strokeStyle = "#ff5a36";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x, y, width, height);
-
-      const label = `${box.label} ${(box.score * 100).toFixed(0)}%`;
-      ctx.font = "16px Georgia";
-      const textWidth = ctx.measureText(label).width + 18;
-      const textHeight = 28;
-      ctx.fillStyle = "#ff5a36";
-      ctx.fillRect(x, Math.max(0, y - textHeight), textWidth, textHeight);
-      ctx.fillStyle = "#fffaf2";
-      ctx.fillText(label, x + 9, Math.max(18, y - 9));
-    }
-
-    function drawTargetGuide(frameWidth, frameHeight) {
-      const advice = latestPayload?.camera_mount;
-      const frameCenterSource = advice?.frame_center || { x: frameWidth / 2, y: frameHeight / 2 };
-      const frameCenter = toOverlayPoint(frameCenterSource.x, frameCenterSource.y, frameWidth, frameHeight);
-      drawMarker(frameCenter.x, frameCenter.y, 6, "#1f7ae0", "#f4f8ff");
-
-      const target = advice?.target_center;
-      if (!target) return;
-
-      const targetCenter = toOverlayPoint(
-        target.x,
-        target.y,
-        frameWidth,
-        frameHeight,
-      );
-
-      ctx.beginPath();
-      ctx.moveTo(frameCenter.x, frameCenter.y);
-      ctx.lineTo(targetCenter.x, targetCenter.y);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "rgba(255, 209, 102, 0.88)";
-      ctx.stroke();
-
-      drawMarker(targetCenter.x, targetCenter.y, 6, "#ffd166", "#5c4300");
-    }
-
-    function formatMountAdvice(advice) {
-      if (!advice) {
-        return "Mount advice unavailable";
-      }
-
-      if (advice.should_home) {
-        return `Mount: home | ${advice.home_reason}`;
-      }
-
-      if (!advice.has_target) {
-        return `Mount: ${advice.direction} | waiting for face`;
-      }
-
-      return (
-        `Mount: ${advice.direction} | distance ${(advice.distance_ratio * 100).toFixed(0)}%` +
-        ` | pan ${Number(advice.pan.move_angle || 0).toFixed(1)}deg` +
-        ` | tilt ${Number(advice.tilt.move_angle || 0).toFixed(1)}deg`
-      );
-    }
-
-    function drawMountAdvice(frameWidth, frameHeight) {
-      const advice = latestPayload?.camera_mount;
-      if (!advice) return;
-
-      const label = formatMountAdvice(advice);
-      ctx.font = "15px Georgia";
-      const paddingX = 12;
-      const paddingY = 8;
-      const textWidth = ctx.measureText(label).width;
-      const boxWidth = textWidth + paddingX * 2;
-      const boxHeight = 32;
-      const x = 14;
-      const y = overlay.height - boxHeight - 14;
-
-      ctx.fillStyle = "rgba(15, 24, 21, 0.72)";
-      ctx.fillRect(x, y, boxWidth, boxHeight);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x, y, boxWidth, boxHeight);
-      ctx.fillStyle = "#fff8ea";
-      ctx.fillText(label, x + paddingX, y + boxHeight - paddingY - 2);
-    }
-
-    function drawOverlay() {
-      ctx.clearRect(0, 0, overlay.width, overlay.height);
-      const frameWidth = latestPayload?.frame_size?.width;
-      const frameHeight = latestPayload?.frame_size?.height;
-      if (!frameWidth || !frameHeight) return;
-
-      if (latestPayload) {
-        for (const box of latestPayload.boxes) {
-          drawBox(box, frameWidth, frameHeight);
-        }
-      }
-
-      drawTargetGuide(frameWidth, frameHeight);
-      drawMountAdvice(frameWidth, frameHeight);
-    }
-
-    async function fetchJson(path, options = {}) {
-      const response = await fetch(path, {
-        ...options,
-        headers: {
-          "Content-Type": "application/json",
-          ...(options.headers || {}),
-        },
-      });
-      const text = await response.text();
-      const payload = text ? JSON.parse(text) : null;
-      if (!response.ok) {
-        throw new Error(payload?.detail || `${response.status} ${response.statusText}`);
-      }
-      return payload;
-    }
-
-    function setControlButtonsDisabled(disabled) {
-      openDoorButton.disabled = disabled;
-      closeDoorButton.disabled = disabled;
-      captureSnapshotButton.disabled = disabled;
-      cardEnrollButton.disabled = disabled;
-      cardEnrollNameInput.disabled = disabled;
+    function humanizeToken(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      return String(value)
+        .replaceAll("_", " ")
+        .replace(/\b\w/g, (character) => character.toUpperCase());
     }
 
     function formatDateTime(value) {
@@ -679,6 +1310,69 @@
       return formatTimestampField(key, value);
     }
 
+    function formatDuration(seconds) {
+      if (!Number.isFinite(seconds) || seconds < 0) return "—";
+
+      const totalSeconds = Math.floor(seconds);
+      const days = Math.floor(totalSeconds / 86400);
+      const hours = Math.floor((totalSeconds % 86400) / 3600);
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const remainingSeconds = totalSeconds % 60;
+      const parts = [];
+      if (days) parts.push(`${days}d`);
+      if (hours || parts.length) parts.push(`${hours}h`);
+      if (minutes || parts.length) parts.push(`${minutes}m`);
+      parts.push(`${remainingSeconds}s`);
+      return parts.join(" ");
+    }
+
+    function formatPercentage(value) {
+      if (!Number.isFinite(value)) return "—";
+      return `${value.toFixed(1)}%`;
+    }
+
+    function formatTemperature(value) {
+      if (!Number.isFinite(value)) return "—";
+      return `${value.toFixed(1)} C`;
+    }
+
+    function formatLoadAverage(loadAverage) {
+      if (!loadAverage) return "—";
+      const values = [loadAverage.one_min, loadAverage.five_min, loadAverage.fifteen_min]
+        .filter((value) => value !== null && value !== undefined)
+        .map((value) => Number(value).toFixed(2));
+      return values.length ? values.join(" / ") : "—";
+    }
+
+    function formatMemory(memory) {
+      if (!memory || !Number.isFinite(memory.used_mb) || !Number.isFinite(memory.total_mb)) {
+        return "—";
+      }
+
+      const usedPercent = Number.isFinite(memory.used_percent) ? ` (${memory.used_percent.toFixed(1)}%)` : "";
+      return `${memory.used_mb.toFixed(1)} / ${memory.total_mb.toFixed(1)} MB${usedPercent}`;
+    }
+
+    function statusToneClass(status) {
+      const normalized = String(status || "").toLowerCase();
+      if (["connected", "ready", "enabled", "open", "granted", "occupied", "face", "face_hold", "tracking"].includes(normalized)) {
+        return "status-pill-success";
+      }
+      if (["warning", "door_not_closed", "searching", "standby", "waiting"].includes(normalized)) {
+        return "status-pill-warning";
+      }
+      if (["error", "offline", "disconnected", "denied", "closed"].includes(normalized)) {
+        return "status-pill-danger";
+      }
+      return "status-pill-muted";
+    }
+
+    function setPillState(element, label, tone) {
+      if (!element) return;
+      element.textContent = label;
+      element.className = `status-pill ${tone || "status-pill-muted"}`.trim();
+    }
+
     function escapeHtml(value) {
       return String(value)
         .replaceAll("&", "&amp;")
@@ -712,7 +1406,13 @@
       }
 
       if (typeof formatted === "object") {
-        return { text: Object.entries(formatted).map(([k, v]) => `${k}: ${v}`).join(", "), empty: false, wrap: true };
+        return {
+          text: Object.entries(formatted)
+            .map(([childKey, childValue]) => `${childKey}: ${childValue}`)
+            .join(", "),
+          empty: false,
+          wrap: true,
+        };
       }
 
       return { text: String(formatted), empty: false, wrap: String(formatted).length > 48 };
@@ -729,10 +1429,7 @@
           const cells = columns
             .map((column) => {
               const { text, empty, wrap } = formatTableValue(column.key, row[column.key]);
-              const classes = [
-                empty ? "cell-empty" : "",
-                wrap ? "cell-wrap" : "",
-              ]
+              const classes = [empty ? "cell-empty" : "", wrap ? "cell-wrap" : ""]
                 .filter(Boolean)
                 .join(" ");
               return `<td${classes ? ` class="${classes}"` : ""}>${escapeHtml(text)}</td>`;
@@ -743,23 +1440,376 @@
         .join("");
     }
 
+    function renderEmptyCollection(container, message) {
+      container.innerHTML = `<div class="placeholder-block">${escapeHtml(message)}</div>`;
+    }
+
+    function snapshotLabel(snapshot) {
+      if (!snapshot) return null;
+      if (snapshot.filename) return snapshot.filename;
+      if (typeof snapshot.path === "string") {
+        const parts = snapshot.path.split("/");
+        return parts[parts.length - 1] || snapshot.path;
+      }
+      return null;
+    }
+
+    function describeAccessResult(result) {
+      if (!result || typeof result !== "object") {
+        return "No access result yet";
+      }
+
+      const verdict = result.allowed ? "Allowed" : "Denied";
+      const reason = result.reason ? humanizeToken(result.reason) : "Unknown";
+      const uid = result.uid ? ` | ${result.uid}` : "";
+      return `${verdict} | ${reason}${uid}`;
+    }
+
+    function describeMountAdvice(advice) {
+      if (!advice) return "Mount advice unavailable";
+      if (advice.should_home) {
+        return `Returning home | ${humanizeToken(advice.home_reason)}`;
+      }
+      if (!advice.has_target) {
+        return `Waiting | ${humanizeToken(advice.direction)}`;
+      }
+      return (
+        `${humanizeToken(advice.direction)} | pan ${Number(advice.pan.move_angle || 0).toFixed(1)} deg` +
+        ` | tilt ${Number(advice.tilt.move_angle || 0).toFixed(1)} deg`
+      );
+    }
+
+    function describeEvent(event) {
+      const details = [];
+      if (event.reason) details.push(humanizeToken(event.reason));
+      if (event.card_uid) details.push(`UID ${event.card_uid}`);
+      if (event.source) details.push(humanizeToken(event.source));
+      if (event.snapshot) {
+        const label = snapshotLabel(event.snapshot);
+        if (label) details.push(label);
+      }
+      if (event.occupancy_state) details.push(humanizeToken(event.occupancy_state));
+      return details.join(" | ");
+    }
+
+    function renderEventCollection(container, events, emptyMessage) {
+      if (!Array.isArray(events) || events.length === 0) {
+        renderEmptyCollection(container, emptyMessage);
+        return;
+      }
+
+      container.innerHTML = events
+        .map((event) => {
+          const title = humanizeToken(event.type || event.event_type || "event");
+          const timeLabel = event.timestamp ? formatDateTime(event.timestamp * 1000) : "Time unavailable";
+          const detailLine = describeEvent(event);
+          const tags = [];
+          if (event.allowed === true) tags.push('<span class="tag tag-success">Allowed</span>');
+          if (event.allowed === false) tags.push('<span class="tag tag-danger">Denied</span>');
+          if (event.snapshot) tags.push('<span class="tag">Snapshot</span>');
+          if (event.source) tags.push(`<span class="tag">${escapeHtml(humanizeToken(event.source))}</span>`);
+          return `
+            <div class="collection-item">
+              <div class="collection-topline">
+                <div class="collection-title">${escapeHtml(title)}</div>
+                <div class="metric-label">${escapeHtml(timeLabel)}</div>
+              </div>
+              <div class="collection-meta">${escapeHtml(detailLine || "No extra details")}</div>
+              <div class="collection-tags">${tags.join("")}</div>
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    function renderCardCollection(container, cards) {
+      if (!Array.isArray(cards) || cards.length === 0) {
+        renderEmptyCollection(container, "No RFID cards stored yet.");
+        return;
+      }
+
+      container.innerHTML = cards
+        .slice(0, 8)
+        .map((card) => {
+          const windows = Array.isArray(card.access_windows) && card.access_windows.length
+            ? card.access_windows
+              .map((window) => {
+                const days = Array.isArray(window.days) ? window.days.join(",") : "";
+                return `${days} ${window.start}-${window.end}`.trim();
+              })
+              .join(" | ")
+            : "Always";
+          const enabledTag = card.enabled
+            ? '<span class="tag tag-success">Enabled</span>'
+            : '<span class="tag tag-danger">Disabled</span>';
+          return `
+            <div class="collection-item">
+              <div class="collection-topline">
+                <div class="collection-title">${escapeHtml(card.name || "Unnamed Card")}</div>
+                <div class="metric-label">${escapeHtml(card.uid || "Unknown UID")}</div>
+              </div>
+              <div class="collection-meta">${escapeHtml(windows)}</div>
+              <div class="collection-tags">
+                ${enabledTag}
+                <span class="tag">${escapeHtml(formatDateTime((card.updated_at || 0) * 1000))}</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    function renderAccessCollection(container, attempts) {
+      if (!Array.isArray(attempts) || attempts.length === 0) {
+        renderEmptyCollection(container, "No access attempts recorded yet.");
+        return;
+      }
+
+      container.innerHTML = attempts
+        .slice(0, 10)
+        .map((attempt) => {
+          const verdictTag = attempt.allowed
+            ? '<span class="tag tag-success">Allowed</span>'
+            : '<span class="tag tag-danger">Denied</span>';
+          return `
+            <div class="collection-item">
+              <div class="collection-topline">
+                <div class="collection-title">${escapeHtml(attempt.card_uid || "Unknown UID")}</div>
+                <div class="metric-label">${escapeHtml(formatDateTime((attempt.checked_at || 0) * 1000))}</div>
+              </div>
+              <div class="collection-meta">${escapeHtml(humanizeToken(attempt.reason || "unknown"))}</div>
+              <div class="collection-tags">
+                ${verdictTag}
+                <span class="tag">${escapeHtml(humanizeToken(attempt.source || "unknown"))}</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    function renderSnapshotCollection(container, snapshots) {
+      if (!Array.isArray(snapshots) || snapshots.length === 0) {
+        renderEmptyCollection(container, "No snapshots saved yet.");
+        return;
+      }
+
+      container.innerHTML = snapshots
+        .slice(0, 10)
+        .map((snapshot) => {
+          const relation = snapshot.access_attempt_id !== null && snapshot.access_attempt_id !== undefined
+            ? `Access #${snapshot.access_attempt_id}`
+            : snapshot.button_request_id !== null && snapshot.button_request_id !== undefined
+              ? `Button #${snapshot.button_request_id}`
+              : "Standalone";
+          return `
+            <div class="collection-item">
+              <div class="collection-topline">
+                <div class="collection-title">${escapeHtml(snapshot.filename || "Snapshot")}</div>
+                <div class="metric-label">${escapeHtml(formatDateTime((snapshot.captured_at || 0) * 1000))}</div>
+              </div>
+              <div class="collection-meta">${escapeHtml(humanizeToken(snapshot.trigger || "snapshot"))}</div>
+              <div class="collection-tags">
+                <span class="tag">${escapeHtml(relation)}</span>
+              </div>
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    async function fetchJson(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {}),
+        },
+      });
+
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : null;
+      if (!response.ok) {
+        throw new Error(payload?.detail || `${response.status} ${response.statusText}`);
+      }
+      return payload;
+    }
+
+    function setControlButtonsDisabled(disabled) {
+      ui.openDoorButton.disabled = disabled;
+      ui.closeDoorButton.disabled = disabled;
+      ui.captureSnapshotButton.disabled = disabled;
+      ui.cardEnrollButton.disabled = disabled;
+      ui.cardEnrollNameInput.disabled = disabled;
+    }
+
     function showToast(message) {
       if (!message) return;
-      buttonToast.textContent = message;
-      buttonToast.classList.add("toast-visible");
+      ui.buttonToast.textContent = message;
+      ui.buttonToast.classList.add("toast-visible");
       if (buttonToastTimer) {
         window.clearTimeout(buttonToastTimer);
       }
       buttonToastTimer = window.setTimeout(() => {
-        buttonToast.classList.remove("toast-visible");
+        ui.buttonToast.classList.remove("toast-visible");
         buttonToastTimer = null;
       }, 4200);
     }
 
-    async function refreshDatabaseTables() {
-      const payload = await fetchJson("/api/logs/tables", { headers: {} });
+    function resizeOverlay() {
+      const rect = ui.streamImage.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      ui.overlay.width = rect.width;
+      ui.overlay.height = rect.height;
+      drawOverlay();
+    }
+
+    function toOverlayPoint(x, y, frameWidth, frameHeight) {
+      return {
+        x: x * (ui.overlay.width / frameWidth),
+        y: y * (ui.overlay.height / frameHeight),
+      };
+    }
+
+    function drawMarker(x, y, radius, fillStyle, strokeStyle) {
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = strokeStyle;
+      ctx.stroke();
+    }
+
+    function drawBox(box, frameWidth, frameHeight) {
+      const topLeft = toOverlayPoint(box.x1, box.y1, frameWidth, frameHeight);
+      const bottomRight = toOverlayPoint(box.x2, box.y2, frameWidth, frameHeight);
+      const x = topLeft.x;
+      const y = topLeft.y;
+      const width = bottomRight.x - topLeft.x;
+      const height = bottomRight.y - topLeft.y;
+
+      ctx.strokeStyle = "#ff6a3d";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(x, y, width, height);
+
+      const label = `${box.label} ${(box.score * 100).toFixed(0)}%`;
+      ctx.font = "14px 'Avenir Next', 'Segoe UI', sans-serif";
+      const textWidth = ctx.measureText(label).width + 18;
+      const textHeight = 28;
+      ctx.fillStyle = "#ff6a3d";
+      ctx.fillRect(x, Math.max(0, y - textHeight), textWidth, textHeight);
+      ctx.fillStyle = "#fffaf2";
+      ctx.fillText(label, x + 9, Math.max(18, y - 9));
+    }
+
+    function drawTargetGuide(frameWidth, frameHeight) {
+      const advice = latestPayload?.camera_mount;
+      const frameCenterSource = advice?.frame_center || { x: frameWidth / 2, y: frameHeight / 2 };
+      const frameCenter = toOverlayPoint(frameCenterSource.x, frameCenterSource.y, frameWidth, frameHeight);
+      drawMarker(frameCenter.x, frameCenter.y, 6, "#1f7ae0", "#f4f8ff");
+
+      const target = advice?.target_center;
+      if (!target) return;
+
+      const targetCenter = toOverlayPoint(target.x, target.y, frameWidth, frameHeight);
+      ctx.beginPath();
+      ctx.moveTo(frameCenter.x, frameCenter.y);
+      ctx.lineTo(targetCenter.x, targetCenter.y);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "rgba(255, 209, 102, 0.88)";
+      ctx.stroke();
+      drawMarker(targetCenter.x, targetCenter.y, 6, "#ffd166", "#5c4300");
+    }
+
+    function drawMountAdvice(frameWidth, frameHeight) {
+      const advice = latestPayload?.camera_mount;
+      if (!advice) return;
+
+      const label = describeMountAdvice(advice);
+      ctx.font = "14px 'Avenir Next', 'Segoe UI', sans-serif";
+      const paddingX = 12;
+      const paddingY = 8;
+      const textWidth = ctx.measureText(label).width;
+      const boxWidth = textWidth + paddingX * 2;
+      const boxHeight = 32;
+      const x = 14;
+      const y = ui.overlay.height - boxHeight - 14;
+
+      ctx.fillStyle = "rgba(8, 18, 31, 0.74)";
+      ctx.fillRect(x, y, boxWidth, boxHeight);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x, y, boxWidth, boxHeight);
+      ctx.fillStyle = "#fff8ea";
+      ctx.fillText(label, x + paddingX, y + boxHeight - paddingY - 2);
+    }
+
+    function drawOverlay() {
+      ctx.clearRect(0, 0, ui.overlay.width, ui.overlay.height);
+      const frameWidth = latestPayload?.frame_size?.width;
+      const frameHeight = latestPayload?.frame_size?.height;
+      if (!frameWidth || !frameHeight) return;
+
+      if (latestPayload) {
+        for (const box of latestPayload.boxes || []) {
+          drawBox(box, frameWidth, frameHeight);
+        }
+      }
+
+      drawTargetGuide(frameWidth, frameHeight);
+      drawMountAdvice(frameWidth, frameHeight);
+    }
+
+    function updateOverviewFromVisionPayload(payload) {
+      const activeMode = humanizeToken(payload?.active_mode || payload?.mode || "waiting");
+      ui.visionModeValue.textContent = activeMode;
+      setPillState(ui.overviewModeBadge, activeMode, statusToneClass(String(payload?.active_mode || "")));
+
+      const mountAdvice = payload?.camera_mount;
+      const mountStatus = humanizeToken(mountAdvice?.status || "mount idle");
+      ui.mountStatusValue.textContent = describeMountAdvice(mountAdvice);
+      setPillState(ui.overviewMountBadge, mountStatus, statusToneClass(String(mountAdvice?.status || "")));
+
+      ui.debugVisionJson.textContent = JSON.stringify(formatPayloadForDisplay(payload), null, 2);
+    }
+
+    function renderLockerStatus(payload) {
+      latestLockerStatus = payload;
+      const occupancy = payload?.occupancy?.latest_measurement || {};
+      ui.doorStateValue.textContent = humanizeToken(payload?.door_state || "unknown");
+      ui.occupancyStateValue.textContent = humanizeToken(occupancy.state || "unknown");
+      ui.occupancyDistanceValue.textContent = Number.isFinite(occupancy.distance_cm)
+        ? `${occupancy.distance_cm.toFixed(1)} cm`
+        : "Distance unavailable";
+      ui.rfidReaderValue.textContent = payload?.rfid?.reader_enabled ? "Ready" : "Offline";
+      ui.rfidCardCountValue.textContent = Number.isFinite(payload?.rfid?.card_count) ? String(payload.rfid.card_count) : "—";
+      ui.lastAccessValue.textContent = describeAccessResult(payload?.last_access_result);
+      ui.lastErrorValue.textContent = payload?.last_error || payload?.rfid?.last_error || payload?.occupancy?.last_error || "No runtime errors reported.";
+      ui.debugLockerJson.textContent = JSON.stringify(formatPayloadForDisplay(payload), null, 2);
+    }
+
+    function renderSystemStatus(payload) {
+      latestSystemStatus = payload;
+      ui.systemHostnameValue.textContent = payload?.hostname || "—";
+      ui.systemCpuTempValue.textContent = formatTemperature(payload?.cpu?.temperature_c);
+      ui.systemCpuUsageValue.textContent = formatPercentage(payload?.cpu?.usage_percent);
+      ui.systemMemoryValue.textContent = formatMemory(payload?.memory);
+      ui.systemAppUptimeValue.textContent = formatDuration(payload?.app_uptime_seconds);
+      ui.systemLoadValue.textContent = formatLoadAverage(payload?.cpu?.load_average);
+      ui.systemPlatformValue.textContent = [
+        payload?.platform?.system,
+        payload?.platform?.release,
+        payload?.platform?.machine,
+      ].filter(Boolean).join(" / ") || "—";
+      ui.debugSystemJson.textContent = JSON.stringify(formatPayloadForDisplay(payload), null, 2);
+    }
+
+    function renderDatabaseTables(payload) {
       const tables = payload.tables || {};
-      renderTableRows(rfidCardBody, tables.rfid_card || [], [
+      const status = payload.status || {};
+
+      renderTableRows(ui.rfidCardBody, tables.rfid_card || [], [
         { key: "uid" },
         { key: "name" },
         { key: "enabled" },
@@ -767,7 +1817,7 @@
         { key: "created_at" },
         { key: "updated_at" },
       ]);
-      renderTableRows(accessAttemptBody, tables.access_attempt || [], [
+      renderTableRows(ui.accessAttemptBody, tables.access_attempt || [], [
         { key: "id" },
         { key: "card_uid" },
         { key: "source" },
@@ -775,7 +1825,7 @@
         { key: "reason" },
         { key: "checked_at" },
       ]);
-      renderTableRows(doorSessionBody, tables.door_session || [], [
+      renderTableRows(ui.doorSessionBody, tables.door_session || [], [
         { key: "id" },
         { key: "access_attempt_id" },
         { key: "open_source" },
@@ -787,7 +1837,7 @@
         { key: "occupancy_distance_cm" },
         { key: "occupancy_measured_at" },
       ]);
-      renderTableRows(buttonRequestBody, tables.button_request || [], [
+      renderTableRows(ui.buttonRequestBody, tables.button_request || [], [
         { key: "id" },
         { key: "pressed_at" },
         { key: "email_sent" },
@@ -795,7 +1845,7 @@
         { key: "email_sent_at" },
         { key: "email_error" },
       ]);
-      renderTableRows(snapshotBody, tables.snapshot || [], [
+      renderTableRows(ui.snapshotBody, tables.snapshot || [], [
         { key: "id" },
         { key: "path" },
         { key: "filename" },
@@ -804,27 +1854,16 @@
         { key: "access_attempt_id" },
         { key: "button_request_id" },
       ]);
-      dbBadge.textContent = `Live ${formatDateTime(Date.now())}`;
-      return payload;
-    }
 
-    function startDatabasePolling() {
-      if (databasePollTimer) return;
-      databasePollTimer = window.setInterval(() => {
-        refreshDatabaseTables().catch(() => {
-          dbBadge.textContent = "Sync Error";
-        });
-      }, DATABASE_POLL_INTERVAL_MS);
-    }
+      renderCardCollection(ui.cardsPageList, tables.rfid_card || []);
+      renderAccessCollection(ui.accessPageList, tables.access_attempt || []);
+      renderSnapshotCollection(ui.snapshotList, tables.snapshot || []);
 
-    function snapshotLabel(snapshot) {
-      if (!snapshot) return null;
-      if (snapshot.filename) return snapshot.filename;
-      if (typeof snapshot.path === "string") {
-        const parts = snapshot.path.split("/");
-        return parts[parts.length - 1] || snapshot.path;
-      }
-      return null;
+      ui.summaryCardsCount.textContent = String(status.card_count || 0);
+      ui.summaryEventsCount.textContent = String(status.event_count || 0);
+      ui.summarySnapshotsCount.textContent = String(status.snapshot_count || 0);
+      ui.summaryDoorSessionsCount.textContent = String(status.door_session_count || 0);
+      ui.dbBadge.textContent = `Live ${formatDateTime(Date.now())}`;
     }
 
     function syncButtonStatus(buttonStatus, announce = false) {
@@ -851,6 +1890,7 @@
         : fileLabel
           ? `photo saved as ${fileLabel}`
           : "photo saved locally";
+
       let notificationMessage = "email notification not configured";
       if (notificationError) {
         notificationMessage = `email failed (${notificationError})`;
@@ -863,12 +1903,70 @@
       } else if (notification?.status === "error") {
         notificationMessage = `email failed (${notification.error})`;
       }
-      const message = `Button pressed: ${photoMessage}; ${notificationMessage}`;
-      showToast(message);
+
+      showToast(`Button pressed: ${photoMessage}; ${notificationMessage}`);
+    }
+
+    async function refreshDatabaseView() {
+      const payload = await fetchJson("/api/logs/tables", { headers: {} });
+      renderDatabaseTables(payload);
+      return payload;
+    }
+
+    async function refreshLockerOverview() {
+      const payload = await fetchJson("/api/locker/status", { headers: {} });
+      renderLockerStatus(payload);
+      return payload;
+    }
+
+    async function refreshSystemOverview() {
+      const payload = await fetchJson("/api/system/status", { headers: {} });
+      renderSystemStatus(payload);
+      return payload;
+    }
+
+    async function refreshEventsView() {
+      const payload = await fetchJson("/api/logs/events?limit=10", { headers: {} });
+      latestEvents = payload.events || [];
+      renderEventCollection(
+        ui.overviewEventsList,
+        latestEvents.slice(0, 6),
+        "No recent business events yet."
+      );
+      renderEventCollection(
+        ui.eventsFeedList,
+        latestEvents,
+        "No recent events available."
+      );
+      return payload;
+    }
+
+    async function refreshDashboardData() {
+      const results = await Promise.allSettled([
+        refreshDatabaseView(),
+        refreshLockerOverview(),
+        refreshSystemOverview(),
+        refreshEventsView(),
+      ]);
+
+      const failed = results.find((result) => result.status === "rejected");
+      if (failed) {
+        throw failed.reason;
+      }
+    }
+
+    function startDashboardPolling() {
+      if (dashboardPollTimer) return;
+      dashboardPollTimer = window.setInterval(() => {
+        refreshDashboardData().catch((error) => {
+          ui.dbBadge.textContent = "Sync Error";
+          showToast(`Dashboard refresh failed: ${error.message}`);
+        });
+      }, DASHBOARD_POLL_INTERVAL_MS);
     }
 
     async function enrollCard() {
-      const name = cardEnrollNameInput.value.trim();
+      const name = ui.cardEnrollNameInput.value.trim();
       if (!name) {
         showToast("Save card failed: name is required");
         return;
@@ -884,9 +1982,9 @@
             scan_timeout_seconds: CARD_ENROLL_TIMEOUT_SECONDS,
           }),
         });
-        cardEnrollNameInput.value = "";
+        ui.cardEnrollNameInput.value = "";
         showToast(`Card saved: ${payload.card.uid} (${payload.card.name || "unnamed"})`);
-        await refreshDatabaseTables().catch(() => {});
+        await refreshDashboardData().catch(() => {});
         return payload;
       } catch (error) {
         showToast(`Save card failed: ${error.message}`);
@@ -904,7 +2002,7 @@
           body: JSON.stringify({ source: "frontend" }),
         });
         showToast(`${label} succeeded`);
-        await refreshDatabaseTables().catch(() => {});
+        await refreshDashboardData().catch(() => {});
         return payload;
       } catch (error) {
         showToast(`${label} failed: ${error.message}`);
@@ -922,7 +2020,7 @@
           body: JSON.stringify({ source: "frontend" }),
         });
         showToast("Photo captured");
-        await refreshDatabaseTables().catch(() => {});
+        await refreshDashboardData().catch(() => {});
         return payload;
       } catch (error) {
         showToast(`Capture photo failed: ${error.message}`);
@@ -951,59 +2049,93 @@
         visionSocket = null;
       }
 
-      streamBadge.textContent = "Connecting";
-
+      ui.streamBadge.textContent = "Connecting";
+      ui.streamBadge.className = "status-pill status-pill-muted";
       visionSocket = new WebSocket(buildVisionWebSocketUrl());
 
       visionSocket.addEventListener("open", () => {
-        streamBadge.textContent = "Connected";
+        setPillState(ui.streamBadge, "Connected", "status-pill-success");
       });
 
       visionSocket.addEventListener("message", (event) => {
         const payload = JSON.parse(event.data);
         latestPayload = payload;
         syncButtonStatus({ latest_event: payload.button_event }, true);
-        streamBadge.textContent = latestPayload.active_mode || latestPayload.mode || "Connected";
+        setPillState(
+          ui.streamBadge,
+          humanizeToken(payload.active_mode || payload.mode || "connected"),
+          statusToneClass(String(payload.active_mode || payload.mode || "connected"))
+        );
+        updateOverviewFromVisionPayload(payload);
         drawOverlay();
       });
 
       visionSocket.addEventListener("close", () => {
-        streamBadge.textContent = "Disconnected";
+        setPillState(ui.streamBadge, "Disconnected", "status-pill-danger");
         scheduleReconnect();
       });
 
       visionSocket.addEventListener("error", () => {
-        streamBadge.textContent = "Socket Error";
+        setPillState(ui.streamBadge, "Socket Error", "status-pill-danger");
       });
     }
 
-    openDoorButton.addEventListener("click", () => {
+    function activateView(viewName) {
+      ui.viewButtons.forEach((button) => {
+        button.classList.toggle("nav-link-active", button.dataset.viewTarget === viewName);
+      });
+      ui.viewPanels.forEach((panel) => {
+        panel.classList.toggle("view-panel-active", panel.dataset.viewPanel === viewName);
+      });
+
+      const nextHash = `#${viewName}`;
+      if (window.location.hash !== nextHash) {
+        history.replaceState(null, "", nextHash);
+      }
+
+      if (viewName === "overview") {
+        window.requestAnimationFrame(resizeOverlay);
+      }
+    }
+
+    ui.viewButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        activateView(button.dataset.viewTarget);
+      });
+    });
+
+    ui.headerOpenDebugButton.addEventListener("click", () => {
+      activateView("debug");
+    });
+
+    ui.openDoorButton.addEventListener("click", () => {
       runLockerAction("/api/locker/open", "Open door").catch(() => {});
     });
 
-    closeDoorButton.addEventListener("click", () => {
+    ui.closeDoorButton.addEventListener("click", () => {
       runLockerAction("/api/locker/close", "Close door").catch(() => {});
     });
 
-    captureSnapshotButton.addEventListener("click", () => {
+    ui.captureSnapshotButton.addEventListener("click", () => {
       runSnapshotAction().catch(() => {});
     });
 
-    cardEnrollButton.addEventListener("click", () => {
+    ui.cardEnrollButton.addEventListener("click", () => {
       enrollCard().catch(() => {});
     });
 
-    cardEnrollNameInput.addEventListener("keydown", (event) => {
+    ui.cardEnrollNameInput.addEventListener("keydown", (event) => {
       if (event.key !== "Enter") return;
       event.preventDefault();
       enrollCard().catch(() => {});
     });
 
     window.addEventListener("resize", resizeOverlay);
-    streamImage.addEventListener("load", resizeOverlay);
+    ui.streamImage.addEventListener("load", resizeOverlay);
+
     window.addEventListener("beforeunload", () => {
-      if (databasePollTimer) {
-        window.clearInterval(databasePollTimer);
+      if (dashboardPollTimer) {
+        window.clearInterval(dashboardPollTimer);
       }
       if (reconnectTimer) {
         window.clearTimeout(reconnectTimer);
@@ -1017,14 +2149,18 @@
     });
 
     async function bootstrap() {
+      const initialView = window.location.hash.replace("#", "") || "overview";
+      activateView(["overview", "cards", "events", "debug"].includes(initialView) ? initialView : "overview");
       connectVisionSocket();
+
       try {
-        await refreshDatabaseTables();
+        await refreshDashboardData();
       } catch (error) {
-        dbBadge.textContent = "Sync Error";
-        showToast(`Initial database load failed: ${error.message}`);
+        ui.dbBadge.textContent = "Sync Error";
+        showToast(`Initial dashboard load failed: ${error.message}`);
       }
-      startDatabasePolling();
+
+      startDashboardPolling();
     }
 
     bootstrap();
