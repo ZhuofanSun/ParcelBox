@@ -32,3 +32,6 @@ scripts/*_ncnn_model/
 
 data/snapshots/
 tabler--tabler-core-1.4.0/
+
+.ai/*
+tmp/*
